@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Host/">
+    <Project Path="src/Host/AidlyPms.Api/AidlyPms.Api.csproj" />
+  </Folder>
+</Solution>

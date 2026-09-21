@@ -1,0 +1,6 @@
+@AidlyPms.Api_HostAddress = http://localhost:5255
+
+GET {{AidlyPms.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
