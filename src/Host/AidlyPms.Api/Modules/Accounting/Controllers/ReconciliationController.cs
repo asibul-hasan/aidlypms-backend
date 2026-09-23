@@ -159,4 +159,18 @@ public class ReconciliationController : BaseController
             return FailResponse<AccReconciliation>($"Fund transfer failed: {ex.Message}");
         }
     }
+
+    [HttpDelete("acc/reconciliations/{reconciliationNo}")]
+    [HttpDelete("cash/reconciliations/{reconciliationNo}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteReconciliation(long reconciliationNo)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.ExecuteAsync(@"
+            DELETE FROM acc_reconciliations
+            WHERE reconciliation_no = @reconciliationNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { reconciliationNo, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (rows == 0) return NotFoundResponse<bool>("Reconciliation record not found.");
+        return OkResponse(true, "Reconciliation voucher deleted successfully.");
+    }
 }

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Accounting.Controllers;
 
 [Route("api/v1/acc/additional-balances")]
+[Route("api/v1/acc/additional-balance")]
 public class AdditionalBalanceController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -131,5 +132,18 @@ public class AdditionalBalanceController : BaseController
             tran.Rollback();
             return FailResponse<AccAdditionalBalance>($"Capital injection failed: {ex.Message}");
         }
+    }
+
+    [HttpDelete("{additionalBalanceNo}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteCapitalBalance(long additionalBalanceNo)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.ExecuteAsync(@"
+            DELETE FROM acc_additional_balances
+            WHERE additional_balance_no = @additionalBalanceNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { additionalBalanceNo, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (rows == 0) return NotFoundResponse<bool>("Capital balance record not found.");
+        return OkResponse(true, "Capital balance record deleted successfully.");
     }
 }

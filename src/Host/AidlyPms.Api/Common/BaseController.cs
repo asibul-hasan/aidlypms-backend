@@ -28,4 +28,9 @@ public abstract class BaseController : ControllerBase
     {
         return StatusCode(statusCode, ApiResponse<T>.Fail(error, message));
     }
+
+    protected ActionResult<ApiResponse<T>> NotFoundResponse<T>(string message = "Resource not found")
+    {
+        return StatusCode(404, ApiResponse<T>.Fail("Not Found", message));
+    }
 }

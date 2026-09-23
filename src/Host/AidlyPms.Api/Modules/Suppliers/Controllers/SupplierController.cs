@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Suppliers.Controllers;
 
 [Route("api/v1/supp/suppliers")]
+[Route("api/v1/pur/suppliers")]
 public class SupplierController : BaseController
 {
     private readonly IDbConnectionFactory _db;

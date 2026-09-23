@@ -151,6 +151,19 @@ public class DoctorController : BaseController
         return OkResponse(existing, $"Doctor '{existing.FirstNameEn}' updated successfully.");
     }
 
+    [HttpDelete("doctors/{id}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteDoctor(long id)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.ExecuteAsync(@"
+            DELETE FROM doc_doctors
+            WHERE doctor_no = @Id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { Id = id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (rows == 0) return NotFoundResponse<bool>("Doctor not found.");
+        return OkResponse(true, "Doctor deleted successfully.");
+    }
+
     [HttpGet("prescriptions")]
     public async Task<ActionResult<ApiResponse<PagedResult<DocPrescription>>>> GetPrescriptions(
         [FromQuery] QueryFilter filter,

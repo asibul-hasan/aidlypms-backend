@@ -45,10 +45,10 @@ public class PosSaleController : BaseController
             FROM sale_invoices s
             LEFT JOIN cust_customers c ON s.customer_no = c.customer_no
             WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
-              AND (@search IS NULL OR s.sales_number ILIKE '%' || @search || '%' OR c.name ILIKE '%' || @search || '%' OR c.phone ILIKE '%' || @search || '%')
-              AND (@customerNo IS NULL OR s.customer_no = @customerNo)
-              AND (@startDate IS NULL OR s.sale_timestamp >= @startDate)
-              AND (@endDate IS NULL OR s.sale_timestamp <= @endDate);";
+              AND (@search::text IS NULL OR s.sales_number ILIKE '%' || @search || '%' OR c.name ILIKE '%' || @search || '%' OR c.phone ILIKE '%' || @search || '%')
+              AND (@customerNo::bigint IS NULL OR s.customer_no = @customerNo::bigint)
+              AND (@startDate::timestamptz IS NULL OR s.sale_timestamp >= @startDate::timestamptz)
+              AND (@endDate::timestamptz IS NULL OR s.sale_timestamp <= @endDate::timestamptz);";
 
         var total = await conn.ExecuteScalarAsync<int>(countSql, new
         {
@@ -76,10 +76,10 @@ public class PosSaleController : BaseController
             FROM sale_invoices s
             LEFT JOIN cust_customers c ON s.customer_no = c.customer_no
             WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
-              AND (@search IS NULL OR s.sales_number ILIKE '%' || @search || '%' OR c.name ILIKE '%' || @search || '%' OR c.phone ILIKE '%' || @search || '%')
-              AND (@customerNo IS NULL OR s.customer_no = @customerNo)
-              AND (@startDate IS NULL OR s.sale_timestamp >= @startDate)
-              AND (@endDate IS NULL OR s.sale_timestamp <= @endDate)
+              AND (@search::text IS NULL OR s.sales_number ILIKE '%' || @search || '%' OR c.name ILIKE '%' || @search || '%' OR c.phone ILIKE '%' || @search || '%')
+              AND (@customerNo::bigint IS NULL OR s.customer_no = @customerNo::bigint)
+              AND (@startDate::timestamptz IS NULL OR s.sale_timestamp >= @startDate::timestamptz)
+              AND (@endDate::timestamptz IS NULL OR s.sale_timestamp <= @endDate::timestamptz)
             ORDER BY s.sale_timestamp DESC
             OFFSET @offset LIMIT @pageSize;";
 

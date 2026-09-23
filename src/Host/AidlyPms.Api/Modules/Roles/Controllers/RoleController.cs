@@ -207,4 +207,25 @@ public class RoleController : BaseController
             return FailResponse<SysRole>($"Role update failed: {ex.Message}");
         }
     }
+
+    [HttpDelete("roles/{id}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteRole(long id)
+    {
+        using var conn = _db.CreateConnection();
+        var isSystem = await conn.ExecuteScalarAsync<bool>(@"
+            SELECT is_system FROM sys_roles WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
+            new { Id = id, CurrentPharmacyNo });
+
+        if (isSystem)
+            return FailResponse<bool>("System roles cannot be deleted.");
+
+        await conn.ExecuteAsync("DELETE FROM sys_role_permissions WHERE role_no = @Id;", new { Id = id });
+        var rows = await conn.ExecuteAsync(@"
+            DELETE FROM sys_roles
+            WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
+            new { Id = id, CurrentPharmacyNo });
+
+        if (rows == 0) return NotFoundResponse<bool>("Role not found.");
+        return OkResponse(true, "Role deleted successfully.");
+    }
 }

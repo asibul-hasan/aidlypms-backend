@@ -184,4 +184,19 @@ public class RepresentativeController : BaseController
 
         return OkResponse(existing, $"Representative '{existing.FirstName}' updated successfully.");
     }
+
+    [HttpDelete("sys/users/{id}")]
+    [HttpDelete("representative/{id}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteRepresentative(long id)
+    {
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync("DELETE FROM sys_user_pharmacy_access WHERE user_no = @Id;", new { Id = id });
+        var rows = await conn.ExecuteAsync(@"
+            DELETE FROM sys_users
+            WHERE user_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
+            new { Id = id, CurrentPharmacyNo });
+
+        if (rows == 0) return NotFoundResponse<bool>("Staff user not found.");
+        return OkResponse(true, "Staff user deleted successfully.");
+    }
 }

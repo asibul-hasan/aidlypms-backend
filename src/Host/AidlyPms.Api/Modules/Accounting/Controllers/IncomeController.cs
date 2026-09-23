@@ -74,6 +74,7 @@ public class IncomeController : BaseController
     }
 
     [HttpGet("incomes")]
+    [HttpGet("income")]
     public async Task<ActionResult<ApiResponse<PagedResult<AccIncome>>>> GetIncomes(
         [FromQuery] QueryFilter filter,
         [FromQuery] long? categoryNo,
@@ -147,6 +148,7 @@ public class IncomeController : BaseController
     }
 
     [HttpPost("incomes")]
+    [HttpPost("income")]
     public async Task<ActionResult<ApiResponse<AccIncome>>> CreateIncome([FromBody] AccIncome model)
     {
         if (model.IncomeCategoryNo <= 0)
@@ -233,5 +235,19 @@ public class IncomeController : BaseController
             tran.Rollback();
             return FailResponse<AccIncome>($"Posting failed: {ex.Message}");
         }
+    }
+
+    [HttpDelete("incomes/{incomeNo}")]
+    [HttpDelete("income/{incomeNo}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteIncome(long incomeNo)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.ExecuteAsync(@"
+            DELETE FROM acc_incomes
+            WHERE income_no = @incomeNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { incomeNo, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (rows == 0) return NotFoundResponse<bool>("Income record not found.");
+        return OkResponse(true, "Income record deleted successfully.");
     }
 }

@@ -371,6 +371,7 @@ public class ConfigController : BaseController
     }
 
     [HttpGet("bulk-sms-configs")]
+    [HttpGet("sms-configs")]
     public async Task<ActionResult<ApiResponse<CfgBulkSmsConfig>>> GetBulkSmsConfig()
     {
         using var conn = _db.CreateConnection();
@@ -392,6 +393,7 @@ public class ConfigController : BaseController
     }
 
     [HttpPut("bulk-sms-configs")]
+    [HttpPut("sms-configs")]
     public async Task<ActionResult<ApiResponse<CfgBulkSmsConfig>>> UpdateBulkSmsConfig([FromBody] CfgBulkSmsConfig model)
     {
         using var conn = _db.CreateConnection();

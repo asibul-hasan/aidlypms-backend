@@ -25,6 +25,7 @@ public class ExpenseController : BaseController
     }
 
     [HttpGet("expense-categories")]
+    [HttpGet("expenses/categories")]
     public async Task<ActionResult<ApiResponse<List<AccExpenseCategory>>>> GetCategories()
     {
         using var conn = _db.CreateConnection();
@@ -38,6 +39,7 @@ public class ExpenseController : BaseController
     }
 
     [HttpPost("expense-categories")]
+    [HttpPost("expenses/categories")]
     public async Task<ActionResult<ApiResponse<AccExpenseCategory>>> CreateCategory([FromBody] AccExpenseCategory model)
     {
         if (string.IsNullOrWhiteSpace(model.Name))
