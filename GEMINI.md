@@ -87,6 +87,19 @@ Every transaction in the system posts to **both** ledgers simultaneously in a si
 - Modals for creating new items must invalidate or update local signals on success.
 - Delete operations must prompt confirmation via `ModalService` and call the corresponding API `delete*()` endpoint.
 
+### Rule 4: Conventional Commits Enforcement
+Both repositories enforce the [Conventional Commits](https://www.conventionalcommits.org/) standard via automated Git `commit-msg` hooks:
+- **Specification Format**: `<type>(<optional-scope>): <subject>`
+- **Permitted Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
+- **Frontend Implementation**:
+  - Enforced via `@commitlint/cli`, `@commitlint/config-conventional`, and `commitlint.config.js`.
+  - Managed by `husky` v9 with hook at `.husky/commit-msg` executing `npx --no -- commitlint --edit "$1"`.
+  - Automatically configured upon running `npm install` (via `"prepare": "husky"` script in `package.json`).
+- **Backend Implementation**:
+  - Enforced via `Husky.Net` (v0.9.1) with hook at `.husky/commit-msg` validating commit messages using POSIX regex.
+  - Managed via `.config/dotnet-tools.json` and MSBuild target in `AidlyPms.Api.csproj`.
+  - Automatically restored and activated during `dotnet restore` / `dotnet build`.
+
 ---
 
 ## 4. All 64 Screen & Form IDs Mapping (`menu.md` Spec)
