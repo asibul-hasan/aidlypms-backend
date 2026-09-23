@@ -1,0 +1,54 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Conventional Commits Linter for Aidly PMS Backend
+commit_file="$1"
+if [ ! -f "$commit_file" ]; then
+  exit 0
+fi
+
+commit_msg=$(cat "$commit_file")
+first_line=$(echo "$commit_msg" | head -n 1)
+
+# Allow merge commits or fixup/squash commits
+if echo "$first_line" | grep -Eq "^(Merge|fixup!|squash!)"; then
+  exit 0
+fi
+
+pattern="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_\-\.\/]+\))?(!)?: .+"
+
+if ! echo "$first_line" | grep -Eq "$pattern"; then
+  echo ""
+  echo "=========================================================================="
+  echo " [ERROR] INVALID COMMIT MESSAGE CONVENTION"
+  echo "=========================================================================="
+  echo " Your commit message does not follow the Conventional Commits specification:"
+  echo ""
+  echo "   $first_line"
+  echo ""
+  echo " Expected Format:"
+  echo "   <type>(<optional-scope>): <subject>"
+  echo ""
+  echo " Examples:"
+  echo "   feat(pos): add loyalty points calculation"
+  echo "   fix(acc): correct debit credit ledger balance calculation"
+  echo "   docs(memory): update GEMINI.md system documentation"
+  echo "   refactor(customer): optimize paged customer retrieval"
+  echo "   chore(deps): update database and dapper packages"
+  echo ""
+  echo " Allowed Types:"
+  echo "   feat     - New feature"
+  echo "   fix      - Bug fix"
+  echo "   docs     - Documentation changes"
+  echo "   style    - Formatting, missing semicolons, etc."
+  echo "   refactor - Code change that neither fixes a bug nor adds a feature"
+  echo "   perf     - Code change that improves performance"
+  echo "   test     - Adding or updating tests"
+  echo "   build    - Changes that affect the build system or external dependencies"
+  echo "   ci       - Changes to CI configuration files and scripts"
+  echo "   chore    - Maintenance tasks, tooling configs, etc."
+  echo "   revert   - Reverting a previous commit"
+  echo "=========================================================================="
+  echo ""
+  exit 1
+fi
