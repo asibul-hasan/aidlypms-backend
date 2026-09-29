@@ -529,6 +529,182 @@ public class RequisitionController : BaseController
         }
     }
 
+    [HttpPut("{requisitionNo:long}")]
+    public async Task<ActionResult<ApiResponse<ProdProductRequisition>>> UpdateRequisition(
+        long requisitionNo,
+        [FromBody] RequisitionPayload payload)
+    {
+        if (payload.Items == null || payload.Items.Count == 0)
+        {
+            return FailResponse<ProdProductRequisition>("Requisition must contain at least one item.");
+        }
+
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        await using var tran = await conn.BeginTransactionAsync();
+
+        try
+        {
+            const string checkSql = @"
+                SELECT requisition_no, requisition_code, status 
+                FROM prod_product_requisitions 
+                WHERE requisition_no = @requisitionNo 
+                  AND pharmacy_no = @CurrentPharmacyNo 
+                  AND branch_no = @CurrentBranchNo;";
+
+            var existing = await conn.QuerySingleOrDefaultAsync(checkSql, new
+            {
+                requisitionNo,
+                CurrentPharmacyNo,
+                CurrentBranchNo
+            }, transaction: tran);
+
+            if (existing == null)
+            {
+                return NotFoundResponse<ProdProductRequisition>("Requisition not found.");
+            }
+
+            var maxItemNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT COALESCE(MAX(requisition_item_no), 0) FROM prod_product_requisition_items;", transaction: tran);
+
+            var processedItems = new List<ProdProductRequisitionItem>();
+            decimal grandTotalCost = 0;
+            int totalSelectedItems = 0;
+
+            foreach (var item in payload.Items)
+            {
+                maxItemNo++;
+                var boxQty = item.RequestedBoxQty ?? item.BoxQty ?? 1;
+                var qtyInBox = item.QuantityInBox.HasValue && item.QuantityInBox.Value > 0 ? item.QuantityInBox.Value : 1;
+                var minQtyPcs = item.MinQtyPcs ?? item.RequestedPcsQty ?? (boxQty * qtyInBox);
+                var saleQty = item.SaleQty6MthPcs ?? 0;
+                var btp = item.Btp ?? item.EstimatedUnitCost ?? 0m;
+                var vat = item.Vat ?? item.VatPercent ?? 0m;
+                var btpVat = item.BtpVat ?? (btp + (btp * vat / 100m));
+
+                var pcs = item.RequestedPcsQty.HasValue && item.RequestedPcsQty.Value > 0
+                    ? item.RequestedPcsQty.Value
+                    : (boxQty * qtyInBox);
+                var totalPrice = item.TotalPrice ?? (pcs * (btpVat > 0 ? btpVat : btp));
+                var isSelected = item.IsSelected ?? true;
+
+                if (isSelected)
+                {
+                    totalSelectedItems++;
+                    grandTotalCost += totalPrice;
+                }
+
+                processedItems.Add(new ProdProductRequisitionItem
+                {
+                    RequisitionItemNo = maxItemNo,
+                    PharmacyNo = CurrentPharmacyNo,
+                    BranchNo = CurrentBranchNo,
+                    RequisitionNo = requisitionNo,
+                    ProductNo = item.ProductNo,
+                    BoxQty = boxQty,
+                    MinQtyPcs = minQtyPcs,
+                    SaleQty6MthPcs = saleQty,
+                    QuantityInBox = qtyInBox,
+                    Btp = btp,
+                    Vat = vat,
+                    BtpVat = btpVat,
+                    TotalPrice = totalPrice,
+                    IsSelected = isSelected
+                });
+            }
+
+            var isAsPerSale = payload.IsAsPerSale ?? false;
+            var status = string.IsNullOrWhiteSpace(payload.Status) ? (string)existing.status : payload.Status;
+            long? companyNo = payload.CompanyNo.HasValue && payload.CompanyNo.Value > 0 ? payload.CompanyNo.Value : null;
+            long? supplierNo = payload.SupplierNo.HasValue && payload.SupplierNo.Value > 0 ? payload.SupplierNo.Value : null;
+
+            const string updateHeader = @"
+                UPDATE prod_product_requisitions SET
+                    company_no = @companyNo,
+                    supplier_no = @supplierNo,
+                    total_selected_items = @totalSelectedItems,
+                    total_cost = @grandTotalCost,
+                    is_as_per_sale = @isAsPerSale,
+                    sale_velocity_start_date = @SaleVelocityStartDate,
+                    sale_velocity_end_date = @SaleVelocityEndDate,
+                    status = @status,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE requisition_no = @requisitionNo
+                  AND pharmacy_no = @CurrentPharmacyNo
+                  AND branch_no = @CurrentBranchNo;";
+
+            await conn.ExecuteAsync(updateHeader, new
+            {
+                requisitionNo,
+                CurrentPharmacyNo,
+                CurrentBranchNo,
+                companyNo,
+                supplierNo,
+                totalSelectedItems,
+                grandTotalCost,
+                isAsPerSale,
+                payload.SaleVelocityStartDate,
+                payload.SaleVelocityEndDate,
+                status
+            }, transaction: tran);
+
+            const string deleteItemsSql = @"
+                DELETE FROM prod_product_requisition_items
+                WHERE requisition_no = @requisitionNo
+                  AND pharmacy_no = @CurrentPharmacyNo
+                  AND branch_no = @CurrentBranchNo;";
+
+            await conn.ExecuteAsync(deleteItemsSql, new
+            {
+                requisitionNo,
+                CurrentPharmacyNo,
+                CurrentBranchNo
+            }, transaction: tran);
+
+            const string insertItemSql = @"
+                INSERT INTO prod_product_requisition_items (
+                    requisition_item_no, pharmacy_no, branch_no, requisition_no, product_no,
+                    box_qty, min_qty_pcs, sale_qty_6mth_pcs, quantity_in_box,
+                    btp, vat, btp_vat, total_price, is_selected
+                ) VALUES (
+                    @RequisitionItemNo, @PharmacyNo, @BranchNo, @RequisitionNo, @ProductNo,
+                    @BoxQty, @MinQtyPcs, @SaleQty6MthPcs, @QuantityInBox,
+                    @Btp, @Vat, @BtpVat, @TotalPrice, @IsSelected
+                );";
+
+            foreach (var pi in processedItems)
+            {
+                await conn.ExecuteAsync(insertItemSql, pi, transaction: tran);
+            }
+
+            await tran.CommitAsync();
+
+            var result = new ProdProductRequisition
+            {
+                RequisitionNo = requisitionNo,
+                RequisitionCode = (string)existing.requisition_code,
+                PharmacyNo = CurrentPharmacyNo,
+                BranchNo = CurrentBranchNo,
+                CompanyNo = companyNo,
+                SupplierNo = supplierNo,
+                TotalSelectedItems = totalSelectedItems,
+                TotalCost = grandTotalCost,
+                IsAsPerSale = isAsPerSale,
+                SaleVelocityStartDate = payload.SaleVelocityStartDate,
+                SaleVelocityEndDate = payload.SaleVelocityEndDate,
+                Status = status,
+                UpdatedAt = DateTime.UtcNow,
+                Items = processedItems
+            };
+
+            return OkResponse(result, "Requisition updated successfully.");
+        }
+        catch (Exception ex)
+        {
+            await tran.RollbackAsync();
+            return FailResponse<ProdProductRequisition>($"Failed to update requisition: {ex.Message}");
+        }
+    }
+
     [HttpPut("{requisitionNo:long}/status")]
     public async Task<ActionResult<ApiResponse<bool>>> UpdateStatus(
         long requisitionNo,
