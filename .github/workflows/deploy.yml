@@ -1,0 +1,37 @@
+name: Deploy Spring Boot to Hugging Face
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+        run: |
+          # Everything below MUST be indented by at least 10 spaces
+          git config --global user.email "asibulhasan23@gmail.com"
+          git config --global user.name "asibul"
+
+          if [ -z "${{ secrets.HF_TOKEN }}" ]; then
+            echo "ERROR: HF_TOKEN is missing."
+            exit 1
+          fi
+
+          # Using the variables properly
+          HF_REPO="huggingface.co/spaces/${{ secrets.HF_USERNAME }}/Infoaidtech"
+          
+          # Add remote and push
+          git remote add hf "https://${{ secrets.HF_USERNAME }}:${{ secrets.HF_TOKEN }}@$HF_REPO"
+          git push --force hf main
