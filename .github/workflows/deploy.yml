@@ -24,19 +24,36 @@ jobs:
           git config --global user.name "asibul"
 
           if [ -z "$HF_TOKEN" ]; then
-            echo "::error::HF_TOKEN secret is missing in GitHub repository settings."
+            echo "::error::HF_TOKEN secret is missing or empty in GitHub repository Settings -> Secrets and variables -> Actions."
             exit 1
           fi
 
-          # Resolve Hugging Face username (the Infoaidtech space is hosted under asibul-07)
-          TARGET_USER="${HF_USERNAME:-asibul-07}"
-          if [ "$TARGET_USER" = "asibul" ] || [ -z "$TARGET_USER" ]; then
-            TARGET_USER="asibul-07"
+          echo "Validating Hugging Face credentials with Hugging Face API..."
+          AUTH_RESP=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $HF_TOKEN" https://huggingface.co/api/whoami-v2)
+          HTTP_STATUS=$(echo "$AUTH_RESP" | tail -n 1)
+          BODY=$(echo "$AUTH_RESP" | head -n -1)
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::Hugging Face token authentication failed with HTTP status $HTTP_STATUS."
+            echo "Response: $BODY"
+            echo "::error::Please verify that your HF_TOKEN secret in GitHub matches an active token from https://huggingface.co/settings/tokens."
+            exit 1
           fi
 
-          echo "Deploying to Hugging Face Space: ${TARGET_USER}/Infoaidtech"
-          HF_URL="https://${TARGET_USER}:${HF_TOKEN}@huggingface.co/spaces/${TARGET_USER}/Infoaidtech"
+          TOKEN_USER=$(echo "$BODY" | grep -o '"name":"[^"]*' | head -1 | cut -d'"' -f4)
+          TOKEN_ROLE=$(echo "$BODY" | grep -o '"role":"[^"]*' | head -1 | cut -d'"' -f4)
+          echo "Authenticated to Hugging Face as user: '$TOKEN_USER' (role: '${TOKEN_ROLE:-custom}')"
+
+          if [ "$TOKEN_ROLE" = "read" ]; then
+            echo "::error::Your HF_TOKEN has 'read' permission only. Hugging Face requires a 'write' role to push code."
+            echo "::error::Please go to https://huggingface.co/settings/tokens, create a token with 'Write' role, and update HF_TOKEN in GitHub repository secrets."
+            exit 1
+          fi
+
+          HF_SPACE_OWNER="asibul-07"
+          HF_SPACE_NAME="Infoaidtech"
+          echo "Targeting Space: https://huggingface.co/spaces/${HF_SPACE_OWNER}/${HF_SPACE_NAME}"
 
           git remote remove hf 2>/dev/null || true
-          git remote add hf "$HF_URL"
+          git remote add hf "https://${TOKEN_USER}:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_OWNER}/${HF_SPACE_NAME}"
           git push --force hf main
