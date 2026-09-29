@@ -213,4 +213,88 @@ public class CustomerController : BaseController
 
         return OkResponse(updated, "Customer updated successfully.");
     }
+
+    [HttpGet("{id:long}/ledger")]
+    public async Task<ActionResult<ApiResponse<object>>> GetCustomerLedger(long id)
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        var customer = await conn.QuerySingleOrDefaultAsync<CustCustomer>(@"
+            SELECT customer_no, name, phone, address, current_due, loyalty_points
+            FROM cust_customers
+            WHERE customer_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (customer == null)
+        {
+            return FailResponse<object>("Customer not found.", statusCode: 404);
+        }
+
+        const string sql = @"
+            SELECT 
+                s.sales_number AS doc_no,
+                'Sale Invoice' AS doc_type,
+                s.sale_timestamp AS doc_date,
+                s.final_price AS debit,
+                (s.final_price - s.due_amount) AS credit,
+                s.payment_method,
+                CONCAT('Invoice Total: ৳ ', s.final_price, ' | Paid: ৳ ', (s.final_price - s.due_amount)) AS note
+            FROM sale_invoices s
+            WHERE s.customer_no = @id AND s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+
+            UNION ALL
+
+            SELECT 
+                d.payment_number AS doc_no,
+                'Due Collection' AS doc_type,
+                d.payment_date AS doc_date,
+                0 AS debit,
+                d.amount AS credit,
+                d.payment_method,
+                d.note
+            FROM due_collections d
+            WHERE d.customer_no = @id AND d.pharmacy_no = @CurrentPharmacyNo AND d.branch_no = @CurrentBranchNo
+
+            ORDER BY doc_date ASC;";
+
+        var rows = (await conn.QueryAsync(sql, new { id, CurrentPharmacyNo, CurrentBranchNo })).ToList();
+
+        decimal running = 0;
+        var ledger = new List<object>();
+
+        foreach (var r in rows)
+        {
+            IDictionary<string, object> dict = (IDictionary<string, object>)r;
+            var debit = Convert.ToDecimal(dict["debit"] ?? 0);
+            var credit = Convert.ToDecimal(dict["credit"] ?? 0);
+            running += (debit - credit);
+
+            ledger.Add(new
+            {
+                doc_no = dict["doc_no"]?.ToString() ?? "",
+                doc_type = dict["doc_type"]?.ToString() ?? "",
+                doc_date = dict["doc_date"],
+                debit,
+                credit,
+                balance = running,
+                payment_method = dict["payment_method"]?.ToString() ?? "",
+                note = dict["note"]?.ToString() ?? ""
+            });
+        }
+
+        return OkResponse<object>(new
+        {
+            customer = new
+            {
+                customer_no = customer.CustomerNo,
+                name = customer.Name,
+                phone = customer.Phone,
+                address = customer.Address,
+                current_due = customer.CurrentDue,
+                loyalty_points = customer.LoyaltyPoints
+            },
+            ledger
+        });
+    }
 }
+

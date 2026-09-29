@@ -1,4 +1,4 @@
-name: Deploy Spring Boot to Hugging Face
+name: Deploy .NET API to Hugging Face
 
 on:
   push:

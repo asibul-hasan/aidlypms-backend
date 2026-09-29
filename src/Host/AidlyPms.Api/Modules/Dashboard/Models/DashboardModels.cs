@@ -42,6 +42,39 @@ public class ExecutiveDashboardSummary
 
     [JsonPropertyName("near_expiry_items_count")]
     public int NearExpiryItemsCount { get; set; }
+
+    [JsonPropertyName("total_bank_balance")]
+    public decimal TotalBankBalance { get; set; }
+
+    [JsonPropertyName("total_mfs_balance")]
+    public decimal TotalMfsBalance { get; set; }
+
+    [JsonPropertyName("total_cash_balance")]
+    public decimal TotalCashBalance { get; set; }
+
+    [JsonPropertyName("today_incomes")]
+    public decimal TodayIncomes { get; set; }
+
+    [JsonPropertyName("today_demurrage")]
+    public decimal TodayDemurrage { get; set; }
+
+    [JsonPropertyName("pending_handover_count")]
+    public int PendingHandoverCount { get; set; }
+
+    [JsonPropertyName("pending_handover_amount")]
+    public decimal PendingHandoverAmount { get; set; }
+
+    [JsonPropertyName("today_sale_returns")]
+    public decimal TodaySaleReturns { get; set; }
+
+    [JsonPropertyName("today_purchase_returns")]
+    public decimal TodayPurchaseReturns { get; set; }
+
+    [JsonPropertyName("today_due_collected")]
+    public decimal TodayDueCollected { get; set; }
+
+    [JsonPropertyName("today_supplier_paid")]
+    public decimal TodaySupplierPaid { get; set; }
 }
 
 public class FastMovingProduct
@@ -51,6 +84,9 @@ public class FastMovingProduct
 
     [JsonPropertyName("product_name")]
     public string ProductName { get; set; } = string.Empty;
+
+    [JsonPropertyName("generic_name")]
+    public string GenericName { get; set; } = string.Empty;
 
     [JsonPropertyName("total_sold_pcs")]
     public int TotalSoldPcs { get; set; }
@@ -81,4 +117,28 @@ public class CashbookEntry
 
     [JsonPropertyName("balance")]
     public decimal Balance { get; set; }
+}
+
+public class DailySalesTrend
+{
+    [JsonPropertyName("date_label")]
+    public string DateLabel { get; set; } = string.Empty;
+
+    [JsonPropertyName("date_val")]
+    public DateTime DateVal { get; set; }
+
+    [JsonPropertyName("buy_price")]
+    public decimal BuyPrice { get; set; }
+
+    [JsonPropertyName("gross_profit")]
+    public decimal GrossProfit { get; set; }
+
+    [JsonPropertyName("total_sale")]
+    public decimal TotalSale { get; set; }
+
+    [JsonPropertyName("op_cost")]
+    public decimal OpCost { get; set; }
+
+    [JsonPropertyName("net_profit")]
+    public decimal NetProfit { get; set; }
 }

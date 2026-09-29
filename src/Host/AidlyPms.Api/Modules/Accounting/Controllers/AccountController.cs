@@ -156,4 +156,66 @@ public class AccountController : BaseController
 
         return OkResponse(existing, $"Account '{existing.AccountName}' updated successfully.");
     }
+
+    [HttpGet("{id}/statement")]
+    [HttpGet("{id}/ledger")]
+    public async Task<ActionResult<ApiResponse<object>>> GetAccountStatement(long id)
+    {
+        using var conn = _db.CreateConnection();
+        var account = await conn.QuerySingleOrDefaultAsync<AccTransactionAccount>(@"
+            SELECT * FROM acc_transaction_accounts
+            WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (account == null)
+            return FailResponse<object>("Account not found.", statusCode: 404);
+
+        var transactions = (await conn.QueryAsync(@"
+            SELECT ledger_no, journal_no, transaction_date, transaction_type,
+                   debit_amount, credit_amount, balance_after,
+                   source_document_type, source_document_no, narration, created_at
+            FROM acc_transaction_ledger
+            WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+            ORDER BY transaction_date DESC, ledger_no DESC
+            LIMIT 200;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo })).ToList();
+
+        return OkResponse<object>(new
+        {
+            account,
+            transactions
+        });
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteAccount(long id)
+    {
+        using var conn = _db.CreateConnection();
+        var hasTransactions = await conn.ExecuteScalarAsync<bool>(@"
+            SELECT EXISTS(
+                SELECT 1 FROM acc_transaction_ledger
+                WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+            );", new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (hasTransactions)
+        {
+            await conn.ExecuteAsync(@"
+                UPDATE acc_transaction_accounts
+                SET is_active = false, updated_at = CURRENT_TIMESTAMP
+                WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+            return OkResponse(true, "Account has transaction history and was deactivated instead of permanently deleted.");
+        }
+
+        var rows = await conn.ExecuteAsync(@"
+            DELETE FROM acc_transaction_accounts
+            WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (rows == 0)
+            return FailResponse<bool>("Account not found.", statusCode: 404);
+
+        return OkResponse(true, "Account deleted successfully.");
+    }
 }

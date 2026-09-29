@@ -12,7 +12,6 @@ public class ApiResponse<T>
     public string? Message { get; set; }
 
     [JsonPropertyName("data")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public T? Data { get; set; }
 
     [JsonPropertyName("errors")]

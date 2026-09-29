@@ -96,6 +96,132 @@ public class ProductController : BaseController
         return OkResponse<object>(paged);
     }
 
+    [HttpGet("low-stock")]
+    public async Task<ActionResult<ApiResponse<List<LowStockProductDto>>>> GetLowStockProducts(
+        [FromQuery] long? companyNo = null,
+        [FromQuery] bool fallbackLowest = false)
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        var sql = @"
+            SELECT 
+                p.product_no,
+                p.product_name,
+                p.product_name AS brand_name,
+                COALESCE(g.name, '') AS generic_name,
+                p.company_no,
+                COALESCE(c.name, '') AS company_name,
+                COALESCE(SUM(b.total_quantity_pcs), 0)::int AS current_stock_pcs,
+                COALESCE(p.min_stock_qty_pcs, 0)::int AS min_stock_qty_pcs,
+                GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
+                GREATEST(1, COALESCE(p.quantity_per_box, 1))::int AS quantity_per_box,
+                CASE 
+                    WHEN GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0)) > 0 
+                    THEN CEIL(GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0))::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)))::int
+                    ELSE 1 
+                END AS suggested_box_qty,
+                COALESCE(p.purchase_price_per_piece, 0) AS purchase_price_per_piece,
+                COALESCE(p.cost_per_box, 0) AS cost_per_box,
+                COALESCE(p.sale_price_per_piece, 0) AS sale_price_per_piece,
+                COALESCE(MAX(b.vat_percent), 0) AS vat_percent,
+                COALESCE((
+                    SELECT SUM(sii.sale_qty)
+                    FROM sale_invoice_items sii
+                    JOIN sale_invoices si ON sii.sale_invoice_no = si.sale_invoice_no
+                    WHERE sii.product_no = p.product_no
+                      AND si.pharmacy_no = @CurrentPharmacyNo
+                      AND si.branch_no = @CurrentBranchNo
+                      AND si.sale_timestamp >= CURRENT_DATE - INTERVAL '180 days'
+                      AND si.document_status = 2
+                ), 0)::int AS sale_qty_6mth_pcs
+            FROM prod_products p
+            LEFT JOIN prod_product_batches b 
+                ON p.product_no = b.product_no 
+                AND b.pharmacy_no = @CurrentPharmacyNo 
+                AND b.branch_no = @CurrentBranchNo
+                AND b.total_quantity_pcs > 0
+                AND b.expiry_date >= CURRENT_DATE
+            LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
+            LEFT JOIN prod_companies c ON p.company_no = c.company_no
+            WHERE p.pharmacy_no = @CurrentPharmacyNo 
+              AND p.branch_no = @CurrentBranchNo
+              AND p.is_active = TRUE
+              AND (@companyNo IS NULL OR p.company_no = @companyNo)
+            GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece
+            HAVING COALESCE(SUM(b.total_quantity_pcs), 0) <= p.min_stock_qty_pcs
+            ORDER BY shortfall_pcs DESC, current_stock_pcs ASC, p.product_name ASC;";
+
+        var items = (await conn.QueryAsync<LowStockProductDto>(sql, new
+        {
+            CurrentPharmacyNo,
+            CurrentBranchNo,
+            companyNo
+        })).AsList();
+
+        if (items.Count == 0 && fallbackLowest)
+        {
+            var fallbackSql = @"
+                SELECT 
+                    p.product_no,
+                    p.product_name,
+                    p.product_name AS brand_name,
+                    COALESCE(g.name, '') AS generic_name,
+                    p.company_no,
+                    COALESCE(c.name, '') AS company_name,
+                    COALESCE(SUM(b.total_quantity_pcs), 0)::int AS current_stock_pcs,
+                    COALESCE(p.min_stock_qty_pcs, 0)::int AS min_stock_qty_pcs,
+                    GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
+                    GREATEST(1, COALESCE(p.quantity_per_box, 1))::int AS quantity_per_box,
+                    1 AS suggested_box_qty,
+                    COALESCE(p.purchase_price_per_piece, 0) AS purchase_price_per_piece,
+                    COALESCE(p.cost_per_box, 0) AS cost_per_box,
+                    COALESCE(p.sale_price_per_piece, 0) AS sale_price_per_piece,
+                    COALESCE(MAX(b.vat_percent), 0) AS vat_percent,
+                    COALESCE((
+                        SELECT SUM(sii.sale_qty)
+                        FROM sale_invoice_items sii
+                        JOIN sale_invoices si ON sii.sale_invoice_no = si.sale_invoice_no
+                        WHERE sii.product_no = p.product_no
+                          AND si.pharmacy_no = @CurrentPharmacyNo
+                          AND si.branch_no = @CurrentBranchNo
+                          AND si.sale_timestamp >= CURRENT_DATE - INTERVAL '180 days'
+                          AND si.document_status = 2
+                    ), 0)::int AS sale_qty_6mth_pcs
+                FROM prod_products p
+                LEFT JOIN prod_product_batches b 
+                    ON p.product_no = b.product_no 
+                    AND b.pharmacy_no = @CurrentPharmacyNo 
+                    AND b.branch_no = @CurrentBranchNo
+                    AND b.total_quantity_pcs > 0
+                    AND b.expiry_date >= CURRENT_DATE
+                LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
+                LEFT JOIN prod_companies c ON p.company_no = c.company_no
+                WHERE p.pharmacy_no = @CurrentPharmacyNo 
+                  AND p.branch_no = @CurrentBranchNo
+                  AND p.is_active = TRUE
+                  AND (@companyNo IS NULL OR p.company_no = @companyNo)
+                GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece
+                ORDER BY (COALESCE(SUM(b.total_quantity_pcs), 0) - p.min_stock_qty_pcs) ASC, p.product_name ASC
+                LIMIT 5;";
+
+            items = (await conn.QueryAsync<LowStockProductDto>(fallbackSql, new
+            {
+                CurrentPharmacyNo,
+                CurrentBranchNo,
+                companyNo
+            })).AsList();
+        }
+
+        foreach (var item in items)
+        {
+            var unitCost = item.PurchasePricePerPiece > 0 ? item.PurchasePricePerPiece : (item.CostPerBox > 0 && item.QuantityPerBox > 0 ? item.CostPerBox / item.QuantityPerBox : 0);
+            var btpWithVat = unitCost * (1 + (item.VatPercent / 100m));
+            item.EstimatedTotalCost = Math.Round(item.SuggestedBoxQty * item.QuantityPerBox * btpWithVat, 2);
+        }
+
+        return OkResponse(items);
+    }
+
     [HttpGet("{id:long}")]
     public async Task<ActionResult<ApiResponse<ProdProduct>>> GetProductById(long id)
     {
@@ -369,4 +495,111 @@ public class ProductController : BaseController
 
         return OkResponse(model, "Product updated successfully.");
     }
+
+    [HttpPost("{id:long}/adjust-stock")]
+    public async Task<ActionResult<ApiResponse<object>>> AdjustStock(long id, [FromBody] AdjustStockRequest request)
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        await using var tran = await conn.BeginTransactionAsync();
+
+        try
+        {
+            var product = await conn.QuerySingleOrDefaultAsync<ProdProduct>(@"
+                SELECT product_no, product_name, cost_per_box, sale_price_per_box,
+                       purchase_price_per_piece, sale_price_per_piece, quantity_per_box
+                FROM prod_products
+                WHERE product_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                FOR UPDATE;",
+                new { id, CurrentPharmacyNo, CurrentBranchNo },
+                transaction: tran);
+
+            if (product == null)
+            {
+                return FailResponse<object>("Product not found.", statusCode: 404);
+            }
+
+            var currentStock = await conn.ExecuteScalarAsync<int>(@"
+                SELECT COALESCE(SUM(total_quantity_pcs), 0)
+                FROM prod_product_batches
+                WHERE product_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { id, CurrentPharmacyNo, CurrentBranchNo },
+                transaction: tran);
+
+            var diff = request.TargetStockPcs - currentStock;
+            if (diff != 0)
+            {
+                var batchNo = await conn.ExecuteScalarAsync<long?>(@"
+                    SELECT batch_no
+                    FROM prod_product_batches
+                    WHERE product_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    ORDER BY (total_quantity_pcs > 0) DESC, expiry_date ASC, batch_no ASC
+                    LIMIT 1
+                    FOR UPDATE;",
+                    new { id, CurrentPharmacyNo, CurrentBranchNo },
+                    transaction: tran);
+
+                if (!batchNo.HasValue)
+                {
+                    batchNo = await conn.ExecuteScalarAsync<long>(
+                        "SELECT COALESCE(MAX(batch_no), 0) + 1 FROM prod_product_batches;", transaction: tran);
+
+                    await conn.ExecuteAsync(@"
+                        INSERT INTO prod_product_batches (
+                            batch_no, pharmacy_no, branch_no, product_no, batch_number,
+                            expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
+                            cost_per_box, sale_price_per_box, vat_percent, is_expired,
+                            created_at, updated_at
+                        ) VALUES (
+                            @batchNo, @CurrentPharmacyNo, @CurrentBranchNo, @id, 'INITIAL-01',
+                            CURRENT_DATE + INTERVAL '1 year', 0, @qtyPerBox, 0,
+                            @costPerBox, @salePerBox, 0, false,
+                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                        );",
+                        new {
+                            batchNo = batchNo.Value,
+                            CurrentPharmacyNo,
+                            CurrentBranchNo,
+                            id,
+                            qtyPerBox = product.QuantityPerBox > 0 ? product.QuantityPerBox : 10,
+                            costPerBox = product.CostPerBox,
+                            salePerBox = product.SalePricePerBox
+                        },
+                        transaction: tran);
+                }
+
+                await _stockPosting.PostMovementAsync(conn, tran, new StockMovementEntry
+                {
+                    PharmacyNo = CurrentPharmacyNo,
+                    BranchNo = CurrentBranchNo,
+                    ProductNo = id,
+                    BatchNo = batchNo.Value,
+                    MovementType = 4, // Stock Adjustment
+                    ReferenceDocType = "STOCK_ADJUSTMENT",
+                    ReferenceDocNo = $"ADJ-{DateTime.UtcNow:yyyyMMddHHmmss}",
+                    ReferenceDocId = id,
+                    QtyPcs = diff,
+                    UnitCost = product.PurchasePricePerPiece,
+                    Remarks = string.IsNullOrWhiteSpace(request.Reason)
+                        ? request.Remarks
+                        : $"{request.Reason}: {request.Remarks}"
+                });
+            }
+
+            await tran.CommitAsync();
+
+            var newTotal = await conn.ExecuteScalarAsync<int>(@"
+                SELECT COALESCE(SUM(total_quantity_pcs), 0)
+                FROM prod_product_batches
+                WHERE product_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+            return OkResponse<object>(new { product_no = id, new_stock_pcs = newTotal }, "Stock adjusted successfully.");
+        }
+        catch (Exception ex)
+        {
+            await tran.RollbackAsync();
+            return FailResponse<object>($"Stock adjustment failed: {ex.Message}");
+        }
+    }
 }
+

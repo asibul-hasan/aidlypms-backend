@@ -96,6 +96,79 @@ public class DashboardController : BaseController
               AND total_quantity_pcs > 0;",
             new { CurrentPharmacyNo, CurrentBranchNo, NearExpiryThreshold = nearExpiryThreshold });
 
+        var bankBalance = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(current_balance), 0)
+            FROM acc_transaction_accounts
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND account_type = 2 AND is_active = TRUE;",
+            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 0m;
+
+        var mfsBalance = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(current_balance), 0)
+            FROM acc_transaction_accounts
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND account_type IN (4, 5) AND is_active = TRUE;",
+            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 0m;
+
+        var todaySaleReturns = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(final_refund_price), 0)
+            FROM sale_returns
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND DATE(return_date) = @Today;",
+            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+
+        var todayPurchaseReturns = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(gross_return_amount), 0)
+            FROM pur_purchase_returns
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND DATE(return_date) = @Today;",
+            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+
+        var todayDueCollected = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(amount), 0)
+            FROM due_collections
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND DATE(payment_date) = @Today;",
+            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+
+        var todaySupplierPaid = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(amount), 0)
+            FROM pur_supplier_payments
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND DATE(payment_date) = @Today;",
+            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+
+        var totalCashBalance = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(current_balance), 0)
+            FROM acc_transaction_accounts
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND account_type = 1 AND is_active = TRUE;",
+            new { CurrentPharmacyNo, CurrentBranchNo }) ?? salesStats.CashCollected;
+
+        var todayIncomes = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(amount), 0)
+            FROM acc_incomes
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND DATE(income_date) = @Today;",
+            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+
+        var todayDemurrage = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(e.amount), 0)
+            FROM acc_expenses e
+            JOIN acc_expense_categories c ON e.expense_category_no = c.expense_category_no
+            WHERE e.pharmacy_no = @CurrentPharmacyNo AND e.branch_no = @CurrentBranchNo
+              AND DATE(e.expense_date) = @Today
+              AND (c.name ILIKE '%demurrage%' OR c.name ILIKE '%damage%' OR c.name ILIKE '%loss%');",
+            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+
+        var pendingHandoverStats = await conn.QuerySingleOrDefaultAsync<(int Count, decimal Amount)>(@"
+            SELECT COUNT(1) AS Count,
+                   COALESCE(SUM(customer_will_pay - change_amount), 0) AS Amount
+            FROM sale_invoices
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND cash_received_status = 1 AND document_status = 2;",
+            new { CurrentPharmacyNo, CurrentBranchNo });
+
         var summary = new ExecutiveDashboardSummary
         {
             TodaySales = salesStats.TotalSales,
@@ -110,25 +183,41 @@ public class DashboardController : BaseController
             TotalProductsCount = totalProducts,
             LowStockItemsCount = lowStockCount,
             ExpiredItemsCount = expiredCount,
-            NearExpiryItemsCount = nearExpiryCount
+            NearExpiryItemsCount = nearExpiryCount,
+            TotalBankBalance = bankBalance,
+            TotalMfsBalance = mfsBalance,
+            TotalCashBalance = totalCashBalance,
+            TodayIncomes = todayIncomes,
+            TodayDemurrage = todayDemurrage,
+            PendingHandoverCount = pendingHandoverStats.Count,
+            PendingHandoverAmount = pendingHandoverStats.Amount,
+            TodaySaleReturns = todaySaleReturns,
+            TodayPurchaseReturns = todayPurchaseReturns,
+            TodayDueCollected = todayDueCollected,
+            TodaySupplierPaid = todaySupplierPaid
         };
 
         return OkResponse(summary);
     }
 
     [HttpGet("analytics")]
-    public async Task<ActionResult<ApiResponse<List<FastMovingProduct>>>> GetFastMovers([FromQuery] int limit = 10)
+    public async Task<ActionResult<ApiResponse<List<FastMovingProduct>>>> GetFastMovers(
+        [FromQuery] int limit = 10,
+        [FromQuery] string sort = "desc")
     {
         using var conn = _db.CreateConnection();
-        var sql = @"
+        var orderDir = sort.Equals("asc", StringComparison.OrdinalIgnoreCase) ? "ASC" : "DESC";
+        var sql = $@"
             SELECT i.product_no, p.product_name,
+                   COALESCE(g.name, '') AS generic_name,
                    SUM(i.sale_qty) AS total_sold_pcs,
                    SUM(i.total_price) AS total_revenue
             FROM sale_invoice_items i
             JOIN prod_products p ON i.product_no = p.product_no
+            LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             WHERE i.pharmacy_no = @CurrentPharmacyNo AND i.branch_no = @CurrentBranchNo
-            GROUP BY i.product_no, p.product_name
-            ORDER BY total_sold_pcs DESC
+            GROUP BY i.product_no, p.product_name, g.name
+            ORDER BY total_sold_pcs {orderDir}
             LIMIT @Limit;";
 
         var list = (await conn.QueryAsync<FastMovingProduct>(sql, new { CurrentPharmacyNo, CurrentBranchNo, Limit = limit })).ToList();
@@ -158,5 +247,55 @@ public class DashboardController : BaseController
 
         var entries = (await conn.QueryAsync<CashbookEntry>(sql, new { CurrentPharmacyNo, CurrentBranchNo, TargetDate = targetDate })).ToList();
         return OkResponse(entries);
+    }
+
+    [HttpGet("trends")]
+    public async Task<ActionResult<ApiResponse<List<DailySalesTrend>>>> GetTrends()
+    {
+        using var conn = _db.CreateConnection();
+        const string sql = @"
+            WITH days AS (
+                SELECT generate_series(
+                    CURRENT_DATE - INTERVAL '6 days',
+                    CURRENT_DATE,
+                    '1 day'::interval
+                )::date AS day
+            ),
+            daily_sales AS (
+                SELECT 
+                    DATE(sale_timestamp) AS sale_date,
+                    COALESCE(SUM(final_price), 0) AS total_sale,
+                    COALESCE(SUM(approximate_profit), 0) AS gross_profit,
+                    COALESCE(SUM(final_price - approximate_profit), 0) AS buy_price
+                FROM sale_invoices
+                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                  AND document_status = 2
+                  AND sale_timestamp >= CURRENT_DATE - INTERVAL '6 days'
+                GROUP BY DATE(sale_timestamp)
+            ),
+            daily_expenses AS (
+                SELECT 
+                    DATE(expense_date) AS exp_date,
+                    COALESCE(SUM(amount), 0) AS op_cost
+                FROM acc_expenses
+                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                  AND expense_date >= CURRENT_DATE - INTERVAL '6 days'
+                GROUP BY DATE(expense_date)
+            )
+            SELECT 
+                TO_CHAR(d.day, 'Mon DD') AS date_label,
+                d.day AS date_val,
+                COALESCE(s.buy_price, 0) AS buy_price,
+                COALESCE(s.gross_profit, 0) AS gross_profit,
+                COALESCE(s.total_sale, 0) AS total_sale,
+                COALESCE(e.op_cost, 0) AS op_cost,
+                GREATEST(0, COALESCE(s.gross_profit, 0) - COALESCE(e.op_cost, 0)) AS net_profit
+            FROM days d
+            LEFT JOIN daily_sales s ON s.sale_date = d.day
+            LEFT JOIN daily_expenses e ON e.exp_date = d.day
+            ORDER BY d.day ASC;";
+
+        var list = (await conn.QueryAsync<DailySalesTrend>(sql, new { CurrentPharmacyNo, CurrentBranchNo })).ToList();
+        return OkResponse(list);
     }
 }

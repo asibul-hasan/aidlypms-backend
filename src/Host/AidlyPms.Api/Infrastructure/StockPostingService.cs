@@ -1,3 +1,4 @@
+using AidlyPms.Api.Modules.Products.Models;
 using Dapper;
 using Npgsql;
 
@@ -29,33 +30,51 @@ public class StockPostingService : IStockPostingService
     {
         if (entry.QtyPcs == 0) return;
 
+        // If batch is not specified, resolve the active or latest batch for this product
+        if (!entry.BatchNo.HasValue || entry.BatchNo.Value <= 0)
+        {
+            var fallbackBatchNo = await conn.ExecuteScalarAsync<long?>(@"
+                SELECT batch_no
+                FROM prod_product_batches
+                WHERE product_no = @ProductNo AND pharmacy_no = @PharmacyNo AND branch_no = @BranchNo
+                ORDER BY (total_quantity_pcs > 0) DESC, expiry_date ASC, batch_no ASC
+                LIMIT 1
+                FOR UPDATE;",
+                new { entry.ProductNo, entry.PharmacyNo, entry.BranchNo },
+                transaction: tran);
+
+            if (fallbackBatchNo.HasValue && fallbackBatchNo.Value > 0)
+            {
+                entry.BatchNo = fallbackBatchNo.Value;
+            }
+        }
+
         // If batch is specified, update batch stock
         if (entry.BatchNo.HasValue && entry.BatchNo.Value > 0)
         {
-            var batch = await conn.QuerySingleOrDefaultAsync<(int TotalQty, int QtyInBox)>(@"
-                SELECT total_quantity_pcs AS TotalQty, quantity_in_box AS QtyInBox
+            var batch = await conn.QuerySingleOrDefaultAsync<ProdProductBatch>(@"
+                SELECT batch_no, total_quantity_pcs, quantity_in_box
                 FROM prod_product_batches
                 WHERE batch_no = @BatchNo AND pharmacy_no = @PharmacyNo AND branch_no = @BranchNo
                 FOR UPDATE;",
                 new { entry.BatchNo, entry.PharmacyNo, entry.BranchNo },
                 transaction: tran);
 
-            var newBatchQty = batch.TotalQty + entry.QtyPcs;
-            if (newBatchQty < 0 && entry.MovementType == 4) // POS Sale out-of-stock check if strict
+            if (batch != null)
             {
-                // Note: allow or warn based on cfg
+                var newBatchQty = batch.TotalQuantityPcs + entry.QtyPcs;
+                var qInBox = batch.QuantityInBox > 0 ? batch.QuantityInBox : 1;
+                var newBoxQty = newBatchQty / qInBox;
+
+                await conn.ExecuteAsync(@"
+                    UPDATE prod_product_batches
+                    SET total_quantity_pcs = @newBatchQty,
+                        box_quantity = @newBoxQty,
+                        updated_at = NOW()
+                    WHERE batch_no = @BatchNo;",
+                    new { newBatchQty, newBoxQty, entry.BatchNo },
+                    transaction: tran);
             }
-
-            var newBoxQty = batch.QtyInBox > 0 ? newBatchQty / batch.QtyInBox : newBatchQty;
-
-            await conn.ExecuteAsync(@"
-                UPDATE prod_product_batches
-                SET total_quantity_pcs = @newBatchQty,
-                    box_quantity = @newBoxQty,
-                    updated_at = NOW()
-                WHERE batch_no = @BatchNo;",
-                new { newBatchQty, newBoxQty, entry.BatchNo },
-                transaction: tran);
         }
 
         // Calculate total stock remaining across all batches for product

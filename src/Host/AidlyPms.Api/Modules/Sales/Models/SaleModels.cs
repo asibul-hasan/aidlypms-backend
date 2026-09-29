@@ -112,6 +112,23 @@ public class SaleInvoice
 
     [JsonPropertyName("payments")]
     public List<SaleInvoicePayment>? Payments { get; set; }
+
+    [JsonPropertyName("payment")]
+    public SaleInvoicePayment? Payment { get; set; }
+
+    [JsonPropertyName("payable_amount")]
+    public decimal PayableAmount
+    {
+        get => FinalPrice;
+        set { if (FinalPrice == 0) FinalPrice = value; }
+    }
+
+    [JsonPropertyName("paid_amount")]
+    public decimal PaidAmount
+    {
+        get => CustomerWillPay;
+        set { if (CustomerWillPay == 0) CustomerWillPay = value; }
+    }
 }
 
 public class SaleInvoiceItem
@@ -177,8 +194,36 @@ public class SaleInvoiceItem
     [JsonPropertyName("total_quantity_pcs")]
     public int TotalQuantityPcs => SaleQty;
 
+    [JsonPropertyName("quantity")]
+    public int Quantity
+    {
+        get => SaleQty;
+        set { if (SaleQty == 0) SaleQty = value; }
+    }
+
     [JsonPropertyName("sale_price")]
     public decimal SalePrice => UnitSalePrice;
+
+    [JsonPropertyName("unit_price")]
+    public decimal UnitPrice
+    {
+        get => UnitSalePrice;
+        set { if (UnitSalePrice == 0) UnitSalePrice = value; }
+    }
+
+    [JsonPropertyName("unit_cost")]
+    public decimal UnitCost
+    {
+        get => UnitCostPrice;
+        set { if (UnitCostPrice == 0) UnitCostPrice = value; }
+    }
+
+    [JsonPropertyName("box_pattern")]
+    public int BoxPattern
+    {
+        get => PcsPerBox;
+        set { if (PcsPerBox == 1) PcsPerBox = value; }
+    }
 }
 
 
@@ -197,13 +242,26 @@ public class SaleInvoicePayment
     public long SaleInvoiceNo { get; set; }
 
     [JsonPropertyName("account_no")]
-    public long AccountNo { get; set; }
+    public long AccountNo { get; set; } = 1;
 
     [JsonPropertyName("payment_method")]
     public short PaymentMethod { get; set; } = 1;
 
     [JsonPropertyName("amount")]
     public decimal Amount { get; set; }
+
+    [JsonPropertyName("paid_amount")]
+    public decimal PaidAmount
+    {
+        get => Amount;
+        set { if (Amount == 0) Amount = value; }
+    }
+
+    [JsonPropertyName("tendered_amount")]
+    public decimal? TenderedAmount { get; set; }
+
+    [JsonPropertyName("change_amount")]
+    public decimal? ChangeAmount { get; set; }
 
     [JsonPropertyName("gateway_reference")]
     public string? GatewayReference { get; set; }
@@ -218,10 +276,13 @@ public class CreateSalePayload
     public SaleInvoice Invoice { get; set; } = new();
 
     [JsonPropertyName("items")]
-    public List<SaleInvoiceItem> Items { get; set; } = new();
+    public List<SaleInvoiceItem>? Items { get; set; }
 
     [JsonPropertyName("payments")]
     public List<SaleInvoicePayment>? Payments { get; set; }
+
+    [JsonPropertyName("payment")]
+    public SaleInvoicePayment? Payment { get; set; }
 }
 
 public class SaleReturn
@@ -292,6 +353,12 @@ public class SaleReturn
 
     [JsonPropertyName("items")]
     public List<SaleReturnItem>? Items { get; set; }
+
+    [JsonPropertyName("return_no")]
+    public long ReturnNo => SaleReturnNo;
+
+    [JsonPropertyName("return_amount")]
+    public decimal ReturnAmount => CashPaidRefund > 0 ? CashPaidRefund : FinalRefundPrice;
 }
 
 public class SaleReturnItem
@@ -326,11 +393,25 @@ public class SaleReturnItem
     [JsonPropertyName("total_qty_pcs")]
     public int TotalQtyPcs { get; set; }
 
+    [JsonPropertyName("return_qty")]
+    public int ReturnQty
+    {
+        get => TotalQtyPcs;
+        set { if (TotalQtyPcs == 0) TotalQtyPcs = value; }
+    }
+
     [JsonPropertyName("btp_vat")]
     public decimal BtpVat { get; set; }
 
     [JsonPropertyName("sale_price")]
     public decimal SalePrice { get; set; }
+
+    [JsonPropertyName("unit_price")]
+    public decimal UnitPrice
+    {
+        get => SalePrice;
+        set { if (SalePrice == 0) SalePrice = value; }
+    }
 
     [JsonPropertyName("vat_percent")]
     public decimal VatPercent { get; set; }
@@ -383,5 +464,18 @@ public class CreateSaleReturnPayload
 
     [JsonPropertyName("cash_paid_refund")]
     public decimal? CashPaidRefund { get; set; }
+
+    [JsonPropertyName("return_amount")]
+    public decimal? ReturnAmount
+    {
+        get => CashPaidRefund;
+        set { if (!CashPaidRefund.HasValue) CashPaidRefund = value; }
+    }
+
+    [JsonPropertyName("refund_method")]
+    public string? RefundMethod { get; set; }
+
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
 }
 

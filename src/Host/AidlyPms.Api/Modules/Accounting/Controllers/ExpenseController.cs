@@ -244,4 +244,72 @@ public class ExpenseController : BaseController
             return FailResponse<AccExpense>($"Posting failed: {ex.Message}");
         }
     }
+
+    [HttpDelete("expenses/{id}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteExpense(long id)
+    {
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        using var tran = conn.BeginTransaction();
+        try
+        {
+            var expense = await conn.QuerySingleOrDefaultAsync<AccExpense>(@"
+                SELECT * FROM acc_expenses
+                WHERE expense_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { id, CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+            if (expense == null)
+            {
+                return FailResponse<bool>("Expense voucher not found.", statusCode: 404);
+            }
+
+            var expenseAcc = await conn.QuerySingleOrDefaultAsync<long?>(
+                "SELECT account_no FROM acc_transaction_accounts WHERE account_code = '50201' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+
+            var journalLegs = new List<LedgerLeg>
+            {
+                new LedgerLeg
+                {
+                    AccountNo = expenseAcc,
+                    DebitAmount = 0,
+                    CreditAmount = expense.Amount,
+                    Narration = $"Reversal of expense {expense.VoucherNo}"
+                },
+                new LedgerLeg
+                {
+                    AccountNo = expense.AccountNo,
+                    DebitAmount = expense.Amount,
+                    CreditAmount = 0,
+                    Narration = $"Reversal refund for expense {expense.VoucherNo}"
+                }
+            };
+
+            await _ledgerPosting.PostJournalAsync((Npgsql.NpgsqlConnection)conn, (Npgsql.NpgsqlTransaction)tran, new CompoundJournalEntry
+            {
+                PharmacyNo = CurrentPharmacyNo,
+                BranchNo = CurrentBranchNo,
+                TransactionType = 5,
+                SourceDocumentType = "EXPENSE_REVERSAL",
+                SourceDocumentNo = expense.VoucherNo ?? $"EXP-{id}",
+                SourceDocumentId = id,
+                CreatedByUserNo = CurrentUserNo,
+                Legs = journalLegs
+            });
+
+            await conn.ExecuteAsync(@"
+                DELETE FROM acc_expenses
+                WHERE expense_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { id, CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+            tran.Commit();
+            return OkResponse(true, $"Expense voucher {expense.VoucherNo} deleted and reversed successfully.");
+        }
+        catch (Exception ex)
+        {
+            tran.Rollback();
+            return FailResponse<bool>($"Failed to delete expense: {ex.Message}");
+        }
+    }
 }
+

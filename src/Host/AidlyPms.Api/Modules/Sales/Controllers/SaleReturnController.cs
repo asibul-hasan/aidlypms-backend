@@ -96,7 +96,9 @@ public class SaleReturnController : BaseController
         return OkResponse(ret);
     }
 
+    [HttpPost("customer/returns")]
     [HttpPost("pos/sales/return")]
+    [HttpPost("pos/sales/returns")]
     public async Task<ActionResult<ApiResponse<SaleReturn>>> ProcessReturn([FromBody] CreateSaleReturnPayload payload)
     {
         if (payload.Items == null || payload.Items.Count == 0)
@@ -112,7 +114,40 @@ public class SaleReturnController : BaseController
             var customerNo = payload.CustomerNo ?? returnData.CustomerNo;
             var saleInvoiceNo = payload.SaleInvoiceNo ?? returnData.SaleInvoiceNo;
             var originalInvoiceNo = payload.OriginalInvoiceNo ?? returnData.OriginalInvoiceNo;
-            var accountNo = payload.AccountNo ?? 1; // Default Cash Drawer 10101
+            
+            // Map refund method to account
+            var accountNo = payload.AccountNo ?? 1;
+            if (!string.IsNullOrWhiteSpace(payload.RefundMethod))
+            {
+                accountNo = payload.RefundMethod.ToLowerInvariant() switch
+                {
+                    "card" => 15,
+                    "bkash" => 13,
+                    "nagad" => 14,
+                    "bank" => 2,
+                    _ => 1
+                };
+            }
+
+            // Look up original invoice if provided
+            if (!saleInvoiceNo.HasValue && !string.IsNullOrWhiteSpace(originalInvoiceNo))
+            {
+                var origInvoice = await conn.QuerySingleOrDefaultAsync<SaleInvoice>(@"
+                    SELECT sale_invoice_no, customer_no, payment_method, gross_total_price, final_price
+                    FROM sale_invoices
+                    WHERE sales_number = @originalInvoiceNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                    new { originalInvoiceNo, CurrentPharmacyNo, CurrentBranchNo },
+                    transaction: tran);
+
+                if (origInvoice != null)
+                {
+                    saleInvoiceNo = origInvoice.SaleInvoiceNo;
+                    if (!customerNo.HasValue || customerNo.Value <= 0)
+                    {
+                        customerNo = origInvoice.CustomerNo;
+                    }
+                }
+            }
 
             var returnNumber = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "SALE_RETURN");
 
@@ -137,8 +172,8 @@ public class SaleReturnController : BaseController
                 if (product == null)
                     throw new InvalidOperationException($"Product #{line.ProductNo} not found in this pharmacy branch.");
 
-                var qtyPcs = line.TotalQtyPcs > 0 ? line.TotalQtyPcs : 1;
-                var unitSalePrice = line.SalePrice > 0 ? line.SalePrice : product.SalePricePerPiece;
+                var qtyPcs = line.TotalQtyPcs > 0 ? line.TotalQtyPcs : (line.ReturnQty > 0 ? line.ReturnQty : 1);
+                var unitSalePrice = line.SalePrice > 0 ? line.SalePrice : (line.UnitPrice > 0 ? line.UnitPrice : product.SalePricePerPiece);
                 var lineGross = Math.Round(qtyPcs * unitSalePrice, 4);
 
                 var vatPercent = line.VatPercent >= 0 ? line.VatPercent : 0m;
@@ -153,6 +188,51 @@ public class SaleReturnController : BaseController
                     : (product.QuantityPerBox > 0 ? product.CostPerBox / product.QuantityPerBox : 0);
 
                 var lineCogs = Math.Round(qtyPcs * unitCost, 4);
+
+                // Auto-resolve batch from original sale item if not provided
+                if (string.IsNullOrWhiteSpace(line.BatchNumber))
+                {
+                    if (saleInvoiceNo.HasValue)
+                    {
+                        var origItem = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
+                            SELECT i.sale_invoice_item_no, i.batch_no, b.batch_number
+                            FROM sale_invoice_items i
+                            LEFT JOIN prod_product_batches b ON i.batch_no = b.batch_no
+                            WHERE i.sale_invoice_no = @saleInvoiceNo AND i.product_no = @ProductNo
+                            ORDER BY i.sale_invoice_item_no DESC
+                            LIMIT 1;",
+                            new { saleInvoiceNo = saleInvoiceNo.Value, line.ProductNo },
+                            transaction: tran);
+
+                        if (origItem != null)
+                        {
+                            if (!line.SaleInvoiceItemNo.HasValue || line.SaleInvoiceItemNo.Value <= 0)
+                            {
+                                line.SaleInvoiceItemNo = (long?)origItem.sale_invoice_item_no;
+                            }
+                            if (!string.IsNullOrWhiteSpace((string?)origItem.batch_number))
+                            {
+                                line.BatchNumber = (string)origItem.batch_number;
+                            }
+                        }
+                    }
+
+                    if (string.IsNullOrWhiteSpace(line.BatchNumber))
+                    {
+                        var activeBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
+                            SELECT * FROM prod_product_batches
+                            WHERE product_no = @ProductNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                            ORDER BY expiry_date DESC, batch_no DESC
+                            LIMIT 1;",
+                            new { line.ProductNo, CurrentPharmacyNo, CurrentBranchNo },
+                            transaction: tran);
+
+                        if (activeBatch != null)
+                        {
+                            line.BatchNumber = activeBatch.BatchNumber;
+                        }
+                    }
+                }
 
                 // Check disposition: 1: Restock to Batch
                 if (line.Disposition == 1)
@@ -226,7 +306,7 @@ public class SaleReturnController : BaseController
                     PharmacyNo = CurrentPharmacyNo,
                     BranchNo = CurrentBranchNo,
                     SaleInvoiceNo = saleInvoiceNo,
-                    CustomerNo = customerNo,
+                    CustomerNo = (customerNo.HasValue && customerNo.Value > 0) ? customerNo : null,
                     ReturnInvoiceNo = returnNumber,
                     OriginalInvoiceNo = originalInvoiceNo,
                     TotalItems = processedItems.Count,
@@ -271,7 +351,7 @@ public class SaleReturnController : BaseController
                         PharmacyNo = CurrentPharmacyNo,
                         BranchNo = CurrentBranchNo,
                         SaleReturnNo = nextReturnNo,
-                        item.SaleInvoiceItemNo,
+                        SaleInvoiceItemNo = (item.SaleInvoiceItemNo.HasValue && item.SaleInvoiceItemNo.Value > 0) ? item.SaleInvoiceItemNo : null,
                         item.ProductNo,
                         item.BatchNumber,
                         BoxQty = item.BoxQty,
@@ -428,6 +508,13 @@ public class SaleReturnController : BaseController
                 CreatedAt = DateTime.UtcNow,
                 Items = processedItems
             };
+
+            if (customerNo.HasValue && customerNo.Value > 0)
+            {
+                savedReturn.CustomerName = await conn.QuerySingleOrDefaultAsync<string?>(
+                    "SELECT name FROM cust_customers WHERE customer_no = @customerNo;",
+                    new { customerNo = customerNo.Value });
+            }
 
             return OkResponse(savedReturn, $"Return {returnNumber} processed successfully.");
         }

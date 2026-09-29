@@ -170,4 +170,84 @@ public class SupplierController : BaseController
 
         return OkResponse(existing, $"Supplier '{existing.Name}' updated successfully.");
     }
+
+    [HttpGet("{id:long}/ledger")]
+    public async Task<ActionResult<ApiResponse<object>>> GetSupplierLedger(long id)
+    {
+        using var conn = _db.CreateConnection();
+
+        var supplier = await conn.QuerySingleOrDefaultAsync<SuppSupplier>(@"
+            SELECT supplier_no, name, phone, address, current_due_balance, note
+            FROM supp_suppliers
+            WHERE supplier_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (supplier == null)
+        {
+            return FailResponse<object>("Supplier not found.", statusCode: 404);
+        }
+
+        const string sql = @"
+            SELECT 
+                p.inventory_number AS doc_no,
+                'Purchase Invoice' AS doc_type,
+                p.invoice_date AS doc_date,
+                p.total_net_amount AS debit,
+                (p.total_net_amount - p.current_due_amount) AS credit,
+                CONCAT('Purchase Invoice #', p.supplier_invoice_no) AS note
+            FROM pur_purchase_invoices p
+            WHERE p.supplier_no = @id AND p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo
+
+            UNION ALL
+
+            SELECT 
+                sp.payment_number AS doc_no,
+                'Supplier Payment' AS doc_type,
+                sp.payment_date AS doc_date,
+                0 AS debit,
+                sp.amount AS credit,
+                sp.note
+            FROM pur_supplier_payments sp
+            WHERE sp.supplier_no = @id AND sp.pharmacy_no = @CurrentPharmacyNo AND sp.branch_no = @CurrentBranchNo
+
+            ORDER BY doc_date ASC;";
+
+        var rows = (await conn.QueryAsync(sql, new { id, CurrentPharmacyNo, CurrentBranchNo })).ToList();
+
+        decimal running = 0;
+        var ledger = new List<object>();
+
+        foreach (var r in rows)
+        {
+            IDictionary<string, object> dict = (IDictionary<string, object>)r;
+            var debit = Convert.ToDecimal(dict["debit"] ?? 0);
+            var credit = Convert.ToDecimal(dict["credit"] ?? 0);
+            running += (debit - credit);
+
+            ledger.Add(new
+            {
+                doc_no = dict["doc_no"]?.ToString() ?? "",
+                doc_type = dict["doc_type"]?.ToString() ?? "",
+                doc_date = dict["doc_date"],
+                debit,
+                credit,
+                balance = running,
+                note = dict["note"]?.ToString() ?? ""
+            });
+        }
+
+        return OkResponse<object>(new
+        {
+            supplier = new
+            {
+                supplier_no = supplier.SupplierNo,
+                name = supplier.Name,
+                phone = supplier.Phone,
+                current_due = supplier.CurrentDueBalance,
+                note = supplier.Note
+            },
+            ledger
+        });
+    }
 }
+

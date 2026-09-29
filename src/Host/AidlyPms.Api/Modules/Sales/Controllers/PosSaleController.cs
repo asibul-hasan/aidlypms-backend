@@ -162,9 +162,30 @@ public class PosSaleController : BaseController
     [HttpPost]
     public async Task<ActionResult<ApiResponse<SaleInvoice>>> CreateSale([FromBody] CreateSalePayload payload)
     {
+        if ((payload.Items == null || payload.Items.Count == 0) && payload.Invoice?.Items?.Count > 0)
+        {
+            payload.Items = payload.Invoice.Items;
+        }
+
         if (payload.Items == null || payload.Items.Count == 0)
         {
             return FailResponse<SaleInvoice>("A sale invoice must contain at least one item.");
+        }
+
+        if (payload.Payments == null || payload.Payments.Count == 0)
+        {
+            if (payload.Invoice?.Payment != null)
+            {
+                payload.Payments = new List<SaleInvoicePayment> { payload.Invoice.Payment };
+            }
+            else if (payload.Invoice?.Payments != null && payload.Invoice.Payments.Count > 0)
+            {
+                payload.Payments = payload.Invoice.Payments;
+            }
+            else if (payload.Payment != null)
+            {
+                payload.Payments = new List<SaleInvoicePayment> { payload.Payment };
+            }
         }
 
         await using var conn = await _db.CreateOpenConnectionAsync();
@@ -180,6 +201,9 @@ public class PosSaleController : BaseController
 
             var saleInvoiceNo = await conn.ExecuteScalarAsync<long>(
                 "SELECT COALESCE(MAX(sale_invoice_no), 0) + 1 FROM sale_invoices;", transaction: tran);
+
+            var maxSaleItemNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT COALESCE(MAX(sale_invoice_item_no), 0) FROM sale_invoice_items;", transaction: tran);
 
             decimal grossTotal = 0;
             decimal totalVat = 0;
@@ -198,14 +222,54 @@ public class PosSaleController : BaseController
                     new { line.ProductNo, CurrentPharmacyNo, CurrentBranchNo },
                     transaction: tran);
 
+                if (product == null && line.ProductNo > 1_000_000_000_000)
+                {
+                    // Fallback for client-side Date.now() timestamp product_no:
+                    // Find product matching unit price / cost or first active product in branch
+                    product = await conn.QueryFirstOrDefaultAsync<ProdProduct>(@"
+                        SELECT product_no, product_name, cost_per_box, sale_price_per_box,
+                               purchase_price_per_piece, sale_price_per_piece, quantity_per_box, rak_number
+                        FROM prod_products
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (sale_price_per_piece = @UnitSalePrice OR purchase_price_per_piece = @UnitCostPrice)
+                        ORDER BY product_no ASC
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo, line.UnitSalePrice, line.UnitCostPrice },
+                        transaction: tran);
+
+                    if (product == null)
+                    {
+                        product = await conn.QueryFirstOrDefaultAsync<ProdProduct>(@"
+                            SELECT product_no, product_name, cost_per_box, sale_price_per_box,
+                                   purchase_price_per_piece, sale_price_per_piece, quantity_per_box, rak_number
+                            FROM prod_products
+                            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND is_active = true
+                            ORDER BY product_no ASC
+                            LIMIT 1;",
+                            new { CurrentPharmacyNo, CurrentBranchNo },
+                            transaction: tran);
+                    }
+
+                    if (product != null)
+                    {
+                        line.ProductNo = product.ProductNo;
+                    }
+                }
+
                 if (product == null)
                 {
                     throw new InvalidOperationException($"Product #{line.ProductNo} not found in this pharmacy branch.");
                 }
 
-                var qtyPcs = line.TotalQuantityPcs > 0 ? line.TotalQuantityPcs : 1;
+                var isWholesaleLine = invoice.SaleMode == 2 || line.SaleMode == 2;
+                var pcsPerBoxVal = line.PcsPerBox > 0 ? line.PcsPerBox : (product.QuantityPerBox > 0 ? product.QuantityPerBox : 1);
+                var qtyPcs = line.SaleQty > 0 ? line.SaleQty : (line.TotalQuantityPcs > 0 ? line.TotalQuantityPcs : 1);
+                if (isWholesaleLine && line.BoxQty > 0 && line.SaleQty == line.BoxQty && pcsPerBoxVal > 1)
+                {
+                    qtyPcs = line.BoxQty * pcsPerBoxVal;
+                }
                 var unitSalePrice = line.SalePrice > 0 ? line.SalePrice : product.SalePricePerPiece;
-                var lineGross = Math.Round(qtyPcs * unitSalePrice, 4);
+                var lineGross = line.TotalPrice > 0 ? line.TotalPrice + line.DiscountAmount : Math.Round(qtyPcs * unitSalePrice, 4);
 
                 // Batch Selection (FEFO)
                 long? batchNo = line.BatchNo;
@@ -214,9 +278,9 @@ public class PosSaleController : BaseController
 
                 if (!batchNo.HasValue || batchNo.Value <= 0)
                 {
-                    // Select earliest expiring active batch
-                    var activeBatch = await conn.QueryFirstOrDefaultAsync<(long BatchNo, string BatchNumber, decimal CostPerBox, int QtyInBox)>(@"
-                        SELECT batch_no, batch_number, cost_per_box, quantity_in_box
+                    // 1. Select earliest expiring active batch
+                    var activeBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
+                        SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs
                         FROM prod_product_batches
                         WHERE product_no = @ProductNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND total_quantity_pcs > 0 AND expiry_date >= CURRENT_DATE
@@ -225,29 +289,93 @@ public class PosSaleController : BaseController
                         new { line.ProductNo, CurrentPharmacyNo, CurrentBranchNo },
                         transaction: tran);
 
-                    if (activeBatch.BatchNo > 0)
+                    if (activeBatch != null && activeBatch.BatchNo > 0)
                     {
                         batchNo = activeBatch.BatchNo;
                         batchNumber = activeBatch.BatchNumber;
-                        if (activeBatch.QtyInBox > 0)
+                        if (activeBatch.QuantityInBox > 0 && activeBatch.CostPerBox > 0)
                         {
-                            batchCost = Math.Round(activeBatch.CostPerBox / activeBatch.QtyInBox, 4);
+                            batchCost = Math.Round(activeBatch.CostPerBox / activeBatch.QuantityInBox, 4);
+                        }
+                    }
+                    else
+                    {
+                        // 2. Fallback to any existing batch for this product
+                        var anyBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
+                            SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs
+                            FROM prod_product_batches
+                            WHERE product_no = @ProductNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                            ORDER BY (total_quantity_pcs > 0) DESC, expiry_date DESC, batch_no DESC
+                            LIMIT 1
+                            FOR UPDATE;",
+                            new { line.ProductNo, CurrentPharmacyNo, CurrentBranchNo },
+                            transaction: tran);
+
+                        if (anyBatch != null && anyBatch.BatchNo > 0)
+                        {
+                            batchNo = anyBatch.BatchNo;
+                            batchNumber = anyBatch.BatchNumber;
+                            if (anyBatch.QuantityInBox > 0 && anyBatch.CostPerBox > 0)
+                            {
+                                batchCost = Math.Round(anyBatch.CostPerBox / anyBatch.QuantityInBox, 4);
+                            }
+                        }
+                        else
+                        {
+                            // 3. Auto-create initial batch if product has no batch rows yet
+                            var newBatchNo = await conn.ExecuteScalarAsync<long>(
+                                "SELECT COALESCE(MAX(batch_no), 0) + 1 FROM prod_product_batches;", transaction: tran);
+                            var defaultBatchNum = $"BATCH-{line.ProductNo:D4}";
+                            var expiry = DateTime.UtcNow.AddYears(2).Date;
+                            var qInBox = product.QuantityPerBox > 0 ? product.QuantityPerBox : 10;
+
+                            await conn.ExecuteAsync(@"
+                                INSERT INTO prod_product_batches (
+                                    batch_no, pharmacy_no, branch_no, product_no, batch_number,
+                                    expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
+                                    cost_per_box, sale_price_per_box, vat_percent, is_expired,
+                                    created_at, updated_at
+                                ) VALUES (
+                                    @newBatchNo, @CurrentPharmacyNo, @CurrentBranchNo, @ProductNo, @defaultBatchNum,
+                                    @expiry, 0, @qInBox, 0,
+                                    @CostPerBox, @SalePricePerBox, 0, false,
+                                    NOW(), NOW()
+                                );",
+                                new
+                                {
+                                    newBatchNo,
+                                    CurrentPharmacyNo,
+                                    CurrentBranchNo,
+                                    line.ProductNo,
+                                    defaultBatchNum,
+                                    expiry,
+                                    qInBox,
+                                    product.CostPerBox,
+                                    product.SalePricePerBox
+                                },
+                                transaction: tran);
+
+                            batchNo = newBatchNo;
+                            batchNumber = defaultBatchNum;
                         }
                     }
                 }
                 else
                 {
-                    var selectedBatch = await conn.QuerySingleOrDefaultAsync<(string BatchNumber, decimal CostPerBox, int QtyInBox)>(@"
-                        SELECT batch_number, cost_per_box, quantity_in_box
+                    var selectedBatch = await conn.QuerySingleOrDefaultAsync<ProdProductBatch>(@"
+                        SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs
                         FROM prod_product_batches
                         WHERE batch_no = @BatchNo FOR UPDATE;",
                         new { BatchNo = batchNo.Value },
                         transaction: tran);
 
-                    batchNumber = selectedBatch.BatchNumber ?? batchNumber;
-                    if (selectedBatch.QtyInBox > 0)
+                    if (selectedBatch != null)
                     {
-                        batchCost = Math.Round(selectedBatch.CostPerBox / selectedBatch.QtyInBox, 4);
+                        batchNumber = selectedBatch.BatchNumber ?? batchNumber;
+                        if (selectedBatch.QuantityInBox > 0 && selectedBatch.CostPerBox > 0)
+                        {
+                            batchCost = Math.Round(selectedBatch.CostPerBox / selectedBatch.QuantityInBox, 4);
+                        }
                     }
                 }
 
@@ -260,8 +388,8 @@ public class PosSaleController : BaseController
                 totalVat += itemVat;
                 totalCogs += (batchCost * qtyPcs);
 
-                var saleItemNo = await conn.ExecuteScalarAsync<long>(
-                    "SELECT COALESCE(MAX(sale_invoice_item_no), 0) + 1 FROM sale_invoice_items;", transaction: tran);
+                maxSaleItemNo++;
+                var saleItemNo = maxSaleItemNo;
 
                 var processedLine = new SaleInvoiceItem
                 {
@@ -391,6 +519,14 @@ public class PosSaleController : BaseController
 
             // Record split tender payments
             var paymentsToRecord = payload.Payments ?? new List<SaleInvoicePayment>();
+            foreach (var p in paymentsToRecord)
+            {
+                if (p.Amount <= 0 && p.PaidAmount > 0)
+                {
+                    p.Amount = p.PaidAmount;
+                }
+            }
+
             if (paymentsToRecord.Count == 0 && finalPrice > 0 && dueAmount < finalPrice)
             {
                 // Default cash payment
@@ -405,12 +541,15 @@ public class PosSaleController : BaseController
             var recordedPayments = new List<SaleInvoicePayment>();
             decimal totalPaidReceived = 0;
 
+            var maxPaymentNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT COALESCE(MAX(sale_payment_no), 0) FROM sale_invoice_payments;", transaction: tran);
+
             foreach (var pay in paymentsToRecord)
             {
                 if (pay.Amount <= 0) continue;
 
-                var paymentNo = await conn.ExecuteScalarAsync<long>(
-                    "SELECT COALESCE(MAX(sale_payment_no), 0) + 1 FROM sale_invoice_payments;", transaction: tran);
+                maxPaymentNo++;
+                var paymentNo = maxPaymentNo;
 
                 const string insertPaymentSql = @"
                     INSERT INTO sale_invoice_payments (
@@ -616,4 +755,74 @@ public class PosSaleController : BaseController
             return FailResponse<SaleInvoice>($"Failed to post sale: {ex.Message}");
         }
     }
+
+    [HttpDelete("{id:long}")]
+    public async Task<ActionResult<ApiResponse<bool>>> VoidSale(long id)
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        await using var tran = await conn.BeginTransactionAsync();
+
+        try
+        {
+            var invoice = await conn.QuerySingleOrDefaultAsync<SaleInvoice>(@"
+                SELECT sale_invoice_no, sales_number, customer_no, final_price, document_status
+                FROM sale_invoices
+                WHERE sale_invoice_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                FOR UPDATE;",
+                new { id, CurrentPharmacyNo, CurrentBranchNo },
+                transaction: tran);
+
+            if (invoice == null)
+            {
+                return FailResponse<bool>("Sale invoice not found.", statusCode: 404);
+            }
+
+            if (invoice.DocumentStatus == 3)
+            {
+                return FailResponse<bool>("Invoice is already voided.");
+            }
+
+            var items = (await conn.QueryAsync<SaleInvoiceItem>(@"
+                SELECT product_no, batch_no, sale_qty, unit_cost_price
+                FROM sale_invoice_items
+                WHERE sale_invoice_no = @id;",
+                new { id },
+                transaction: tran)).AsList();
+
+            foreach (var item in items)
+            {
+                await _stockPosting.PostMovementAsync(conn, tran, new StockMovementEntry
+                {
+                    PharmacyNo = CurrentPharmacyNo,
+                    BranchNo = CurrentBranchNo,
+                    ProductNo = item.ProductNo,
+                    BatchNo = item.BatchNo,
+                    MovementType = 3, // Restock / Void
+                    ReferenceDocType = "SALE_VOID",
+                    ReferenceDocNo = invoice.SalesNumber ?? $"INV-{id}",
+                    ReferenceDocId = id,
+                    QtyPcs = item.SaleQty,
+                    UnitCost = item.UnitCostPrice,
+                    Remarks = $"Restored stock on void of invoice {invoice.SalesNumber}"
+                });
+            }
+
+            await conn.ExecuteAsync(@"
+                UPDATE sale_invoices
+                SET document_status = 3,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE sale_invoice_no = @id;",
+                new { id },
+                transaction: tran);
+
+            await tran.CommitAsync();
+            return OkResponse(true, $"Invoice {invoice.SalesNumber} voided and stock restored successfully.");
+        }
+        catch (Exception ex)
+        {
+            await tran.RollbackAsync();
+            return FailResponse<bool>($"Failed to void invoice: {ex.Message}");
+        }
+    }
 }
+
