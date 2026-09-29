@@ -20,18 +20,23 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
         run: |
-          # Everything below MUST be indented by at least 10 spaces
           git config --global user.email "asibulhasan23@gmail.com"
           git config --global user.name "asibul"
 
-          if [ -z "${{ secrets.HF_TOKEN }}" ]; then
-            echo "ERROR: HF_TOKEN is missing."
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::HF_TOKEN secret is missing in GitHub repository settings."
             exit 1
           fi
 
-          # Using the variables properly
-          HF_REPO="huggingface.co/spaces/${{ secrets.HF_USERNAME }}/Infoaidtech"
-          
-          # Add remote and push
-          git remote add hf "https://${{ secrets.HF_USERNAME }}:${{ secrets.HF_TOKEN }}@$HF_REPO"
+          # Resolve Hugging Face username (the Infoaidtech space is hosted under asibul-07)
+          TARGET_USER="${HF_USERNAME:-asibul-07}"
+          if [ "$TARGET_USER" = "asibul" ] || [ -z "$TARGET_USER" ]; then
+            TARGET_USER="asibul-07"
+          fi
+
+          echo "Deploying to Hugging Face Space: ${TARGET_USER}/Infoaidtech"
+          HF_URL="https://${TARGET_USER}:${HF_TOKEN}@huggingface.co/spaces/${TARGET_USER}/Infoaidtech"
+
+          git remote remove hf 2>/dev/null || true
+          git remote add hf "$HF_URL"
           git push --force hf main
