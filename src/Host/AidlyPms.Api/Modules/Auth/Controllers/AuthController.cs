@@ -51,6 +51,7 @@ public class AuthController : BaseController
             WHERE u.phone = @Identifier 
                OR u.email = @Identifier
                OR REPLACE(u.phone, '+88', '') = REPLACE(@Identifier, '+88', '')
+               OR SPLIT_PART(u.email, '@', 1) = LOWER(@Identifier)
             LIMIT 1;";
 
         var user = await conn.QuerySingleOrDefaultAsync<dynamic>(userSql, new { Identifier = identifier });
@@ -284,35 +285,61 @@ public class AuthController : BaseController
     {
         var passwordHash = BCrypt.Net.BCrypt.HashPassword("password123");
 
-        // Ensure Admin (role_no: 9)
-        await conn.ExecuteAsync(@"
-            INSERT INTO sys_users (
-                user_no, uuid, pharmacy_no, branch_no, role_no,
-                first_name, last_name, phone, email, password_hash,
-                gender, is_active, created_at, updated_at
-            ) VALUES (
-                1, 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380b22', 1, 1, 9,
-                'Admin', 'Manager', '01700000000', 'admin@aidlypms.com', @PasswordHash,
-                1, TRUE, NOW(), NOW()
-            )
-            ON CONFLICT (phone) DO UPDATE 
-            SET password_hash = @PasswordHash, is_active = TRUE, updated_at = NOW();",
-            new { PasswordHash = passwordHash });
+        // Ensure Admin (user_no: 1, role_no: 9)
+        var user1Exists = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM sys_users WHERE user_no = 1;");
+        if (user1Exists > 0)
+        {
+            await conn.ExecuteAsync(@"
+                UPDATE sys_users 
+                SET phone = '01700000000', 
+                    password_hash = @PasswordHash, 
+                    is_active = TRUE, 
+                    updated_at = NOW()
+                WHERE user_no = 1;",
+                new { PasswordHash = passwordHash });
+        }
+        else
+        {
+            await conn.ExecuteAsync(@"
+                INSERT INTO sys_users (
+                    user_no, uuid, pharmacy_no, branch_no, role_no,
+                    first_name, last_name, phone, email, password_hash,
+                    gender, is_active, created_at, updated_at
+                ) VALUES (
+                    1, 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380b22', 1, 1, 9,
+                    'Admin', 'Manager', '01700000000', 'admin@aidlypms.com', @PasswordHash,
+                    1, TRUE, NOW(), NOW()
+                );",
+                new { PasswordHash = passwordHash });
+        }
 
-        // Ensure Salesman / Cashier (role_no: 10)
-        await conn.ExecuteAsync(@"
-            INSERT INTO sys_users (
-                user_no, uuid, pharmacy_no, branch_no, role_no,
-                first_name, last_name, phone, email, password_hash,
-                gender, is_active, created_at, updated_at
-            ) VALUES (
-                2, 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380c33', 1, 1, 10,
-                'Karim', 'Salesman', '01700000001', 'salesman@aidlypms.com', @PasswordHash,
-                1, TRUE, NOW(), NOW()
-            )
-            ON CONFLICT (phone) DO UPDATE 
-            SET password_hash = @PasswordHash, is_active = TRUE, updated_at = NOW();",
-            new { PasswordHash = passwordHash });
+        // Ensure Salesman / Cashier (user_no: 2, role_no: 10)
+        var user2Exists = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM sys_users WHERE user_no = 2;");
+        if (user2Exists > 0)
+        {
+            await conn.ExecuteAsync(@"
+                UPDATE sys_users 
+                SET phone = '01700000001', 
+                    password_hash = @PasswordHash, 
+                    is_active = TRUE, 
+                    updated_at = NOW()
+                WHERE user_no = 2;",
+                new { PasswordHash = passwordHash });
+        }
+        else
+        {
+            await conn.ExecuteAsync(@"
+                INSERT INTO sys_users (
+                    user_no, uuid, pharmacy_no, branch_no, role_no,
+                    first_name, last_name, phone, email, password_hash,
+                    gender, is_active, created_at, updated_at
+                ) VALUES (
+                    2, 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380c33', 1, 1, 10,
+                    'Karim', 'Salesman', '01700000001', 'salesman@aidlypms.com', @PasswordHash,
+                    1, TRUE, NOW(), NOW()
+                );",
+                new { PasswordHash = passwordHash });
+        }
 
         // Ensure branch access
         await conn.ExecuteAsync(@"
