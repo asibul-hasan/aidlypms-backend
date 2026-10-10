@@ -88,7 +88,12 @@ public class DashboardController : BaseController
               AND expiry_date < CURRENT_DATE AND total_quantity_pcs > 0;",
             new { CurrentPharmacyNo, CurrentBranchNo });
 
-        var nearExpiryThreshold = DateTime.UtcNow.AddDays(90).Date;
+        var expiryDays = await conn.ExecuteScalarAsync<int?>(@"
+            SELECT expired_notification_days FROM cfg_product_configs
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 90;
+
+        var nearExpiryThreshold = DateTime.UtcNow.AddDays(expiryDays > 0 ? expiryDays : 90).Date;
         var nearExpiryCount = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(1) FROM prod_product_batches
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo

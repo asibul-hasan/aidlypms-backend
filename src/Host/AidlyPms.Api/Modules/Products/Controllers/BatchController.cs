@@ -59,9 +59,21 @@ public class BatchController : BaseController
     }
 
     [HttpGet("near-expiry")]
-    public async Task<ActionResult<ApiResponse<List<ProdProductBatch>>>> GetNearExpiryBatches([FromQuery] int daysThreshold = 90)
+    public async Task<ActionResult<ApiResponse<List<ProdProductBatch>>>> GetNearExpiryBatches([FromQuery] int? daysThreshold = null)
     {
         await using var conn = await _db.CreateOpenConnectionAsync();
+
+        var threshold = daysThreshold;
+        if (!threshold.HasValue || threshold.Value <= 0)
+        {
+            threshold = await conn.ExecuteScalarAsync<int?>(@"
+                SELECT expired_notification_days FROM cfg_product_configs
+                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { CurrentPharmacyNo, CurrentBranchNo }) ?? 90;
+        }
+
+        var effectiveDays = threshold.Value > 0 ? threshold.Value : 90;
+
         const string sql = @"
             SELECT 
                 b.batch_no, b.pharmacy_no, b.branch_no, b.product_no, b.batch_number,
@@ -72,10 +84,10 @@ public class BatchController : BaseController
             JOIN prod_products p ON b.product_no = p.product_no
             WHERE b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo
               AND b.expiry_date >= CURRENT_DATE
-              AND b.expiry_date <= (CURRENT_DATE + @daysThreshold * INTERVAL '1 day')
+              AND b.expiry_date <= (CURRENT_DATE + @effectiveDays * INTERVAL '1 day')
             ORDER BY b.expiry_date ASC;";
 
-        var list = (await conn.QueryAsync<ProdProductBatch>(sql, new { CurrentPharmacyNo, CurrentBranchNo, daysThreshold })).AsList();
+        var list = (await conn.QueryAsync<ProdProductBatch>(sql, new { CurrentPharmacyNo, CurrentBranchNo, effectiveDays })).AsList();
         return OkResponse(list);
     }
 

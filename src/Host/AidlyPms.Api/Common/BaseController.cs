@@ -13,6 +13,7 @@ public abstract class BaseController : ControllerBase
     protected long CurrentPharmacyNo => TenantContext.PharmacyNo;
     protected long CurrentBranchNo => TenantContext.BranchNo;
     protected long CurrentUserNo => TenantContext.UserNo;
+    protected long CurrentRoleNo => TenantContext.RoleNo;
 
     protected ActionResult<ApiResponse<T>> OkResponse<T>(T data, string? message = null)
     {

@@ -79,6 +79,12 @@ public class SysUser
     [JsonPropertyName("email")]
     public string? Email { get; set; }
 
+    [JsonPropertyName("password")]
+    public string? Password { get; set; }
+
+    [JsonPropertyName("password_hash")]
+    public string? PasswordHash { get; set; }
+
     [JsonPropertyName("gender")]
     public short? Gender { get; set; } = 1;
 

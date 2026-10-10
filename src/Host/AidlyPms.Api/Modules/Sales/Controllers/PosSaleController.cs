@@ -3,6 +3,7 @@ using AidlyPms.Api.Common.Database;
 using AidlyPms.Api.Infrastructure;
 using AidlyPms.Api.Modules.Products.Models;
 using AidlyPms.Api.Modules.Sales.Models;
+using AidlyPms.Api.Modules.Settings.Models;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
 
@@ -195,6 +196,14 @@ public class PosSaleController : BaseController
         {
             var invoice = payload.Invoice;
 
+            var saleConfig = await conn.QueryFirstOrDefaultAsync<CfgSaleConfig>(@"
+                SELECT * FROM cfg_sale_configs
+                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { CurrentPharmacyNo, CurrentBranchNo },
+                transaction: tran);
+
+            var allowOutOfStock = saleConfig?.OutOfStockSale ?? true;
+
             // Generate monotonic document number
             var salesNumber = await _docNumService.GetNextDocumentNumberAsync(
                 conn, tran, CurrentPharmacyNo, CurrentBranchNo, "SALE_INVOICE");
@@ -228,7 +237,7 @@ public class PosSaleController : BaseController
                     // Find product matching unit price / cost or first active product in branch
                     product = await conn.QueryFirstOrDefaultAsync<ProdProduct>(@"
                         SELECT product_no, product_name, cost_per_box, sale_price_per_box,
-                               purchase_price_per_piece, sale_price_per_piece, quantity_per_box, rak_number
+                                purchase_price_per_piece, sale_price_per_piece, quantity_per_box, rak_number
                         FROM prod_products
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (sale_price_per_piece = @UnitSalePrice OR purchase_price_per_piece = @UnitCostPrice)
@@ -278,7 +287,7 @@ public class PosSaleController : BaseController
 
                 if (!batchNo.HasValue || batchNo.Value <= 0)
                 {
-                    // 1. Select earliest expiring active batch
+                    // 1. Select earliest expiring active batch with positive stock
                     var activeBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
                         SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs
                         FROM prod_product_batches
@@ -300,7 +309,16 @@ public class PosSaleController : BaseController
                     }
                     else
                     {
-                        // 2. Fallback to any existing batch for this product
+                        // No active batch with stock available. Check if out-of-stock sales are allowed.
+                        if (!allowOutOfStock)
+                        {
+                            await tran.RollbackAsync();
+                            return FailResponse<SaleInvoice>(
+                                $"Medicine '{product.ProductName}' is out of stock (available: 0 pcs), and out-of-stock sales are disabled in settings.",
+                                statusCode: 422);
+                        }
+
+                        // 2. Out-of-stock sales allowed: fallback to latest existing batch for this product
                         var anyBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
                             SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs
                             FROM prod_product_batches
@@ -322,11 +340,12 @@ public class PosSaleController : BaseController
                         }
                         else
                         {
-                            // 3. Auto-create initial batch if product has no batch rows yet
+                            // 3. Brand new product with zero batch records in inventory:
+                            // Create explicit pre-purchase batch with sentinel expiry (2099-12-31) pending purchase invoice
                             var newBatchNo = await conn.ExecuteScalarAsync<long>(
                                 "SELECT COALESCE(MAX(batch_no), 0) + 1 FROM prod_product_batches;", transaction: tran);
-                            var defaultBatchNum = $"BATCH-{line.ProductNo:D4}";
-                            var expiry = DateTime.UtcNow.AddYears(2).Date;
+                            var defaultBatchNum = !string.IsNullOrWhiteSpace(line.BatchNumber) ? line.BatchNumber.Trim() : "PRE-PURCHASE";
+                            var expiry = new DateTime(2099, 12, 31);
                             var qInBox = product.QuantityPerBox > 0 ? product.QuantityPerBox : 10;
 
                             await conn.ExecuteAsync(@"
@@ -365,12 +384,20 @@ public class PosSaleController : BaseController
                     var selectedBatch = await conn.QuerySingleOrDefaultAsync<ProdProductBatch>(@"
                         SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs
                         FROM prod_product_batches
-                        WHERE batch_no = @BatchNo FOR UPDATE;",
-                        new { BatchNo = batchNo.Value },
+                        WHERE batch_no = @BatchNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo FOR UPDATE;",
+                        new { BatchNo = batchNo.Value, CurrentPharmacyNo, CurrentBranchNo },
                         transaction: tran);
 
                     if (selectedBatch != null)
                     {
+                        if (selectedBatch.TotalQuantityPcs < qtyPcs && !allowOutOfStock)
+                        {
+                            await tran.RollbackAsync();
+                            return FailResponse<SaleInvoice>(
+                                $"Batch '{selectedBatch.BatchNumber}' for medicine '{product.ProductName}' only has {selectedBatch.TotalQuantityPcs} pcs available, but {qtyPcs} pcs was requested. Out-of-stock sales are disabled in settings.",
+                                statusCode: 422);
+                        }
+
                         batchNumber = selectedBatch.BatchNumber ?? batchNumber;
                         if (selectedBatch.QuantityInBox > 0 && selectedBatch.CostPerBox > 0)
                         {

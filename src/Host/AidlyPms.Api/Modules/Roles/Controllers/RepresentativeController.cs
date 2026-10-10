@@ -119,6 +119,9 @@ public class RepresentativeController : BaseController
             model.CreatedAt = DateTime.UtcNow;
             model.UpdatedAt = DateTime.UtcNow;
 
+            var rawPassword = !string.IsNullOrWhiteSpace(model.Password) ? model.Password : "password123";
+            model.PasswordHash = BCrypt.Net.BCrypt.HashPassword(rawPassword);
+
             await conn.ExecuteAsync(@"
                 INSERT INTO sys_users (
                     user_no, uuid, pharmacy_no, branch_no, role_no,
@@ -126,7 +129,7 @@ public class RepresentativeController : BaseController
                     gender, is_active, created_at, updated_at
                 ) VALUES (
                     @UserNo, @Uuid, @PharmacyNo, @BranchNo, @RoleNo,
-                    @FirstName, @LastName, @Phone, @Email, '',
+                    @FirstName, @LastName, @Phone, @Email, @PasswordHash,
                     @Gender, @IsActive, @CreatedAt, @UpdatedAt
                 );", model, transaction: tran);
 
@@ -174,10 +177,16 @@ public class RepresentativeController : BaseController
         existing.IsActive = model.IsActive;
         existing.UpdatedAt = DateTime.UtcNow;
 
+        if (!string.IsNullOrWhiteSpace(model.Password))
+        {
+            existing.PasswordHash = BCrypt.Net.BCrypt.HashPassword(model.Password);
+        }
+
         await conn.ExecuteAsync(@"
             UPDATE sys_users
             SET first_name = @FirstName, last_name = @LastName,
                 email = @Email, role_no = @RoleNo, gender = @Gender,
+                password_hash = @PasswordHash,
                 is_active = @IsActive, updated_at = @UpdatedAt
             WHERE user_no = @UserNo AND pharmacy_no = @PharmacyNo;",
             existing);

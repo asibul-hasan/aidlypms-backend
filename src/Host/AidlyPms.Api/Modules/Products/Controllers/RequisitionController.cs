@@ -114,12 +114,12 @@ public class RequisitionController : BaseController
                 p.company_no,
                 COALESCE(c.name, '') AS company_name,
                 COALESCE(SUM(b.total_quantity_pcs), 0)::int AS current_stock_pcs,
-                COALESCE(p.min_stock_qty_pcs, 0)::int AS min_stock_qty_pcs,
-                GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
+                COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)::int AS min_stock_qty_pcs,
+                GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
                 GREATEST(1, COALESCE(p.quantity_per_box, 1))::int AS quantity_per_box,
                 CASE 
-                    WHEN GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0)) > 0 
-                    THEN CEIL(GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0))::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)))::int
+                    WHEN GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0)) > 0 
+                    THEN CEIL(GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0))::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)))::int
                     ELSE 1 
                 END AS suggested_box_qty,
                 COALESCE(p.purchase_price_per_piece, 0) AS purchase_price_per_piece,
@@ -150,7 +150,7 @@ public class RequisitionController : BaseController
               AND p.is_active = TRUE
               AND (@companyNo IS NULL OR p.company_no = @companyNo)
             GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece
-            HAVING COALESCE(SUM(b.total_quantity_pcs), 0) <= p.min_stock_qty_pcs
+            HAVING COALESCE(SUM(b.total_quantity_pcs), 0) <= COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)
             ORDER BY shortfall_pcs DESC, current_stock_pcs ASC, p.product_name ASC;";
 
         var items = (await conn.QueryAsync<LowStockProductDto>(sql, new
@@ -171,8 +171,8 @@ public class RequisitionController : BaseController
                     p.company_no,
                     COALESCE(c.name, '') AS company_name,
                     COALESCE(SUM(b.total_quantity_pcs), 0)::int AS current_stock_pcs,
-                    COALESCE(p.min_stock_qty_pcs, 0)::int AS min_stock_qty_pcs,
-                    GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
+                    COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)::int AS min_stock_qty_pcs,
+                    GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
                     GREATEST(1, COALESCE(p.quantity_per_box, 1))::int AS quantity_per_box,
                     1 AS suggested_box_qty,
                     COALESCE(p.purchase_price_per_piece, 0) AS purchase_price_per_piece,
@@ -203,8 +203,8 @@ public class RequisitionController : BaseController
                   AND p.is_active = TRUE
                   AND (@companyNo IS NULL OR p.company_no = @companyNo)
                 GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece
-                ORDER BY (COALESCE(SUM(b.total_quantity_pcs), 0) - p.min_stock_qty_pcs) ASC, p.product_name ASC
-                LIMIT 5;";
+                ORDER BY (COALESCE(SUM(b.total_quantity_pcs), 0) - COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)) ASC, p.product_name ASC
+                LIMIT 50;";
 
             items = (await conn.QueryAsync<LowStockProductDto>(fallbackSql, new
             {

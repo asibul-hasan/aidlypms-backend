@@ -16,6 +16,32 @@ builder.Services.AddScoped<IDocumentNumberService, DocumentNumberService>();
 builder.Services.AddScoped<ILedgerPostingService, LedgerPostingService>();
 builder.Services.AddScoped<IStockPostingService, StockPostingService>();
 
+// JWT Authentication
+var jwtConfig = builder.Configuration.GetSection("Jwt");
+var secretKey = jwtConfig["Key"] ?? "AidlyPMS_SuperSecret_Jwt_SigningKey_2026_Enterprise_Secure!";
+var keyBytes = System.Text.Encoding.UTF8.GetBytes(secretKey);
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.RequireHttpsMetadata = false;
+    options.SaveToken = true;
+    options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(keyBytes),
+        ValidateIssuer = true,
+        ValidIssuer = jwtConfig["Issuer"] ?? "AidlyPmsBackend",
+        ValidateAudience = true,
+        ValidAudience = jwtConfig["Audience"] ?? "AidlyPmsFrontend",
+        ClockSkew = TimeSpan.Zero
+    };
+});
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -46,6 +72,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

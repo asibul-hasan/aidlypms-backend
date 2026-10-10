@@ -34,8 +34,9 @@ public class ProductController : BaseController
         const string countSql = @"
             SELECT COUNT(*)
             FROM prod_products p
+            LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             WHERE p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo
-              AND (@search IS NULL OR p.product_name ILIKE '%' || @search || '%' OR p.barcode_value ILIKE '%' || @search || '%')
+              AND (@search IS NULL OR p.product_name ILIKE '%' || @search || '%' OR p.barcode_value ILIKE '%' || @search || '%' OR g.name ILIKE '%' || @search || '%')
               AND (@companyNo IS NULL OR p.company_no = @companyNo)
               AND (@genericNo IS NULL OR p.generic_no = @genericNo);";
 
@@ -69,7 +70,7 @@ public class ProductController : BaseController
             LEFT JOIN prod_companies c ON p.company_no = c.company_no
             LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             WHERE p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo
-              AND (@search IS NULL OR p.product_name ILIKE '%' || @search || '%' OR p.barcode_value ILIKE '%' || @search || '%')
+              AND (@search IS NULL OR p.product_name ILIKE '%' || @search || '%' OR p.barcode_value ILIKE '%' || @search || '%' OR g.name ILIKE '%' || @search || '%')
               AND (@companyNo IS NULL OR p.company_no = @companyNo)
               AND (@genericNo IS NULL OR p.generic_no = @genericNo)
             ORDER BY p.product_name ASC
@@ -85,12 +86,6 @@ public class ProductController : BaseController
             offset,
             pageSize
         })).AsList();
-
-        // If search is provided and pageSize wasn't explicitly paged, support direct array responses for autocomplete
-        if (!string.IsNullOrEmpty(search) && pageSize == 50 && pageIndex == 1)
-        {
-            return OkResponse<object>(items);
-        }
 
         var paged = new PagedResult<ProdProduct>(items, total, pageIndex, pageSize);
         return OkResponse<object>(paged);
@@ -112,12 +107,12 @@ public class ProductController : BaseController
                 p.company_no,
                 COALESCE(c.name, '') AS company_name,
                 COALESCE(SUM(b.total_quantity_pcs), 0)::int AS current_stock_pcs,
-                COALESCE(p.min_stock_qty_pcs, 0)::int AS min_stock_qty_pcs,
-                GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
+                COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)::int AS min_stock_qty_pcs,
+                GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
                 GREATEST(1, COALESCE(p.quantity_per_box, 1))::int AS quantity_per_box,
                 CASE 
-                    WHEN GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0)) > 0 
-                    THEN CEIL(GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0))::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)))::int
+                    WHEN GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0)) > 0 
+                    THEN CEIL(GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0))::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)))::int
                     ELSE 1 
                 END AS suggested_box_qty,
                 COALESCE(p.purchase_price_per_piece, 0) AS purchase_price_per_piece,
@@ -148,7 +143,7 @@ public class ProductController : BaseController
               AND p.is_active = TRUE
               AND (@companyNo IS NULL OR p.company_no = @companyNo)
             GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece
-            HAVING COALESCE(SUM(b.total_quantity_pcs), 0) <= p.min_stock_qty_pcs
+            HAVING COALESCE(SUM(b.total_quantity_pcs), 0) <= COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)
             ORDER BY shortfall_pcs DESC, current_stock_pcs ASC, p.product_name ASC;";
 
         var items = (await conn.QueryAsync<LowStockProductDto>(sql, new
@@ -169,13 +164,13 @@ public class ProductController : BaseController
                     p.company_no,
                     COALESCE(c.name, '') AS company_name,
                     COALESCE(SUM(b.total_quantity_pcs), 0)::int AS current_stock_pcs,
-                    COALESCE(p.min_stock_qty_pcs, 0)::int AS min_stock_qty_pcs,
-                    GREATEST(0, COALESCE(p.min_stock_qty_pcs, 0) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
+                    COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)::int AS min_stock_qty_pcs,
+                    GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
                     GREATEST(1, COALESCE(p.quantity_per_box, 1))::int AS quantity_per_box,
                     1 AS suggested_box_qty,
                     COALESCE(p.purchase_price_per_piece, 0) AS purchase_price_per_piece,
                     COALESCE(p.cost_per_box, 0) AS cost_per_box,
-                    COALESCE(p.sale_price_per_piece, 0) AS sale_price_per_piece,
+                    COALESCE(sale_price_per_piece, 0) AS sale_price_per_piece,
                     COALESCE(MAX(b.vat_percent), 0) AS vat_percent,
                     COALESCE((
                         SELECT SUM(sii.sale_qty)
@@ -201,8 +196,8 @@ public class ProductController : BaseController
                   AND p.is_active = TRUE
                   AND (@companyNo IS NULL OR p.company_no = @companyNo)
                 GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece
-                ORDER BY (COALESCE(SUM(b.total_quantity_pcs), 0) - p.min_stock_qty_pcs) ASC, p.product_name ASC
-                LIMIT 5;";
+                ORDER BY (COALESCE(SUM(b.total_quantity_pcs), 0) - COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)) ASC, p.product_name ASC
+                LIMIT 50;";
 
             items = (await conn.QueryAsync<LowStockProductDto>(fallbackSql, new
             {
