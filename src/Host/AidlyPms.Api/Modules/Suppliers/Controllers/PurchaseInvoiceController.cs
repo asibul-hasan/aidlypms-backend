@@ -532,6 +532,18 @@ public class PurchaseInvoiceController : BaseController
                 Legs = journalLegs
             });
 
+            if (payload.RequisitionNo.HasValue && payload.RequisitionNo.Value > 0)
+            {
+                await conn.ExecuteAsync(@"
+                    UPDATE prod_product_requisitions
+                    SET status = 'Fulfilled', updated_at = NOW()
+                    WHERE requisition_no = @ReqNo 
+                      AND pharmacy_no = @CurrentPharmacyNo 
+                      AND branch_no = @CurrentBranchNo;",
+                    new { ReqNo = payload.RequisitionNo.Value, CurrentPharmacyNo, CurrentBranchNo },
+                    transaction: tran);
+            }
+
             tran.Commit();
 
             var savedInvoice = new PurPurchaseInvoice

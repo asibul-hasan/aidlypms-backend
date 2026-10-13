@@ -232,7 +232,8 @@ public class RequisitionController : BaseController
         [FromQuery] string? search = null,
         [FromQuery] long? supplierNo = null,
         [FromQuery] DateTime? fromDate = null,
-        [FromQuery] DateTime? toDate = null)
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? status = null)
     {
         await using var conn = await _db.CreateOpenConnectionAsync();
         var offset = (pageIndex - 1) * pageSize;
@@ -247,6 +248,12 @@ public class RequisitionController : BaseController
         {
             whereClause += " AND r.requisition_code ILIKE @Search";
             pms.Add("Search", $"%{search.Trim()}%");
+        }
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            whereClause += " AND r.status ILIKE @Status";
+            pms.Add("Status", status.Trim());
         }
 
         if (supplierNo.HasValue && supplierNo.Value > 0)
@@ -302,6 +309,43 @@ public class RequisitionController : BaseController
         var items = (await conn.QueryAsync<ProdProductRequisition>(dataSql, pms)).AsList();
 
         return PagedResponse(new PagedResult<ProdProductRequisition>(items, total, pageIndex, pageSize));
+    }
+
+    [HttpGet("approved")]
+    public async Task<ActionResult<ApiResponse<List<ProdProductRequisition>>>> GetApprovedRequisitions()
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        const string sql = @"
+            SELECT 
+                r.requisition_no,
+                r.requisition_code,
+                r.pharmacy_no,
+                r.branch_no,
+                r.company_no,
+                c.name AS company_name,
+                r.supplier_no,
+                s.name AS supplier_name,
+                r.total_selected_items,
+                r.total_cost,
+                r.is_as_per_sale,
+                r.status,
+                r.created_at,
+                r.updated_at
+            FROM prod_product_requisitions r
+            LEFT JOIN supp_suppliers s ON r.supplier_no = s.supplier_no
+            LEFT JOIN prod_companies c ON r.company_no = c.company_no
+            WHERE r.pharmacy_no = @CurrentPharmacyNo 
+              AND r.branch_no = @CurrentBranchNo 
+              AND r.status = 'Approved'
+            ORDER BY r.created_at DESC;";
+
+        var list = (await conn.QueryAsync<ProdProductRequisition>(sql, new
+        {
+            CurrentPharmacyNo,
+            CurrentBranchNo
+        })).AsList();
+
+        return OkResponse(list);
     }
 
     [HttpGet("{requisitionNo:long}")]
