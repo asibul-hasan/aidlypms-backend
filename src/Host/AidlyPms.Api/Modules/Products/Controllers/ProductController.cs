@@ -596,5 +596,396 @@ public class ProductController : BaseController
             return FailResponse<object>($"Stock adjustment failed: {ex.Message}");
         }
     }
+
+    [HttpGet("template-metadata")]
+    public async Task<ActionResult<ApiResponse<object>>> GetTemplateMetadata()
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        var companies = (await conn.QueryAsync<string>(
+            "SELECT name FROM prod_companies WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND is_active = TRUE ORDER BY name ASC;",
+            new { CurrentPharmacyNo, CurrentBranchNo })).AsList();
+
+        var generics = (await conn.QueryAsync<string>(
+            "SELECT name FROM prod_generics WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND is_active = TRUE ORDER BY name ASC;",
+            new { CurrentPharmacyNo, CurrentBranchNo })).AsList();
+
+        var dosageForms = new List<string>
+        {
+            "Tablet", "Capsule", "Syrup", "Suspension", "Injection",
+            "Drop", "Ointment", "Cream", "Gel", "Inhaler", "Suppository"
+        };
+
+        var unitTypes = new List<string>
+        {
+            "STRIP", "BOX", "PIECE", "BOTTLE", "VIAL", "AMPULE", "TUBE", "SACHET"
+        };
+
+        return OkResponse<object>(new
+        {
+            companies,
+            generics,
+            dosage_forms = dosageForms,
+            unit_types = unitTypes,
+            sample_data = new
+            {
+                product_name = "Napa Extra",
+                strength = "500mg+65mg",
+                volume = "10x10 Tablets",
+                medicine_form = "Tablet",
+                company_name = "Beximco Pharmaceuticals Ltd.",
+                generic_name = "Paracetamol + Caffeine",
+                unit_type = "STRIP",
+                quantity_per_box = 10,
+                cost_per_box = 250.00,
+                sale_price_per_box = 300.00,
+                purchase_price_per_piece = 25.00,
+                sale_price_per_piece = 30.00,
+                wholesale_price_per_box = 240.00,
+                wholesale_price_per_piece = 24.00,
+                country_of_origin = "Bangladesh",
+                barcode = "894010001234",
+                rak_number = "A-01 (General OTC)",
+                min_stock_qty_pcs = 50,
+                is_prescription_required = "No",
+                is_narcotic = "No",
+                opening_stock_pcs = 100
+            }
+        });
+    }
+
+    [HttpPost("import")]
+    public async Task<ActionResult<ApiResponse<ProductImportResultDto>>> ImportProducts([FromBody] ProductImportRequest request)
+    {
+        if (request?.Items == null || request.Items.Count == 0)
+        {
+            return FailResponse<ProductImportResultDto>("No product items provided to import.");
+        }
+
+        var result = new ProductImportResultDto
+        {
+            TotalRows = request.Items.Count
+        };
+
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        await using var tran = await conn.BeginTransactionAsync();
+
+        try
+        {
+            // 1. Pre-fetch reference lists into memory for high performance
+            var companies = (await conn.QueryAsync<(long company_no, string name)>(
+                "SELECT company_no, name FROM prod_companies WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran)).ToList();
+
+            var companyMap = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in companies)
+            {
+                if (!string.IsNullOrWhiteSpace(c.name) && !companyMap.ContainsKey(c.name.Trim()))
+                {
+                    companyMap[c.name.Trim()] = c.company_no;
+                }
+            }
+
+            var generics = (await conn.QueryAsync<(long generic_no, string name)>(
+                "SELECT generic_no, name FROM prod_generics WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran)).ToList();
+
+            var genericMap = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            foreach (var g in generics)
+            {
+                if (!string.IsNullOrWhiteSpace(g.name) && !genericMap.ContainsKey(g.name.Trim()))
+                {
+                    genericMap[g.name.Trim()] = g.generic_no;
+                }
+            }
+
+            // Existing products map: key = "product_name|strength|company_no"
+            var existingProducts = (await conn.QueryAsync<(long product_no, string product_name, string? strength, long company_no)>(
+                "SELECT product_no, product_name, strength, company_no FROM prod_products WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran)).ToList();
+
+            var productMap = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in existingProducts)
+            {
+                var key = $"{p.product_name?.Trim().ToLowerInvariant()}|{p.strength?.Trim().ToLowerInvariant() ?? ""}|{p.company_no}";
+                if (!productMap.ContainsKey(key))
+                {
+                    productMap[key] = p.product_no;
+                }
+            }
+
+            // Pre-get current Max IDs
+            var maxCompanyNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT COALESCE(MAX(company_no), 0) FROM prod_companies;", transaction: tran);
+            var maxGenericNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT COALESCE(MAX(generic_no), 0) FROM prod_generics;", transaction: tran);
+            var maxProductNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT COALESCE(MAX(product_no), 0) FROM prod_products;", transaction: tran);
+            var maxBatchNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT COALESCE(MAX(batch_no), 0) FROM prod_product_batches;", transaction: tran);
+
+            // Medicine types helper map
+            var medicineTypeMap = new Dictionary<string, short>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "Tablet", 1 }, { "Capsule", 2 }, { "Syrup", 3 }, { "Suspension", 4 },
+                { "Injection", 5 }, { "Drop", 6 }, { "Eye Drop", 6 }, { "Ear Drop", 6 },
+                { "Ointment", 7 }, { "Cream", 8 }, { "Gel", 9 }, { "Inhaler", 10 },
+                { "Suppository", 11 }, { "Powder", 1 }, { "Sachet", 1 }
+            };
+
+            // Unit types helper map
+            var unitTypeMap = new Dictionary<string, short>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "PIECE", 1 }, { "PCS", 1 }, { "STRIP", 2 }, { "BOX", 3 },
+                { "BOTTLE", 4 }, { "VIAL", 5 }, { "AMPULE", 6 }, { "AMP", 6 },
+                { "TUBE", 7 }, { "SACHET", 8 }
+            };
+
+            for (var i = 0; i < request.Items.Count; i++)
+            {
+                var row = request.Items[i];
+                var rowNum = i + 2; // Accounting for 1-based index + header row
+
+                if (string.IsNullOrWhiteSpace(row.ProductName))
+                {
+                    result.Errors.Add($"Row {rowNum}: Medicine Name is required.");
+                    continue;
+                }
+
+                var productName = row.ProductName.Trim();
+
+                // 2. Resolve or Create Manufacturer (Company)
+                var companyName = !string.IsNullOrWhiteSpace(row.CompanyName) ? row.CompanyName.Trim() : "General Pharmaceuticals";
+                long companyNo;
+                if (!companyMap.TryGetValue(companyName, out companyNo))
+                {
+                    maxCompanyNo++;
+                    companyNo = maxCompanyNo;
+                    const string insertCompSql = @"
+                        INSERT INTO prod_companies (company_no, pharmacy_no, branch_no, name, is_active, created_at, updated_at)
+                        VALUES (@companyNo, @CurrentPharmacyNo, @CurrentBranchNo, @companyName, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);";
+                    await conn.ExecuteAsync(insertCompSql, new { companyNo, CurrentPharmacyNo, CurrentBranchNo, companyName }, transaction: tran);
+                    companyMap[companyName] = companyNo;
+                    result.NewCompaniesCreated++;
+                }
+
+                // 3. Resolve or Create Generic Formulation
+                long? genericNo = null;
+                if (!string.IsNullOrWhiteSpace(row.GenericName))
+                {
+                    var genericName = row.GenericName.Trim();
+                    if (genericMap.TryGetValue(genericName, out var existingGenNo))
+                    {
+                        genericNo = existingGenNo;
+                    }
+                    else
+                    {
+                        maxGenericNo++;
+                        genericNo = maxGenericNo;
+                        const string insertGenSql = @"
+                            INSERT INTO prod_generics (generic_no, pharmacy_no, branch_no, name, is_active, created_at, updated_at)
+                            VALUES (@genericNo, @CurrentPharmacyNo, @CurrentBranchNo, @genericName, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);";
+                        await conn.ExecuteAsync(insertGenSql, new { genericNo, CurrentPharmacyNo, CurrentBranchNo, genericName }, transaction: tran);
+                        genericMap[genericName] = genericNo.Value;
+                        result.NewGenericsCreated++;
+                    }
+                }
+
+                // 4. Resolve Medicine Type (Dosage Form)
+                short medType = row.MedicineType.GetValueOrDefault(1);
+                if (!string.IsNullOrWhiteSpace(row.MedicineForm) && medicineTypeMap.TryGetValue(row.MedicineForm.Trim(), out var parsedMedType))
+                {
+                    medType = parsedMedType;
+                }
+
+                // 5. Resolve Unit Type
+                short uType = row.UnitType.GetValueOrDefault(2); // default STRIP
+                if (!string.IsNullOrWhiteSpace(row.UnitTypeName) && unitTypeMap.TryGetValue(row.UnitTypeName.Trim(), out var parsedUType))
+                {
+                    uType = parsedUType;
+                }
+
+                // 6. Pricing & Quantity calculations
+                var qtyPerBox = row.QuantityPerBox > 0 ? row.QuantityPerBox : 1;
+                var costPerBox = row.CostPerBox > 0 ? row.CostPerBox : 0;
+                var salePriceBox = row.SalePricePerBox > 0 ? row.SalePricePerBox : 0;
+
+                var purchasePiece = row.PurchasePricePerPiece > 0 
+                    ? row.PurchasePricePerPiece 
+                    : (costPerBox > 0 ? Math.Round(costPerBox / qtyPerBox, 4) : 0);
+
+                var salePiece = row.SalePricePerPiece > 0 
+                    ? row.SalePricePerPiece 
+                    : (salePriceBox > 0 ? Math.Round(salePriceBox / qtyPerBox, 4) : 0);
+
+                var wholesaleBox = row.WholesalePricePerBox > 0 ? row.WholesalePricePerBox : costPerBox;
+                var wholesalePiece = row.WholesalePricePerPiece > 0 ? row.WholesalePricePerPiece : purchasePiece;
+
+                var strength = !string.IsNullOrWhiteSpace(row.Strength) ? row.Strength.Trim() : null;
+                var volume = !string.IsNullOrWhiteSpace(row.Volume) ? row.Volume.Trim() : null;
+                var country = !string.IsNullOrWhiteSpace(row.CountryOfOrigin) ? row.CountryOfOrigin.Trim() : "Bangladesh";
+                var rak = !string.IsNullOrWhiteSpace(row.RakNumber) ? row.RakNumber.Trim() : null;
+                var minStock = row.MinStockQtyPcs > 0 ? row.MinStockQtyPcs : 10;
+
+                // 7. Find or Create Product
+                var productKey = $"{productName.ToLowerInvariant()}|{strength?.ToLowerInvariant() ?? ""}|{companyNo}";
+                long productNo;
+
+                if (productMap.TryGetValue(productKey, out var existingProductNo))
+                {
+                    productNo = existingProductNo;
+                    const string updateSql = @"
+                        UPDATE prod_products
+                        SET generic_no = COALESCE(@genericNo, generic_no),
+                            medicine_type = @medType,
+                            unit_type = @uType,
+                            quantity_per_box = @qtyPerBox,
+                            cost_per_box = CASE WHEN @costPerBox > 0 THEN @costPerBox ELSE cost_per_box END,
+                            sale_price_per_box = CASE WHEN @salePriceBox > 0 THEN @salePriceBox ELSE sale_price_per_box END,
+                            purchase_price_per_piece = CASE WHEN @purchasePiece > 0 THEN @purchasePiece ELSE purchase_price_per_piece END,
+                            sale_price_per_piece = CASE WHEN @salePiece > 0 THEN @salePiece ELSE sale_price_per_piece END,
+                            wholesale_price_per_box = CASE WHEN @wholesaleBox > 0 THEN @wholesaleBox ELSE wholesale_price_per_box END,
+                            wholesale_price_per_piece = CASE WHEN @wholesalePiece > 0 THEN @wholesalePiece ELSE wholesale_price_per_piece END,
+                            rak_number = COALESCE(@rak, rak_number),
+                            min_stock_qty_pcs = @minStock,
+                            is_prescription_required = @isPresc,
+                            is_narcotic = @isNarc,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE product_no = @productNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;";
+
+                    await conn.ExecuteAsync(updateSql, new
+                    {
+                        genericNo,
+                        medType,
+                        uType,
+                        qtyPerBox,
+                        costPerBox,
+                        salePriceBox,
+                        purchasePiece,
+                        salePiece,
+                        wholesaleBox,
+                        wholesalePiece,
+                        rak,
+                        minStock,
+                        isPresc = row.IsPrescriptionRequired,
+                        isNarc = row.IsNarcotic,
+                        productNo,
+                        CurrentPharmacyNo,
+                        CurrentBranchNo
+                    }, transaction: tran);
+
+                    result.Updated++;
+                }
+                else
+                {
+                    maxProductNo++;
+                    productNo = maxProductNo;
+                    var barcode = !string.IsNullOrWhiteSpace(row.BarcodeValue) 
+                        ? row.BarcodeValue.Trim() 
+                        : $"894{CurrentBranchNo:D2}{productNo:D6}";
+
+                    const string insertSql = @"
+                        INSERT INTO prod_products (
+                            product_no, uuid, pharmacy_no, branch_no, company_no, generic_no,
+                            product_name, strength, volume, medicine_type, unit_type,
+                            quantity_per_box, cost_per_box, sale_price_per_box,
+                            avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                            wholesale_price_per_box, wholesale_price_per_piece,
+                            country_of_origin, barcode_value, is_medicine,
+                            is_prescription_required, is_narcotic, min_stock_qty_pcs,
+                            rak_number, is_active, created_at, updated_at
+                        ) VALUES (
+                            @productNo, gen_random_uuid(), @CurrentPharmacyNo, @CurrentBranchNo, @companyNo, @genericNo,
+                            @productName, @strength, @volume, @medType, @uType,
+                            @qtyPerBox, @costPerBox, @salePriceBox,
+                            @purchasePiece, @purchasePiece, @salePiece,
+                            @wholesaleBox, @wholesalePiece,
+                            @country, @barcode, TRUE,
+                            @isPresc, @isNarc, @minStock,
+                            @rak, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                        );";
+
+                    await conn.ExecuteAsync(insertSql, new
+                    {
+                        productNo,
+                        CurrentPharmacyNo,
+                        CurrentBranchNo,
+                        companyNo,
+                        genericNo,
+                        productName,
+                        strength,
+                        volume,
+                        medType,
+                        uType,
+                        qtyPerBox,
+                        costPerBox,
+                        salePriceBox,
+                        purchasePiece,
+                        salePiece,
+                        wholesaleBox,
+                        wholesalePiece,
+                        country,
+                        barcode,
+                        isPresc = row.IsPrescriptionRequired,
+                        isNarc = row.IsNarcotic,
+                        minStock,
+                        rak
+                    }, transaction: tran);
+
+                    productMap[productKey] = productNo;
+                    result.Inserted++;
+                }
+
+                // 8. If opening stock pcs provided, create batch
+                if (row.OpeningStockPcs > 0)
+                {
+                    maxBatchNo++;
+                    var batchNo = maxBatchNo;
+                    var boxQty = qtyPerBox > 0 ? row.OpeningStockPcs / qtyPerBox : 0;
+                    var expDate = DateTime.UtcNow.AddYears(1);
+
+                    const string insertBatchSql = @"
+                        INSERT INTO prod_product_batches (
+                            batch_no, pharmacy_no, branch_no, product_no, batch_number,
+                            expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
+                            cost_per_box, sale_price_per_box, vat_percent, is_expired
+                        ) VALUES (
+                            @batchNo, @CurrentPharmacyNo, @CurrentBranchNo, @productNo, @batchNumber,
+                            @expDate, @boxQty, @qtyPerBox, @totalQtyPcs,
+                            @costPerBox, @salePriceBox, 0, FALSE
+                        );";
+
+                    await conn.ExecuteAsync(insertBatchSql, new
+                    {
+                        batchNo,
+                        CurrentPharmacyNo,
+                        CurrentBranchNo,
+                        productNo,
+                        batchNumber = $"OP-{productNo}",
+                        expDate,
+                        boxQty,
+                        qtyPerBox,
+                        totalQtyPcs = row.OpeningStockPcs,
+                        costPerBox,
+                        salePriceBox
+                    }, transaction: tran);
+                }
+            }
+
+            await tran.CommitAsync();
+
+            var message = $"Successfully processed {result.TotalRows} item(s). " +
+                          $"{result.Inserted} inserted, {result.Updated} updated. " +
+                          $"{result.NewCompaniesCreated} company(ies) and {result.NewGenericsCreated} generic(s) auto-created.";
+
+            return OkResponse(result, message);
+        }
+        catch (Exception ex)
+        {
+            await tran.RollbackAsync();
+            return FailResponse<ProductImportResultDto>($"Failed to import products: {ex.Message}");
+        }
+    }
 }
+
 

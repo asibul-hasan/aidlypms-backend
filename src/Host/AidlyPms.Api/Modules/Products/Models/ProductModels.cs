@@ -446,3 +446,103 @@ public class AdjustStockRequest
     public string? Remarks { get; set; }
 }
 
+public class ProductImportItemDto
+{
+    [JsonPropertyName("product_name")]
+    public string ProductName { get; set; } = string.Empty;
+
+    [JsonPropertyName("strength")]
+    public string? Strength { get; set; }
+
+    [JsonPropertyName("volume")]
+    public string? Volume { get; set; }
+
+    [JsonPropertyName("company_name")]
+    public string? CompanyName { get; set; }
+
+    [JsonPropertyName("generic_name")]
+    public string? GenericName { get; set; }
+
+    [JsonPropertyName("medicine_form")]
+    public string? MedicineForm { get; set; }
+
+    [JsonPropertyName("medicine_type")]
+    public short? MedicineType { get; set; }
+
+    [JsonPropertyName("unit_type_name")]
+    public string? UnitTypeName { get; set; }
+
+    [JsonPropertyName("unit_type")]
+    public short? UnitType { get; set; }
+
+    [JsonPropertyName("quantity_per_box")]
+    public int QuantityPerBox { get; set; } = 1;
+
+    [JsonPropertyName("cost_per_box")]
+    public decimal CostPerBox { get; set; }
+
+    [JsonPropertyName("sale_price_per_box")]
+    public decimal SalePricePerBox { get; set; }
+
+    [JsonPropertyName("purchase_price_per_piece")]
+    public decimal PurchasePricePerPiece { get; set; }
+
+    [JsonPropertyName("sale_price_per_piece")]
+    public decimal SalePricePerPiece { get; set; }
+
+    [JsonPropertyName("wholesale_price_per_box")]
+    public decimal WholesalePricePerBox { get; set; }
+
+    [JsonPropertyName("wholesale_price_per_piece")]
+    public decimal WholesalePricePerPiece { get; set; }
+
+    [JsonPropertyName("country_of_origin")]
+    public string? CountryOfOrigin { get; set; } = "Bangladesh";
+
+    [JsonPropertyName("barcode_value")]
+    public string? BarcodeValue { get; set; }
+
+    [JsonPropertyName("rak_number")]
+    public string? RakNumber { get; set; }
+
+    [JsonPropertyName("min_stock_qty_pcs")]
+    public int MinStockQtyPcs { get; set; } = 10;
+
+    [JsonPropertyName("is_prescription_required")]
+    public bool IsPrescriptionRequired { get; set; }
+
+    [JsonPropertyName("is_narcotic")]
+    public bool IsNarcotic { get; set; }
+
+    [JsonPropertyName("opening_stock_pcs")]
+    public int OpeningStockPcs { get; set; }
+}
+
+public class ProductImportRequest
+{
+    [JsonPropertyName("items")]
+    public List<ProductImportItemDto> Items { get; set; } = new();
+}
+
+public class ProductImportResultDto
+{
+    [JsonPropertyName("total_rows")]
+    public int TotalRows { get; set; }
+
+    [JsonPropertyName("inserted")]
+    public int Inserted { get; set; }
+
+    [JsonPropertyName("updated")]
+    public int Updated { get; set; }
+
+    [JsonPropertyName("new_companies_created")]
+    public int NewCompaniesCreated { get; set; }
+
+    [JsonPropertyName("new_generics_created")]
+    public int NewGenericsCreated { get; set; }
+
+    [JsonPropertyName("errors")]
+    public List<string> Errors { get; set; } = new();
+}
+
+
