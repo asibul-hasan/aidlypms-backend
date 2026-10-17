@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.1.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.1.0...v1.1.1) (2026-10-17)
+
+
+### 🐛 Bug Fixes
+
+* **due:** resolve route ambiguity and table schema errors for due workbench ([e0bfcb6](https://github.com/asibul-hasan/aidlypms-backend/commit/e0bfcb60320fda44b0a79bf3d59339420eae5331))
+
 ## [1.1.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.0.1...v1.1.0) (2026-10-17)
 
 
