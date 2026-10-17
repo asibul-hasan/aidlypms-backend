@@ -99,10 +99,11 @@ public class PosSaleController : BaseController
         return PagedResponse(new PagedResult<SaleInvoice>(items, total, pageIndex, pageSize));
     }
 
-    [HttpGet("{id:long}")]
-    public async Task<ActionResult<ApiResponse<SaleInvoice>>> GetSaleById(long id)
+    [HttpGet("{idOrNumber}")]
+    public async Task<ActionResult<ApiResponse<SaleInvoice>>> GetSale(string idOrNumber)
     {
         await using var conn = await _db.CreateOpenConnectionAsync();
+        long.TryParse(idOrNumber, out var id);
 
         const string sql = @"
             SELECT 
@@ -119,11 +120,14 @@ public class PosSaleController : BaseController
                 c.phone AS customer_phone
             FROM sale_invoices s
             LEFT JOIN cust_customers c ON s.customer_no = c.customer_no
-            WHERE s.sale_invoice_no = @id AND s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo;";
+            WHERE ((@id > 0 AND s.sale_invoice_no = @id) OR s.sales_number = @idOrNumber)
+              AND s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+            LIMIT 1;";
 
         var invoice = await conn.QuerySingleOrDefaultAsync<SaleInvoice>(sql, new
         {
             id,
+            idOrNumber,
             CurrentPharmacyNo,
             CurrentBranchNo
         });
@@ -143,19 +147,18 @@ public class PosSaleController : BaseController
             FROM sale_invoice_items i
             JOIN prod_products p ON i.product_no = p.product_no
             LEFT JOIN prod_product_batches b ON i.batch_no = b.batch_no
-            WHERE i.sale_invoice_no = @id;";
+            WHERE i.sale_invoice_no = @invoiceNo;";
 
-
-        invoice.Items = (await conn.QueryAsync<SaleInvoiceItem>(itemsSql, new { id })).AsList();
+        invoice.Items = (await conn.QueryAsync<SaleInvoiceItem>(itemsSql, new { invoiceNo = invoice.SaleInvoiceNo })).AsList();
 
         const string paymentsSql = @"
             SELECT 
                 sale_payment_no, pharmacy_no, branch_no, sale_invoice_no,
                 account_no, payment_method, amount, gateway_reference, created_at
             FROM sale_invoice_payments
-            WHERE sale_invoice_no = @id;";
+            WHERE sale_invoice_no = @invoiceNo;";
 
-        invoice.Payments = (await conn.QueryAsync<SaleInvoicePayment>(paymentsSql, new { id })).AsList();
+        invoice.Payments = (await conn.QueryAsync<SaleInvoicePayment>(paymentsSql, new { invoiceNo = invoice.SaleInvoiceNo })).AsList();
 
         return OkResponse(invoice);
     }
