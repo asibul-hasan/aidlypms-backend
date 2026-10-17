@@ -96,18 +96,20 @@ jobs:
         run: |
           git push --follow-tags origin main
 
-      - name: Publish GitHub Release
+      - name: Prepare Release Notes
         if: steps.release.outputs.tagged == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.release.outputs.tag }}
         run: |
-          RELEASE_NOTES=$(awk '/^## /{if (count++) exit} count{print}' CHANGELOG.md)
-          if [ -z "$RELEASE_NOTES" ]; then
-            RELEASE_NOTES="Release $TAG"
+          awk '/^## /{if (count++) exit} count{print}' CHANGELOG.md > /tmp/release_notes.md
+          if [ ! -s /tmp/release_notes.md ]; then
+            echo "Release ${{ steps.release.outputs.tag }}" > /tmp/release_notes.md
           fi
 
-          echo "$RELEASE_NOTES" > /tmp/release_notes.md
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes-file /tmp/release_notes.md
+      - name: Publish GitHub Release
+        if: steps.release.outputs.tagged == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: ${{ steps.release.outputs.tag }}
+          body_path: /tmp/release_notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
