@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.3.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.3.0...v1.3.1) (2026-10-17)
+
+
+### 🐛 Bug Fixes
+
+* **common:** support dd-MM-yyyy date parsing and end-of-day normalization for date filters ([84b1e8c](https://github.com/asibul-hasan/aidlypms-backend/commit/84b1e8cce7b99c3906aee6a230c8c481c9e42b57))
+
 ## [1.3.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.2.0...v1.3.0) (2026-10-17)
 
 
