@@ -1,0 +1,26 @@
+{
+  "types": [
+    { "type": "feat", "section": "🚀 Features" },
+    { "type": "fix", "section": "🐛 Bug Fixes" },
+    { "type": "perf", "section": "⚡ Performance Improvements" },
+    { "type": "refactor", "section": "♻️ Code Refactoring" },
+    { "type": "docs", "section": "📝 Documentation" },
+    { "type": "test", "section": "🧪 Tests" },
+    { "type": "build", "section": "🏗️ Build System" },
+    { "type": "ci", "section": "🤖 Continuous Integration" },
+    { "type": "chore", "section": "🔧 Maintenance & Chores", "hidden": false }
+  ],
+  "packageFiles": [
+    {
+      "filename": "src/Host/AidlyPms.Api/AidlyPms.Api.csproj",
+      "updater": "scripts/version-updater.js"
+    }
+  ],
+  "bumpFiles": [
+    {
+      "filename": "src/Host/AidlyPms.Api/AidlyPms.Api.csproj",
+      "updater": "scripts/version-updater.js"
+    }
+  ],
+  "releaseCommitMessageFormat": "chore(release): {{currentTag}} [skip ci]"
+}

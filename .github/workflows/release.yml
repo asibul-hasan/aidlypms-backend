@@ -1,0 +1,113 @@
+name: Automated Release & Tagging
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - 'src/Host/AidlyPms.Api/AidlyPms.Api.csproj'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type (auto, patch, minor, major)'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: 'Perform a dry run without pushing tags or commits'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Generate Version & Tag
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && !startsWith(github.event.head_commit.message, 'chore(release):')"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Determine and Execute Release
+        id: release
+        env:
+          INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type || 'auto' }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          TAG_COUNT=$(git tag -l | wc -l)
+          echo "Current tag count: $TAG_COUNT"
+
+          FLAGS=""
+          if [ "$INPUT_DRY_RUN" = "true" ]; then
+            FLAGS="--dry-run"
+          fi
+
+          if [ "$TAG_COUNT" -eq 0 ]; then
+            echo "No existing tags found. Bootstrapping baseline v1.0.0..."
+            npx --yes commit-and-tag-version --release-as 1.0.0 $FLAGS
+          elif [ "$INPUT_RELEASE_TYPE" != "auto" ]; then
+            echo "Running manual $INPUT_RELEASE_TYPE release..."
+            npx --yes commit-and-tag-version --release-as "$INPUT_RELEASE_TYPE" $FLAGS
+          else
+            echo "Running automated Conventional Commit semver release..."
+            npx --yes commit-and-tag-version $FLAGS
+          fi
+
+          if [ "$INPUT_DRY_RUN" = "true" ]; then
+            echo "Dry run completed successfully. Skipping push and release creation."
+            exit 0
+          fi
+
+          TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || true)
+          if [ -n "$TAG" ]; then
+            echo "New release created: $TAG"
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "No new tag created for this commit (no releasable changes)."
+            echo "tagged=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push release commit and tags
+        if: steps.release.outputs.tagged == 'true'
+        run: |
+          git push --follow-tags origin main
+
+      - name: Publish GitHub Release
+        if: steps.release.outputs.tagged == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          RELEASE_NOTES=$(awk '/^## /{if (count++) exit} count{print}' CHANGELOG.md)
+          if [ -z "$RELEASE_NOTES" ]; then
+            RELEASE_NOTES="Release $TAG"
+          fi
+
+          echo "$RELEASE_NOTES" > /tmp/release_notes.md
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file /tmp/release_notes.md
