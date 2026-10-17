@@ -217,6 +217,158 @@ public class ProductController : BaseController
         return OkResponse(items);
     }
 
+    [HttpGet("stock-report")]
+    public async Task<ActionResult<ApiResponse<StockReportResultDto>>> GetStockReport(
+        [FromQuery] string? search = null,
+        [FromQuery] long? companyNo = null,
+        [FromQuery] string? stockStatus = null,
+        [FromQuery] int pageIndex = 1,
+        [FromQuery] int pageSize = 100)
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        var pms = new DynamicParameters();
+        pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
+        pms.Add("CurrentBranchNo", CurrentBranchNo);
+
+        // 1. Overall Summary across inventory
+        const string summarySql = @"
+            WITH product_stocks AS (
+                SELECT 
+                    p.product_no,
+                    p.min_stock_qty_pcs,
+                    p.purchase_price_per_piece,
+                    p.sale_price_per_piece,
+                    COALESCE(SUM(b.total_quantity_pcs), 0)::int AS current_stock_pcs
+                FROM prod_products p
+                LEFT JOIN prod_product_batches b 
+                    ON p.product_no = b.product_no 
+                    AND b.pharmacy_no = @CurrentPharmacyNo 
+                    AND b.branch_no = @CurrentBranchNo
+                WHERE p.pharmacy_no = @CurrentPharmacyNo 
+                  AND p.branch_no = @CurrentBranchNo 
+                  AND p.is_active = TRUE
+                GROUP BY p.product_no, p.min_stock_qty_pcs, p.purchase_price_per_piece, p.sale_price_per_piece
+            )
+            SELECT 
+                COUNT(*)::int AS total_products,
+                COUNT(CASE WHEN current_stock_pcs > 0 THEN 1 END)::int AS in_stock_items,
+                COUNT(CASE WHEN current_stock_pcs > 0 AND current_stock_pcs <= COALESCE(NULLIF(min_stock_qty_pcs, 0), 10) THEN 1 END)::int AS low_stock_items,
+                COUNT(CASE WHEN current_stock_pcs = 0 THEN 1 END)::int AS out_of_stock_items,
+                COALESCE(SUM(current_stock_pcs), 0)::bigint AS total_stock_pcs,
+                COALESCE(SUM(current_stock_pcs * purchase_price_per_piece), 0) AS total_cost_valuation,
+                COALESCE(SUM(current_stock_pcs * sale_price_per_piece), 0) AS total_sale_valuation,
+                COALESCE(SUM(current_stock_pcs * sale_price_per_piece) - SUM(current_stock_pcs * purchase_price_per_piece), 0) AS potential_profit
+            FROM product_stocks;";
+
+        var summary = await conn.QuerySingleOrDefaultAsync<StockReportSummaryDto>(summarySql, pms) ?? new StockReportSummaryDto();
+
+        // 2. Filtered items query
+        var filters = string.Empty;
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            filters += " AND (p.product_name ILIKE '%' || @Search || '%' OR p.barcode_value ILIKE '%' || @Search || '%' OR g.name ILIKE '%' || @Search || '%')";
+            pms.Add("Search", search.Trim());
+        }
+        if (companyNo.HasValue && companyNo.Value > 0)
+        {
+            filters += " AND p.company_no = @CompanyNo";
+            pms.Add("CompanyNo", companyNo.Value);
+        }
+
+        var havingClause = string.Empty;
+        var status = stockStatus?.ToLower()?.Trim();
+        if (status == "in_stock")
+        {
+            havingClause = " HAVING COALESCE(SUM(b.total_quantity_pcs), 0) > 0";
+        }
+        else if (status == "low_stock")
+        {
+            havingClause = " HAVING COALESCE(SUM(b.total_quantity_pcs), 0) > 0 AND COALESCE(SUM(b.total_quantity_pcs), 0) <= COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)";
+        }
+        else if (status == "out_of_stock")
+        {
+            havingClause = " HAVING COALESCE(SUM(b.total_quantity_pcs), 0) = 0";
+        }
+
+        var offset = Math.Max(0, (pageIndex - 1) * pageSize);
+        pms.Add("Offset", offset);
+        pms.Add("PageSize", pageSize);
+
+        var countSql = $@"
+            SELECT COUNT(*) FROM (
+                SELECT p.product_no
+                FROM prod_products p
+                LEFT JOIN prod_product_batches b 
+                    ON p.product_no = b.product_no 
+                    AND b.pharmacy_no = @CurrentPharmacyNo 
+                    AND b.branch_no = @CurrentBranchNo
+                LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
+                LEFT JOIN prod_companies c ON p.company_no = c.company_no
+                WHERE p.pharmacy_no = @CurrentPharmacyNo 
+                  AND p.branch_no = @CurrentBranchNo 
+                  AND p.is_active = TRUE
+                  {filters}
+                GROUP BY p.product_no, p.min_stock_qty_pcs
+                {havingClause}
+            ) t;";
+
+        var totalCount = await conn.ExecuteScalarAsync<int>(countSql, pms);
+
+        var dataSql = $@"
+            SELECT 
+                p.product_no,
+                p.product_name,
+                p.strength,
+                COALESCE(c.name, '') AS company_name,
+                COALESCE(g.name, '') AS generic_name,
+                GREATEST(1, COALESCE(p.quantity_per_box, 1))::int AS quantity_per_box,
+                COALESCE(SUM(b.total_quantity_pcs), 0)::int AS current_stock_pcs,
+                ROUND(COALESCE(SUM(b.total_quantity_pcs), 0)::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)), 2) AS current_stock_boxes,
+                COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)::int AS min_stock_qty_pcs,
+                COALESCE(p.purchase_price_per_piece, 0) AS purchase_price_per_piece,
+                COALESCE(p.sale_price_per_piece, 0) AS sale_price_per_piece,
+                ROUND(COALESCE(SUM(b.total_quantity_pcs), 0) * COALESCE(p.purchase_price_per_piece, 0), 2) AS cost_valuation,
+                ROUND(COALESCE(SUM(b.total_quantity_pcs), 0) * COALESCE(p.sale_price_per_piece, 0), 2) AS sale_valuation,
+                CASE 
+                    WHEN COALESCE(p.sale_price_per_piece, 0) > 0 THEN 
+                        ROUND(((p.sale_price_per_piece - p.purchase_price_per_piece) / p.sale_price_per_piece) * 100, 2)
+                    ELSE 0 
+                END AS profit_margin_pct,
+                CASE 
+                    WHEN COALESCE(SUM(b.total_quantity_pcs), 0) = 0 THEN 'out_of_stock'
+                    WHEN COALESCE(SUM(b.total_quantity_pcs), 0) <= COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) THEN 'low_stock'
+                    ELSE 'in_stock'
+                END AS stock_status,
+                p.rak_number
+            FROM prod_products p
+            LEFT JOIN prod_product_batches b 
+                ON p.product_no = b.product_no 
+                AND b.pharmacy_no = @CurrentPharmacyNo 
+                AND b.branch_no = @CurrentBranchNo
+            LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
+            LEFT JOIN prod_companies c ON p.company_no = c.company_no
+            WHERE p.pharmacy_no = @CurrentPharmacyNo 
+              AND p.branch_no = @CurrentBranchNo 
+              AND p.is_active = TRUE
+              {filters}
+            GROUP BY p.product_no, p.product_name, p.strength, c.name, g.name, p.quantity_per_box, p.min_stock_qty_pcs, p.purchase_price_per_piece, p.sale_price_per_piece, p.rak_number
+            {havingClause}
+            ORDER BY current_stock_pcs ASC, p.product_name ASC
+            OFFSET @Offset LIMIT @PageSize;";
+
+        var items = (await conn.QueryAsync<StockReportItemDto>(dataSql, pms)).AsList();
+
+        var result = new StockReportResultDto
+        {
+            Summary = summary,
+            Items = items,
+            TotalCount = totalCount
+        };
+
+        return OkResponse(result);
+    }
+
     [HttpGet("{id:long}")]
     public async Task<ActionResult<ApiResponse<ProdProduct>>> GetProductById(long id)
     {

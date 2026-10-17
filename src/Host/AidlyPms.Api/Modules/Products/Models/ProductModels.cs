@@ -545,4 +545,94 @@ public class ProductImportResultDto
     public List<string> Errors { get; set; } = new();
 }
 
+public class StockReportSummaryDto
+{
+    [JsonPropertyName("total_products")]
+    public int TotalProducts { get; set; }
+
+    [JsonPropertyName("in_stock_items")]
+    public int InStockItems { get; set; }
+
+    [JsonPropertyName("low_stock_items")]
+    public int LowStockItems { get; set; }
+
+    [JsonPropertyName("out_of_stock_items")]
+    public int OutOfStockItems { get; set; }
+
+    [JsonPropertyName("total_stock_pcs")]
+    public long TotalStockPcs { get; set; }
+
+    [JsonPropertyName("total_cost_valuation")]
+    public decimal TotalCostValuation { get; set; }
+
+    [JsonPropertyName("total_sale_valuation")]
+    public decimal TotalSaleValuation { get; set; }
+
+    [JsonPropertyName("potential_profit")]
+    public decimal PotentialProfit { get; set; }
+}
+
+public class StockReportItemDto
+{
+    [JsonPropertyName("product_no")]
+    public long ProductNo { get; set; }
+
+    [JsonPropertyName("product_name")]
+    public string ProductName { get; set; } = string.Empty;
+
+    [JsonPropertyName("strength")]
+    public string? Strength { get; set; }
+
+    [JsonPropertyName("company_name")]
+    public string? CompanyName { get; set; }
+
+    [JsonPropertyName("generic_name")]
+    public string? GenericName { get; set; }
+
+    [JsonPropertyName("quantity_per_box")]
+    public int QuantityPerBox { get; set; } = 1;
+
+    [JsonPropertyName("current_stock_pcs")]
+    public int CurrentStockPcs { get; set; }
+
+    [JsonPropertyName("current_stock_boxes")]
+    public decimal CurrentStockBoxes { get; set; }
+
+    [JsonPropertyName("min_stock_qty_pcs")]
+    public int MinStockQtyPcs { get; set; }
+
+    [JsonPropertyName("purchase_price_per_piece")]
+    public decimal PurchasePricePerPiece { get; set; }
+
+    [JsonPropertyName("sale_price_per_piece")]
+    public decimal SalePricePerPiece { get; set; }
+
+    [JsonPropertyName("cost_valuation")]
+    public decimal CostValuation { get; set; }
+
+    [JsonPropertyName("sale_valuation")]
+    public decimal SaleValuation { get; set; }
+
+    [JsonPropertyName("profit_margin_pct")]
+    public decimal ProfitMarginPct { get; set; }
+
+    [JsonPropertyName("stock_status")]
+    public string StockStatus { get; set; } = "in_stock";
+
+    [JsonPropertyName("rak_number")]
+    public string? RakNumber { get; set; }
+}
+
+public class StockReportResultDto
+{
+    [JsonPropertyName("summary")]
+    public StockReportSummaryDto Summary { get; set; } = new();
+
+    [JsonPropertyName("items")]
+    public List<StockReportItemDto> Items { get; set; } = new();
+
+    [JsonPropertyName("total_count")]
+    public int TotalCount { get; set; }
+}
+
 
