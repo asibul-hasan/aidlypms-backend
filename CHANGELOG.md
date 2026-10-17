@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.2.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.1.4...v1.2.0) (2026-10-17)
+
+
+### 🚀 Features
+
+* **reports:** add date range and summary endpoints for accounting and dashboard reports ([a6095ff](https://github.com/asibul-hasan/aidlypms-backend/commit/a6095ffdafe18feac5b72494a6ef28e05f76fdc7))
+
 ## [1.1.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.1.3...v1.1.4) (2026-10-17)
 
 
