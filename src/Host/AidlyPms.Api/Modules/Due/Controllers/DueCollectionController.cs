@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using AidlyPms.Api.Common;
 using AidlyPms.Api.Common.Database;
 using AidlyPms.Api.Infrastructure;
@@ -7,6 +8,87 @@ using Dapper;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AidlyPms.Api.Modules.Due.Controllers;
+
+public class CustDueRecordDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("customer")]
+    public string Customer { get; set; } = string.Empty;
+
+    [JsonPropertyName("phone")]
+    public string Phone { get; set; } = string.Empty;
+
+    [JsonPropertyName("inv")]
+    public string Inv { get; set; } = string.Empty;
+
+    [JsonPropertyName("saleDate")]
+    public string SaleDate { get; set; } = string.Empty;
+
+    [JsonPropertyName("dueDate")]
+    public string DueDate { get; set; } = string.Empty;
+
+    [JsonPropertyName("amount")]
+    public decimal Amount { get; set; }
+}
+
+public class CustDueHistoryDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("customer")]
+    public string Customer { get; set; } = string.Empty;
+
+    [JsonPropertyName("phone")]
+    public string Phone { get; set; } = string.Empty;
+
+    [JsonPropertyName("receipt")]
+    public string Receipt { get; set; } = string.Empty;
+
+    [JsonPropertyName("method")]
+    public string Method { get; set; } = string.Empty;
+
+    [JsonPropertyName("amount")]
+    public decimal Amount { get; set; }
+
+    [JsonPropertyName("note")]
+    public string Note { get; set; } = string.Empty;
+
+    [JsonPropertyName("paymentDate")]
+    public string? PaymentDate { get; set; }
+}
+
+public class CollectDueRequestDto
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("customer_no")]
+    public long? CustomerNo { get; set; }
+
+    [JsonPropertyName("customer")]
+    public string? Customer { get; set; }
+
+    [JsonPropertyName("phone")]
+    public string? Phone { get; set; }
+
+    [JsonPropertyName("amount")]
+    public decimal Amount { get; set; }
+
+    [JsonPropertyName("method")]
+    public string Method { get; set; } = "Cash";
+
+    [JsonPropertyName("payment_method")]
+    public object? PaymentMethodRaw { get; set; }
+
+    [JsonPropertyName("account_no")]
+    public long? AccountNo { get; set; }
+
+    [JsonPropertyName("note")]
+    public string? Note { get; set; }
+}
 
 [Route("api/v1")]
 public class DueCollectionController : BaseController
@@ -26,28 +108,162 @@ public class DueCollectionController : BaseController
     }
 
     [HttpGet("cust/dues")]
-    public async Task<ActionResult<ApiResponse<List<CustCustomer>>>> GetCustomerDues([FromQuery] string? search)
+    public async Task<ActionResult<ApiResponse<List<CustDueRecordDto>>>> GetCustomerDues(
+        [FromQuery] string? search = null,
+        [FromQuery] string? fromDate = null,
+        [FromQuery] string? toDate = null)
     {
-        using var conn = _db.CreateConnection();
-        var sql = @"
-            SELECT * FROM cust_customers
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND current_due > 0";
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        DateTime? parsedFromDate = null;
+        if (!string.IsNullOrWhiteSpace(fromDate) && DateTime.TryParse(fromDate, out var fDate))
+        {
+            parsedFromDate = DateTime.SpecifyKind(fDate.Date, DateTimeKind.Utc);
+        }
+
+        DateTime? parsedToDate = null;
+        if (!string.IsNullOrWhiteSpace(toDate) && DateTime.TryParse(toDate, out var tDate))
+        {
+            parsedToDate = DateTime.SpecifyKind(tDate.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
+        }
 
         var pms = new DynamicParameters();
         pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
         pms.Add("CurrentBranchNo", CurrentBranchNo);
 
-        if (!string.IsNullOrWhiteSpace(search))
+        var dateFilter = "";
+        if (parsedFromDate.HasValue)
         {
-            sql += " AND (name ILIKE @Search OR phone ILIKE @Search)";
-            pms.Add("Search", $"%{search.Trim()}%");
+            dateFilter += " AND s.sale_timestamp >= @FromDate";
+            pms.Add("FromDate", parsedFromDate.Value);
+        }
+        if (parsedToDate.HasValue)
+        {
+            dateFilter += " AND s.sale_timestamp <= @ToDate";
+            pms.Add("ToDate", parsedToDate.Value);
         }
 
-        sql += " ORDER BY current_due DESC LIMIT 100;";
-        var customers = (await conn.QueryAsync<CustCustomer>(sql, pms)).ToList();
+        var searchFilterSales = "";
+        var searchFilterCust = "";
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            pms.Add("SearchPattern", $"%{search.Trim()}%");
+            searchFilterSales = " AND (c.name ILIKE @SearchPattern OR c.phone ILIKE @SearchPattern OR s.sales_number ILIKE @SearchPattern)";
+            searchFilterCust = " AND (c.name ILIKE @SearchPattern OR c.phone ILIKE @SearchPattern)";
+        }
 
-        return OkResponse(customers);
+        var sql = $@"
+            SELECT 
+                s.sale_invoice_no::text AS id,
+                COALESCE(c.name, 'Walking Customer') AS customer,
+                COALESCE(c.phone, '') AS phone,
+                s.sales_number AS inv,
+                TO_CHAR(s.sale_timestamp, 'YYYY-MM-DD') AS saledate,
+                TO_CHAR(s.sale_timestamp + INTERVAL '7 days', 'YYYY-MM-DD') AS duedate,
+                s.due_amount AS amount
+            FROM sale_invoices s
+            LEFT JOIN cust_customers c ON s.customer_no = c.customer_no
+            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+              AND s.due_amount > 0
+              {dateFilter}
+              {searchFilterSales}
+
+            UNION ALL
+
+            SELECT 
+                CONCAT('CUST-', c.customer_no) AS id,
+                c.name AS customer,
+                COALESCE(c.phone, '') AS phone,
+                'OPENING-DUE' AS inv,
+                TO_CHAR(c.created_at, 'YYYY-MM-DD') AS saledate,
+                TO_CHAR(c.created_at + INTERVAL '7 days', 'YYYY-MM-DD') AS duedate,
+                c.current_due AS amount
+            FROM cust_customers c
+            WHERE c.pharmacy_no = @CurrentPharmacyNo AND c.branch_no = @CurrentBranchNo
+              AND c.current_due > 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM sale_invoices s 
+                  WHERE s.customer_no = c.customer_no 
+                    AND s.pharmacy_no = @CurrentPharmacyNo 
+                    AND s.branch_no = @CurrentBranchNo 
+                    AND s.due_amount > 0
+              )
+              {searchFilterCust}
+
+            ORDER BY saledate DESC;";
+
+        var list = (await conn.QueryAsync<CustDueRecordDto>(sql, pms)).AsList();
+        return OkResponse(list);
+    }
+
+    [HttpGet("cust/dues/history")]
+    public async Task<ActionResult<ApiResponse<List<CustDueHistoryDto>>>> GetDueHistory(
+        [FromQuery] string? search = null,
+        [FromQuery] string? fromDate = null,
+        [FromQuery] string? toDate = null)
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        DateTime? parsedFromDate = null;
+        if (!string.IsNullOrWhiteSpace(fromDate) && DateTime.TryParse(fromDate, out var fDate))
+        {
+            parsedFromDate = DateTime.SpecifyKind(fDate.Date, DateTimeKind.Utc);
+        }
+
+        DateTime? parsedToDate = null;
+        if (!string.IsNullOrWhiteSpace(toDate) && DateTime.TryParse(toDate, out var tDate))
+        {
+            parsedToDate = DateTime.SpecifyKind(tDate.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
+        }
+
+        var pms = new DynamicParameters();
+        pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
+        pms.Add("CurrentBranchNo", CurrentBranchNo);
+
+        var dateFilter = "";
+        if (parsedFromDate.HasValue)
+        {
+            dateFilter += " AND d.payment_date >= @FromDate";
+            pms.Add("FromDate", parsedFromDate.Value);
+        }
+        if (parsedToDate.HasValue)
+        {
+            dateFilter += " AND d.payment_date <= @ToDate";
+            pms.Add("ToDate", parsedToDate.Value);
+        }
+
+        var searchFilter = "";
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            pms.Add("SearchPattern", $"%{search.Trim()}%");
+            searchFilter = " AND (c.name ILIKE @SearchPattern OR c.phone ILIKE @SearchPattern OR d.payment_number ILIKE @SearchPattern)";
+        }
+
+        var sql = $@"
+            SELECT 
+                d.due_collection_no::text AS id,
+                COALESCE(c.name, 'Customer') AS customer,
+                COALESCE(c.phone, '') AS phone,
+                COALESCE(d.payment_number, CONCAT('RCT-', d.due_collection_no)) AS receipt,
+                CASE d.payment_method 
+                    WHEN 3 THEN 'bKash'
+                    WHEN 6 THEN 'Card'
+                    WHEN 8 THEN 'Split'
+                    ELSE 'Cash'
+                END AS method,
+                d.amount AS amount,
+                COALESCE(d.note, 'Due collection settlement') AS note,
+                TO_CHAR(d.payment_date, 'YYYY-MM-DD') AS paymentdate
+            FROM due_collections d
+            LEFT JOIN cust_customers c ON d.customer_no = c.customer_no
+            WHERE d.pharmacy_no = @CurrentPharmacyNo AND d.branch_no = @CurrentBranchNo
+              {dateFilter}
+              {searchFilter}
+            ORDER BY d.payment_date DESC
+            LIMIT 100;";
+
+        var list = (await conn.QueryAsync<CustDueHistoryDto>(sql, pms)).AsList();
+        return OkResponse(list);
     }
 
     [HttpGet("due/collections")]
@@ -57,7 +273,7 @@ public class DueCollectionController : BaseController
         [FromQuery] long? customerNo,
         [FromQuery] string? search)
     {
-        using var conn = _db.CreateConnection();
+        await using var conn = await _db.CreateOpenConnectionAsync();
         var sql = @"
             SELECT d.*, c.name AS customer_name, c.phone AS customer_phone, a.account_name
             FROM due_collections d
@@ -102,52 +318,118 @@ public class DueCollectionController : BaseController
 
     [HttpPost("due/collect")]
     [HttpPost("cust/dues/collect")]
-    public async Task<ActionResult<ApiResponse<DueCollection>>> CollectDue([FromBody] CollectDuePayload payload)
+    public async Task<ActionResult<ApiResponse<object>>> CollectDue([FromBody] CollectDueRequestDto req)
     {
-        if (payload.CustomerNo <= 0)
-            return FailResponse<DueCollection>("A valid customer must be selected.");
+        if (req.Amount <= 0)
+        {
+            return FailResponse<object>("Collection amount must be greater than zero.");
+        }
 
-        if (payload.Amount <= 0)
-            return FailResponse<DueCollection>("Collection amount must be greater than zero.");
-
-        using var conn = _db.CreateConnection();
-        conn.Open();
-        using var tran = conn.BeginTransaction();
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        await using var tran = await conn.BeginTransactionAsync();
 
         try
         {
-            var customer = await conn.QuerySingleOrDefaultAsync<CustCustomer>(@"
-                SELECT * FROM cust_customers
-                WHERE customer_no = @CustomerNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                FOR UPDATE;",
-                new { payload.CustomerNo, CurrentPharmacyNo, CurrentBranchNo },
-                transaction: tran);
+            long? saleInvoiceNo = null;
+            long customerNo = req.CustomerNo.HasValue && req.CustomerNo.Value > 0 ? req.CustomerNo.Value : 0;
+            string customerName = req.Customer ?? string.Empty;
+            string customerPhone = req.Phone ?? string.Empty;
 
-            if (customer == null)
-                throw new InvalidOperationException($"Customer #{payload.CustomerNo} not found.");
+            // 1. Resolve sale_invoice_no and customer from ID
+            if (!string.IsNullOrWhiteSpace(req.Id))
+            {
+                if (long.TryParse(req.Id, out var parsedInvoiceNo) && parsedInvoiceNo > 0)
+                {
+                    saleInvoiceNo = parsedInvoiceNo;
+                    var inv = await conn.QuerySingleOrDefaultAsync<(long customer_no, string? customer_name, string? customer_phone)>(@"
+                        SELECT s.customer_no, c.name AS customer_name, c.phone AS customer_phone
+                        FROM sale_invoices s
+                        LEFT JOIN cust_customers c ON s.customer_no = c.customer_no
+                        WHERE s.sale_invoice_no = @saleInvoiceNo AND s.pharmacy_no = @CurrentPharmacyNo;",
+                        new { saleInvoiceNo, CurrentPharmacyNo }, transaction: tran);
 
-            var accountNo = payload.AccountNo.HasValue && payload.AccountNo.Value > 0 ? payload.AccountNo.Value : 1;
+                    if (inv.customer_no > 0)
+                    {
+                        customerNo = inv.customer_no;
+                        if (string.IsNullOrWhiteSpace(customerName)) customerName = inv.customer_name ?? "";
+                        if (string.IsNullOrWhiteSpace(customerPhone)) customerPhone = inv.customer_phone ?? "";
+                    }
+                }
+                else if (req.Id.StartsWith("CUST-", StringComparison.OrdinalIgnoreCase) && 
+                         long.TryParse(req.Id.Substring(5), out var parsedCustNo))
+                {
+                    customerNo = parsedCustNo;
+                }
+            }
+
+            // 2. Resolve customer by phone or ID if not yet resolved
+            if (customerNo <= 0 && !string.IsNullOrWhiteSpace(customerPhone))
+            {
+                var cust = await conn.QuerySingleOrDefaultAsync<CustCustomer>(@"
+                    SELECT * FROM cust_customers 
+                    WHERE phone = @customerPhone AND pharmacy_no = @CurrentPharmacyNo
+                    LIMIT 1;",
+                    new { customerPhone, CurrentPharmacyNo }, transaction: tran);
+
+                if (cust != null)
+                {
+                    customerNo = cust.CustomerNo;
+                    if (string.IsNullOrWhiteSpace(customerName)) customerName = cust.Name;
+                }
+            }
+
+            if (customerNo <= 0)
+            {
+                customerNo = 1;
+            }
+
+            // 3. Update sale invoice due if linked
+            if (saleInvoiceNo.HasValue && saleInvoiceNo.Value > 0)
+            {
+                await conn.ExecuteAsync(@"
+                    UPDATE sale_invoices 
+                    SET due_amount = GREATEST(0, due_amount - @Amount),
+                        customer_will_pay = customer_will_pay + @Amount,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE sale_invoice_no = @saleInvoiceNo AND pharmacy_no = @CurrentPharmacyNo;",
+                    new { saleInvoiceNo = saleInvoiceNo.Value, CurrentPharmacyNo, req.Amount }, transaction: tran);
+            }
+
+            // 4. Update customer balance
+            if (customerNo > 0)
+            {
+                await conn.ExecuteAsync(@"
+                    UPDATE cust_customers
+                    SET current_due = GREATEST(0, current_due - @Amount),
+                        has_due = CASE WHEN current_due - @Amount > 0 THEN TRUE ELSE FALSE END,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE customer_no = @customerNo AND pharmacy_no = @CurrentPharmacyNo;",
+                    new { customerNo, CurrentPharmacyNo, req.Amount }, transaction: tran);
+            }
+
+            // 5. Generate Payment Number and Record due_collections
+            var accountNo = req.AccountNo.HasValue && req.AccountNo.Value > 0 ? req.AccountNo.Value : 1;
             var paymentNumber = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "DUE_COLL");
+            if (string.IsNullOrWhiteSpace(paymentNumber))
+            {
+                paymentNumber = $"RCT-{CurrentBranchNo:D2}-{DateTime.UtcNow.Year}-{DateTime.UtcNow.Ticks % 100000:D5}";
+            }
 
             var nextDueCollNo = await conn.ExecuteScalarAsync<long>(
                 "SELECT COALESCE(MAX(due_collection_no), 0) + 1 FROM due_collections;", transaction: tran);
 
-            var collection = new DueCollection
+            short methodCode = 1; // Default 1: Cash
+            if (!string.IsNullOrWhiteSpace(req.Method))
             {
-                DueCollectionNo = nextDueCollNo,
-                PharmacyNo = CurrentPharmacyNo,
-                BranchNo = CurrentBranchNo,
-                CustomerNo = payload.CustomerNo,
-                AccountNo = accountNo,
-                SaleInvoiceNo = payload.SaleInvoiceNo,
-                PaymentNumber = paymentNumber,
-                PaymentMethod = payload.PaymentMethod,
-                Amount = payload.Amount,
-                Note = payload.Note,
-                ReceivedByUserNo = CurrentUserNo,
-                PaymentDate = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow
-            };
+                var m = req.Method.Trim().ToLowerInvariant();
+                if (m.Contains("card")) methodCode = 6;
+                else if (m.Contains("bkash") || m.Contains("mfs") || m.Contains("nagad")) methodCode = 3;
+                else if (short.TryParse(req.Method, out var parsedMethod)) methodCode = parsedMethod;
+            }
+            else if (req.PaymentMethodRaw != null && short.TryParse(req.PaymentMethodRaw.ToString(), out var parsedRaw))
+            {
+                methodCode = parsedRaw;
+            }
 
             await conn.ExecuteAsync(@"
                 INSERT INTO due_collections (
@@ -155,22 +437,26 @@ public class DueCollectionController : BaseController
                     account_no, sale_invoice_no, payment_number, payment_method,
                     amount, note, received_by_user_no, payment_date, created_at
                 ) VALUES (
-                    @DueCollectionNo, @PharmacyNo, @BranchNo, @CustomerNo,
-                    @AccountNo, @SaleInvoiceNo, @PaymentNumber, @PaymentMethod,
-                    @Amount, @Note, @ReceivedByUserNo, @PaymentDate, @CreatedAt
-                );", collection, transaction: tran);
+                    @nextDueCollNo, @CurrentPharmacyNo, @CurrentBranchNo, @customerNo,
+                    @accountNo, @saleInvoiceNo, @paymentNumber, @methodCode,
+                    @Amount, @Note, @CurrentUserNo, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                );",
+                new
+                {
+                    nextDueCollNo,
+                    CurrentPharmacyNo,
+                    CurrentBranchNo,
+                    customerNo,
+                    accountNo,
+                    saleInvoiceNo,
+                    paymentNumber,
+                    methodCode,
+                    req.Amount,
+                    Note = req.Note ?? "Due collection settlement",
+                    CurrentUserNo
+                }, transaction: tran);
 
-            // Deduct customer current_due
-            await conn.ExecuteAsync(@"
-                UPDATE cust_customers
-                SET current_due = GREATEST(0, current_due - @Amount),
-                    has_due = CASE WHEN current_due - @Amount > 0 THEN TRUE ELSE FALSE END,
-                    updated_at = NOW()
-                WHERE customer_no = @CustomerNo;",
-                new { payload.Amount, payload.CustomerNo },
-                transaction: tran);
-
-            // Universal Financial Ledger Posting:
+            // 6. Universal Financial Ledger Posting:
             // Dr Cash / Bank Account (Funds received)
             // Cr 10301 Accounts Receivable (AR liability reduced)
             var arAcc = await conn.QuerySingleOrDefaultAsync<long?>(
@@ -182,19 +468,19 @@ public class DueCollectionController : BaseController
                 new LedgerLeg
                 {
                     AccountNo = accountNo,
-                    DebitAmount = payload.Amount,
+                    DebitAmount = req.Amount,
                     CreditAmount = 0,
                     PartyType = 1, // Customer
-                    PartyNo = payload.CustomerNo,
-                    Narration = $"Customer due payment received from {customer.Name} ({paymentNumber})"
+                    PartyNo = customerNo,
+                    Narration = $"Customer due payment received from {customerName} ({paymentNumber})"
                 },
                 new LedgerLeg
                 {
                     AccountNo = arAcc,
                     DebitAmount = 0,
-                    CreditAmount = payload.Amount,
+                    CreditAmount = req.Amount,
                     PartyType = 1, // Customer
-                    PartyNo = payload.CustomerNo,
+                    PartyNo = customerNo,
                     Narration = $"AR reduction for due collection ({paymentNumber})"
                 }
             };
@@ -211,16 +497,20 @@ public class DueCollectionController : BaseController
                 Legs = journalLegs
             });
 
-            tran.Commit();
+            await tran.CommitAsync();
 
-            collection.CustomerName = customer.Name;
-            collection.CustomerPhone = customer.Phone;
-            return OkResponse(collection, $"Due payment of ৳{payload.Amount} collected successfully.");
+            return OkResponse<object>(new
+            {
+                receipt = paymentNumber,
+                collected = req.Amount,
+                customer = customerName,
+                date = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+            }, $"Due payment of ৳{req.Amount} collected successfully.");
         }
         catch (Exception ex)
         {
-            tran.Rollback();
-            return FailResponse<DueCollection>($"Due collection failed: {ex.Message}");
+            await tran.RollbackAsync();
+            return FailResponse<object>($"Due collection failed: {ex.Message}");
         }
     }
 }
