@@ -93,6 +93,12 @@ public class FastMovingProduct
 
     [JsonPropertyName("total_revenue")]
     public decimal TotalRevenue { get; set; }
+
+    [JsonPropertyName("total_profit")]
+    public decimal TotalProfit { get; set; }
+
+    [JsonPropertyName("profit_margin_pct")]
+    public decimal ProfitMarginPct { get; set; }
 }
 
 public class CashbookEntry
@@ -117,6 +123,15 @@ public class CashbookEntry
 
     [JsonPropertyName("balance")]
     public decimal Balance { get; set; }
+
+    [JsonPropertyName("account_no")]
+    public long? AccountNo { get; set; }
+
+    [JsonPropertyName("account_name")]
+    public string? AccountName { get; set; }
+
+    [JsonPropertyName("account_type")]
+    public short? AccountType { get; set; }
 }
 
 public class DailySalesTrend
@@ -141,4 +156,52 @@ public class DailySalesTrend
 
     [JsonPropertyName("net_profit")]
     public decimal NetProfit { get; set; }
+}
+
+public class FinancialReportSummary
+{
+    [JsonPropertyName("from_date")]
+    public DateTime FromDate { get; set; }
+
+    [JsonPropertyName("to_date")]
+    public DateTime ToDate { get; set; }
+
+    [JsonPropertyName("total_sales")]
+    public decimal TotalSales { get; set; }
+
+    [JsonPropertyName("total_sales_count")]
+    public int TotalSalesCount { get; set; }
+
+    [JsonPropertyName("total_profit")]
+    public decimal TotalProfit { get; set; }
+
+    [JsonPropertyName("total_purchases")]
+    public decimal TotalPurchases { get; set; }
+
+    [JsonPropertyName("total_expenses")]
+    public decimal TotalExpenses { get; set; }
+
+    [JsonPropertyName("total_incomes")]
+    public decimal TotalIncomes { get; set; }
+
+    [JsonPropertyName("cash_collected")]
+    public decimal CashCollected { get; set; }
+
+    [JsonPropertyName("due_collected")]
+    public decimal DueCollected { get; set; }
+
+    [JsonPropertyName("supplier_paid")]
+    public decimal SupplierPaid { get; set; }
+
+    [JsonPropertyName("sale_returns")]
+    public decimal SaleReturns { get; set; }
+
+    [JsonPropertyName("purchase_returns")]
+    public decimal PurchaseReturns { get; set; }
+
+    [JsonPropertyName("net_profit")]
+    public decimal NetProfit { get; set; }
+
+    [JsonPropertyName("net_cash_flow")]
+    public decimal NetCashFlow { get; set; }
 }

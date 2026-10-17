@@ -71,6 +71,7 @@ public class FinancialReportController : BaseController
     }
 
     [HttpGet("trial-balance")]
+    [HttpGet("reports/trial-balance")]
     public async Task<ActionResult<ApiResponse<List<TrialBalanceRow>>>> GetTrialBalance(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate)
@@ -95,14 +96,14 @@ public class FinancialReportController : BaseController
 
         if (fromDate.HasValue)
         {
-            sql += " AND l.transaction_date >= @FromDate";
-            pms.Add("FromDate", fromDate.Value.ToUniversalTime());
+            sql += " AND DATE(l.transaction_date) >= @FromDate";
+            pms.Add("FromDate", fromDate.Value.Date);
         }
 
         if (toDate.HasValue)
         {
-            sql += " AND l.transaction_date <= @ToDate";
-            pms.Add("ToDate", toDate.Value.ToUniversalTime());
+            sql += " AND DATE(l.transaction_date) <= @ToDate";
+            pms.Add("ToDate", toDate.Value.Date);
         }
 
         sql += @"
@@ -115,6 +116,7 @@ public class FinancialReportController : BaseController
     }
 
     [HttpGet("ledger/{accountNo}")]
+    [HttpGet("reports/ledger/{accountNo}")]
     public async Task<ActionResult<ApiResponse<List<LedgerStatementRow>>>> GetAccountLedger(
         long accountNo,
         [FromQuery] DateTime? fromDate,
@@ -135,14 +137,14 @@ public class FinancialReportController : BaseController
 
         if (fromDate.HasValue)
         {
-            sql += " AND transaction_date >= @FromDate";
-            pms.Add("FromDate", fromDate.Value.ToUniversalTime());
+            sql += " AND DATE(transaction_date) >= @FromDate";
+            pms.Add("FromDate", fromDate.Value.Date);
         }
 
         if (toDate.HasValue)
         {
-            sql += " AND transaction_date <= @ToDate";
-            pms.Add("ToDate", toDate.Value.ToUniversalTime());
+            sql += " AND DATE(transaction_date) <= @ToDate";
+            pms.Add("ToDate", toDate.Value.Date);
         }
 
         sql += " ORDER BY ledger_no ASC LIMIT 500;";
