@@ -423,12 +423,35 @@ The database uses PostgreSQL `snake_case`. Angular domain models in `core/models
 
 ## 7. Developer Guidelines, Gotchas & Conventional Commits
 
-### 1. Conventional Commits Standard
-Both repositories strictly enforce [Conventional Commits](https://www.conventionalcommits.org/):
+### 1. Conventional Commits & Automated Versioning / Tagging Standard
+Both repositories strictly enforce [Conventional Commits](https://www.conventionalcommits.org/) and automate SemVer versioning and Git tagging:
 - **Format**: `<type>(<optional-scope>): <subject>`
 - **Permitted Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 - **Frontend Hook**: Managed via `husky` + `@commitlint/cli` at `sme-software-frontend/.husky/commit-msg`.
 - **Backend Hook**: Managed via `Husky.Net` (v0.9.1) at `aidlypms-backend/.husky/commit-msg`.
+
+#### Automated CI/CD Workflow (`.github/workflows/release.yml`)
+Each push to `main` (or manual trigger via GitHub Actions `workflow_dispatch`) automatically:
+1. Analyzes commit history using Conventional Commits since the last release tag.
+2. Computes the next SemVer increment (`fix` → patch, `feat` → minor, `BREAKING CHANGE` → major).
+3. Generates/updates `CHANGELOG.md` categorized with custom sections and emojis (🚀 Features, 🐛 Bug Fixes, ⚡ Performance, etc.).
+4. Updates the version in `package.json` (frontend) or `AidlyPms.Api.csproj` (backend).
+5. Creates a release commit: `chore(release): X.Y.Z [skip ci]` (preventing duplicate CI deployment runs).
+6. Creates an annotated Git tag `vX.Y.Z`.
+7. Pushes the commit and tags to GitHub (`git push --follow-tags origin main`).
+8. Automatically publishes a GitHub Release with formatted release notes via `softprops/action-gh-release@v2`.
+
+#### Local Release Commands (Frontend)
+- `npm run release`: Auto-detect semver from commit history and tag release.
+- `npm run release:patch`: Force a patch release (e.g. `v1.0.1`).
+- `npm run release:minor`: Force a minor release (e.g. `v1.1.0`).
+- `npm run release:major`: Force a major release (e.g. `v2.0.0`).
+- `npm run release:dry`: Dry-run preview of changelog, next version, and tag without writing changes.
+
+#### Local Release Commands (Backend)
+- `npx --yes commit-and-tag-version`: Auto-detect semver and bump `AidlyPms.Api.csproj`.
+- `npx --yes commit-and-tag-version --release-as <patch|minor|major>`: Force specific semver bump.
+- `npx --yes commit-and-tag-version --dry-run`: Preview changelog and version bump without modifying files.
 
 ### 2. Readonly Arrays from Backend APIs
 - `PagedResult<T>.items` is typed as `readonly T[]`.
