@@ -24,8 +24,19 @@ public class AccountController : BaseController
     {
         using var conn = _db.CreateConnection();
         var sql = @"
-            SELECT * FROM acc_transaction_accounts
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo";
+            SELECT a.*,
+                   (
+                       (SELECT COUNT(1) FROM acc_transaction_ledger l WHERE l.account_no = a.account_no AND l.pharmacy_no = @CurrentPharmacyNo AND l.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM acc_expenses e WHERE e.account_no = a.account_no AND e.pharmacy_no = @CurrentPharmacyNo AND e.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM acc_incomes i WHERE i.account_no = a.account_no AND i.pharmacy_no = @CurrentPharmacyNo AND i.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM acc_additional_balances b WHERE b.account_no = a.account_no AND b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM due_collections d WHERE d.account_no = a.account_no AND d.pharmacy_no = @CurrentPharmacyNo AND d.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM sale_invoice_payments p WHERE p.account_no = a.account_no AND p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM pur_supplier_payments sp WHERE sp.account_no = a.account_no AND sp.pharmacy_no = @CurrentPharmacyNo AND sp.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM acc_reconciliations r WHERE (r.payment_from_account_no = a.account_no OR r.payment_to_account_no = a.account_no) AND r.pharmacy_no = @CurrentPharmacyNo AND r.branch_no = @CurrentBranchNo)
+                   ) AS transaction_count
+            FROM acc_transaction_accounts a
+            WHERE a.pharmacy_no = @CurrentPharmacyNo AND a.branch_no = @CurrentBranchNo";
 
         var pms = new DynamicParameters();
         pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
@@ -33,23 +44,23 @@ public class AccountController : BaseController
 
         if (accountCategory.HasValue)
         {
-            sql += " AND account_category = @AccountCategory";
+            sql += " AND a.account_category = @AccountCategory";
             pms.Add("AccountCategory", accountCategory.Value);
         }
 
         if (accountType.HasValue)
         {
-            sql += " AND account_type = @AccountType";
+            sql += " AND a.account_type = @AccountType";
             pms.Add("AccountType", accountType.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            sql += " AND (account_name ILIKE @Search OR account_code ILIKE @Search OR bank_account_number ILIKE @Search)";
+            sql += " AND (a.account_name ILIKE @Search OR a.account_code ILIKE @Search OR a.bank_account_number ILIKE @Search)";
             pms.Add("Search", $"%{search.Trim()}%");
         }
 
-        sql += " ORDER BY account_category ASC, account_code ASC, account_name ASC;";
+        sql += " ORDER BY a.account_category ASC, a.account_code ASC, a.account_name ASC;";
         var list = (await conn.QueryAsync<AccTransactionAccount>(sql, pms)).ToList();
 
         return OkResponse(list);
@@ -60,8 +71,19 @@ public class AccountController : BaseController
     {
         using var conn = _db.CreateConnection();
         var account = await conn.QuerySingleOrDefaultAsync<AccTransactionAccount>(@"
-            SELECT * FROM acc_transaction_accounts
-            WHERE account_no = @Id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            SELECT a.*,
+                   (
+                       (SELECT COUNT(1) FROM acc_transaction_ledger l WHERE l.account_no = a.account_no AND l.pharmacy_no = @CurrentPharmacyNo AND l.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM acc_expenses e WHERE e.account_no = a.account_no AND e.pharmacy_no = @CurrentPharmacyNo AND e.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM acc_incomes i WHERE i.account_no = a.account_no AND i.pharmacy_no = @CurrentPharmacyNo AND i.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM acc_additional_balances b WHERE b.account_no = a.account_no AND b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM due_collections d WHERE d.account_no = a.account_no AND d.pharmacy_no = @CurrentPharmacyNo AND d.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM sale_invoice_payments p WHERE p.account_no = a.account_no AND p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM pur_supplier_payments sp WHERE sp.account_no = a.account_no AND sp.pharmacy_no = @CurrentPharmacyNo AND sp.branch_no = @CurrentBranchNo)
+                       + (SELECT COUNT(1) FROM acc_reconciliations r WHERE (r.payment_from_account_no = a.account_no OR r.payment_to_account_no = a.account_no) AND r.pharmacy_no = @CurrentPharmacyNo AND r.branch_no = @CurrentBranchNo)
+                   ) AS transaction_count
+            FROM acc_transaction_accounts a
+            WHERE a.account_no = @Id AND a.pharmacy_no = @CurrentPharmacyNo AND a.branch_no = @CurrentBranchNo;",
             new { Id = id, CurrentPharmacyNo, CurrentBranchNo });
 
         if (account == null)
@@ -191,21 +213,42 @@ public class AccountController : BaseController
     public async Task<ActionResult<ApiResponse<bool>>> DeleteAccount(long id)
     {
         using var conn = _db.CreateConnection();
+        var account = await conn.QuerySingleOrDefaultAsync<AccTransactionAccount>(@"
+            SELECT * FROM acc_transaction_accounts
+            WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (account == null)
+            return FailResponse<bool>("Account not found.", statusCode: 404);
+
+        if (!string.IsNullOrWhiteSpace(account.AccountCode) && account.AccountCode.Length == 5 &&
+            (account.AccountCode.StartsWith("1") || account.AccountCode.StartsWith("2") ||
+             account.AccountCode.StartsWith("3") || account.AccountCode.StartsWith("4") ||
+             account.AccountCode.StartsWith("5")))
+        {
+            return FailResponse<bool>("Default system chart of accounts cannot be deleted.");
+        }
+
+        if (account.CurrentBalance != 0)
+        {
+            return FailResponse<bool>($"Cannot delete account '{account.AccountName}' because it has an active balance of ৳ {account.CurrentBalance:N2}. Balance must be 0.00.");
+        }
+
         var hasTransactions = await conn.ExecuteScalarAsync<bool>(@"
-            SELECT EXISTS(
-                SELECT 1 FROM acc_transaction_ledger
-                WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+            SELECT (
+                EXISTS(SELECT 1 FROM acc_transaction_ledger WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo)
+                OR EXISTS(SELECT 1 FROM acc_expenses WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo)
+                OR EXISTS(SELECT 1 FROM acc_incomes WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo)
+                OR EXISTS(SELECT 1 FROM acc_additional_balances WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo)
+                OR EXISTS(SELECT 1 FROM due_collections WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo)
+                OR EXISTS(SELECT 1 FROM sale_invoice_payments WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo)
+                OR EXISTS(SELECT 1 FROM pur_supplier_payments WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo)
+                OR EXISTS(SELECT 1 FROM acc_reconciliations WHERE (payment_from_account_no = @id OR payment_to_account_no = @id) AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo)
             );", new { id, CurrentPharmacyNo, CurrentBranchNo });
 
         if (hasTransactions)
         {
-            await conn.ExecuteAsync(@"
-                UPDATE acc_transaction_accounts
-                SET is_active = false, updated_at = CURRENT_TIMESTAMP
-                WHERE account_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                new { id, CurrentPharmacyNo, CurrentBranchNo });
-
-            return OkResponse(true, "Account has transaction history and was deactivated instead of permanently deleted.");
+            return FailResponse<bool>($"Cannot delete account '{account.AccountName}' because transactions have already been recorded against it. Financial records must be preserved.");
         }
 
         var rows = await conn.ExecuteAsync(@"
@@ -216,6 +259,6 @@ public class AccountController : BaseController
         if (rows == 0)
             return FailResponse<bool>("Account not found.", statusCode: 404);
 
-        return OkResponse(true, "Account deleted successfully.");
+        return OkResponse(true, $"Account '{account.AccountName}' deleted successfully.");
     }
 }

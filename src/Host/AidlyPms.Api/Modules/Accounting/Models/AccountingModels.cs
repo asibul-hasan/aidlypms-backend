@@ -45,6 +45,9 @@ public class AccTransactionAccount
 
     [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    [JsonPropertyName("transaction_count")]
+    public int TransactionCount { get; set; }
 }
 
 public class AccExpenseCategory
