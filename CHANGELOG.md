@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.1.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.0.1...v1.1.0) (2026-10-17)
+
+
+### 🚀 Features
+
+* **sales:** support retrieving sales invoice by sales_number or id with items ([a347941](https://github.com/asibul-hasan/aidlypms-backend/commit/a3479416b06300a055fe02fda90648c9d1ec0248))
+
 ## [1.0.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.0.0...v1.0.1) (2026-10-17)
 
 
