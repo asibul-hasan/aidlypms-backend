@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.3.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.2.0...v1.3.0) (2026-10-17)
+
+
+### 🚀 Features
+
+* **products:** add stock valuation and inventory report endpoint ([d5569e9](https://github.com/asibul-hasan/aidlypms-backend/commit/d5569e9fffed6be2f4b08fd186958ff3c5a8c089))
+
 ## [1.2.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.1.4...v1.2.0) (2026-10-17)
 
 
