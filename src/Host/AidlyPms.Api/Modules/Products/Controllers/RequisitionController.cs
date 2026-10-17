@@ -607,6 +607,11 @@ public class RequisitionController : BaseController
                 return NotFoundResponse<ProdProductRequisition>("Requisition not found.");
             }
 
+            if (string.Equals((string)existing.status, "Approved", StringComparison.OrdinalIgnoreCase))
+            {
+                return FailResponse<ProdProductRequisition>("Requisition has been approved and cannot be modified or deleted.");
+            }
+
             var maxItemNo = await conn.ExecuteScalarAsync<long>(
                 "SELECT COALESCE(MAX(requisition_item_no), 0) FROM prod_product_requisition_items;", transaction: tran);
 
@@ -760,6 +765,31 @@ public class RequisitionController : BaseController
         }
 
         await using var conn = await _db.CreateOpenConnectionAsync();
+
+        const string checkSql = @"
+            SELECT status FROM prod_product_requisitions
+            WHERE requisition_no = @requisitionNo
+              AND pharmacy_no = @CurrentPharmacyNo
+              AND branch_no = @CurrentBranchNo;";
+
+        var currentStatus = await conn.QuerySingleOrDefaultAsync<string>(checkSql, new
+        {
+            requisitionNo,
+            CurrentPharmacyNo,
+            CurrentBranchNo
+        });
+
+        if (currentStatus == null)
+        {
+            return NotFoundResponse<bool>("Requisition not found.");
+        }
+
+        if (string.Equals(currentStatus, "Approved", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(request.Status, "Approved", StringComparison.OrdinalIgnoreCase))
+        {
+            return FailResponse<bool>("Approved requisitions cannot be modified or cancelled.");
+        }
+
         const string sql = @"
             UPDATE prod_product_requisitions
             SET status = @Status, updated_at = CURRENT_TIMESTAMP
