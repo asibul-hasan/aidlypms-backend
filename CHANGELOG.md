@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.1.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.1.3...v1.1.4) (2026-10-17)
+
+
+### 🐛 Bug Fixes
+
+* **accounting:** prevent deletion of accounts with transactions or active balance ([def8b1b](https://github.com/asibul-hasan/aidlypms-backend/commit/def8b1bf8d57bf3c03a79afb50198f5cf3cbe301))
+
 ## [1.1.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.1.2...v1.1.3) (2026-10-17)
 
 
