@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.0.0...v1.0.1) (2026-10-17)
+
+
+### 📝 Documentation
+
+* **memory:** update release and semver tagging documentation in GEMINI.md ([4e74726](https://github.com/asibul-hasan/aidlypms-backend/commit/4e747269c3db4a99381d78565f53e715160ba5de))
+
+
+### 🤖 Continuous Integration
+
+* **release:** enhance release notes preparation and GitHub Release action ([fe4aa6f](https://github.com/asibul-hasan/aidlypms-backend/commit/fe4aa6f736dde9014ff94a1ebcf00bc0dd70b3af))
+
 ## 1.0.0 (2026-10-17)
 
 ### 🚀 Features
