@@ -52,11 +52,16 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddControllers()
+builder.Services.AddControllers(options =>
+    {
+        options.ModelBinderProviders.Insert(0, new FlexibleDateTimeModelBinderProvider());
+    })
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.Converters.Add(new FlexibleDateTimeJsonConverter());
+        options.JsonSerializerOptions.Converters.Add(new FlexibleNullableDateTimeJsonConverter());
     });
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi

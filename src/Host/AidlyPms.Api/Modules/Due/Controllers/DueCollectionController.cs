@@ -115,17 +115,7 @@ public class DueCollectionController : BaseController
     {
         await using var conn = await _db.CreateOpenConnectionAsync();
 
-        DateTime? parsedFromDate = null;
-        if (!string.IsNullOrWhiteSpace(fromDate) && DateTime.TryParse(fromDate, out var fDate))
-        {
-            parsedFromDate = DateTime.SpecifyKind(fDate.Date, DateTimeKind.Utc);
-        }
-
-        DateTime? parsedToDate = null;
-        if (!string.IsNullOrWhiteSpace(toDate) && DateTime.TryParse(toDate, out var tDate))
-        {
-            parsedToDate = DateTime.SpecifyKind(tDate.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
-        }
+        var (parsedFromDate, parsedToDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
 
         var pms = new DynamicParameters();
         pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
@@ -158,8 +148,8 @@ public class DueCollectionController : BaseController
                 COALESCE(c.name, 'Walking Customer') AS customer,
                 COALESCE(c.phone, '') AS phone,
                 s.sales_number AS inv,
-                TO_CHAR(s.sale_timestamp, 'YYYY-MM-DD') AS saledate,
-                TO_CHAR(s.sale_timestamp + INTERVAL '7 days', 'YYYY-MM-DD') AS duedate,
+                TO_CHAR(s.sale_timestamp, 'DD-MM-YYYY') AS saledate,
+                TO_CHAR(s.sale_timestamp + INTERVAL '7 days', 'DD-MM-YYYY') AS duedate,
                 s.due_amount AS amount
             FROM sale_invoices s
             LEFT JOIN cust_customers c ON s.customer_no = c.customer_no
@@ -175,8 +165,8 @@ public class DueCollectionController : BaseController
                 c.name AS customer,
                 COALESCE(c.phone, '') AS phone,
                 'OPENING-DUE' AS inv,
-                TO_CHAR(c.created_at, 'YYYY-MM-DD') AS saledate,
-                TO_CHAR(c.created_at + INTERVAL '7 days', 'YYYY-MM-DD') AS duedate,
+                TO_CHAR(c.created_at, 'DD-MM-YYYY') AS saledate,
+                TO_CHAR(c.created_at + INTERVAL '7 days', 'DD-MM-YYYY') AS duedate,
                 c.current_due AS amount
             FROM cust_customers c
             WHERE c.pharmacy_no = @CurrentPharmacyNo AND c.branch_no = @CurrentBranchNo
@@ -204,17 +194,7 @@ public class DueCollectionController : BaseController
     {
         await using var conn = await _db.CreateOpenConnectionAsync();
 
-        DateTime? parsedFromDate = null;
-        if (!string.IsNullOrWhiteSpace(fromDate) && DateTime.TryParse(fromDate, out var fDate))
-        {
-            parsedFromDate = DateTime.SpecifyKind(fDate.Date, DateTimeKind.Utc);
-        }
-
-        DateTime? parsedToDate = null;
-        if (!string.IsNullOrWhiteSpace(toDate) && DateTime.TryParse(toDate, out var tDate))
-        {
-            parsedToDate = DateTime.SpecifyKind(tDate.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
-        }
+        var (parsedFromDate, parsedToDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
 
         var pms = new DynamicParameters();
         pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
@@ -253,7 +233,7 @@ public class DueCollectionController : BaseController
                 END AS method,
                 d.amount AS amount,
                 COALESCE(d.note, 'Due collection settlement') AS note,
-                TO_CHAR(d.payment_date, 'YYYY-MM-DD') AS paymentdate
+                TO_CHAR(d.payment_date, 'DD-MM-YYYY') AS paymentdate
             FROM due_collections d
             LEFT JOIN cust_customers c ON d.customer_no = c.customer_no
             WHERE d.pharmacy_no = @CurrentPharmacyNo AND d.branch_no = @CurrentBranchNo

@@ -38,6 +38,7 @@ public class PosSaleController : BaseController
         [FromQuery] int pageIndex = 1,
         [FromQuery] int pageSize = 20)
     {
+        (startDate, endDate) = DateHelper.NormalizeDateRange(startDate, endDate);
         await using var conn = await _db.CreateOpenConnectionAsync();
         var offset = (pageIndex - 1) * pageSize;
 

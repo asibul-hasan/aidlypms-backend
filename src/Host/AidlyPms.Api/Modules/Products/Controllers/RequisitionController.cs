@@ -235,6 +235,7 @@ public class RequisitionController : BaseController
         [FromQuery] DateTime? toDate = null,
         [FromQuery] string? status = null)
     {
+        (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
         await using var conn = await _db.CreateOpenConnectionAsync();
         var offset = (pageIndex - 1) * pageSize;
 
@@ -265,13 +266,13 @@ public class RequisitionController : BaseController
         if (fromDate.HasValue)
         {
             whereClause += " AND r.created_at >= @FromDate";
-            pms.Add("FromDate", fromDate.Value.ToUniversalTime());
+            pms.Add("FromDate", fromDate.Value);
         }
 
         if (toDate.HasValue)
         {
             whereClause += " AND r.created_at <= @ToDate";
-            pms.Add("ToDate", toDate.Value.ToUniversalTime());
+            pms.Add("ToDate", toDate.Value);
         }
 
         var countSql = $"SELECT COUNT(*) FROM prod_product_requisitions r {whereClause};";

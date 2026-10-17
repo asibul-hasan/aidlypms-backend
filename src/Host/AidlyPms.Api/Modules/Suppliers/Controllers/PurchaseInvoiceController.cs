@@ -38,6 +38,7 @@ public class PurchaseInvoiceController : BaseController
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate)
     {
+        (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
         using var conn = _db.CreateConnection();
         var sql = @"
             SELECT p.*, s.name AS supplier_name, s.phone AS supplier_phone
@@ -80,14 +81,14 @@ public class PurchaseInvoiceController : BaseController
         {
             sql += " AND p.purchase_date >= @FromDate";
             countSql += " AND p.purchase_date >= @FromDate";
-            pms.Add("FromDate", fromDate.Value.ToUniversalTime());
+            pms.Add("FromDate", fromDate.Value);
         }
 
         if (toDate.HasValue)
         {
             sql += " AND p.purchase_date <= @ToDate";
             countSql += " AND p.purchase_date <= @ToDate";
-            pms.Add("ToDate", toDate.Value.ToUniversalTime());
+            pms.Add("ToDate", toDate.Value);
         }
 
         sql += " ORDER BY p.purchase_invoice_no DESC LIMIT @PageSize OFFSET @Offset;";

@@ -85,6 +85,7 @@ public class ExpenseController : BaseController
         [FromQuery] DateTime? toDate,
         [FromQuery] string? search)
     {
+        (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
         using var conn = _db.CreateConnection();
         var sql = @"
             SELECT e.*, c.name AS category_name, a.account_name
@@ -128,14 +129,14 @@ public class ExpenseController : BaseController
         {
             sql += " AND e.expense_date >= @FromDate";
             countSql += " AND e.expense_date >= @FromDate";
-            pms.Add("FromDate", fromDate.Value.ToUniversalTime());
+            pms.Add("FromDate", fromDate.Value);
         }
 
         if (toDate.HasValue)
         {
             sql += " AND e.expense_date <= @ToDate";
             countSql += " AND e.expense_date <= @ToDate";
-            pms.Add("ToDate", toDate.Value.ToUniversalTime());
+            pms.Add("ToDate", toDate.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(search))

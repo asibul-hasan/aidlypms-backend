@@ -228,16 +228,17 @@ public class DashboardController : BaseController
         pms.Add("CurrentBranchNo", CurrentBranchNo);
         pms.Add("Limit", limit);
 
+        (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
         var dateFilter = string.Empty;
         if (fromDate.HasValue)
         {
-            dateFilter += " AND DATE(s.sale_timestamp) >= @FromDate";
-            pms.Add("FromDate", fromDate.Value.Date);
+            dateFilter += " AND s.sale_timestamp >= @FromDate";
+            pms.Add("FromDate", fromDate.Value);
         }
         if (toDate.HasValue)
         {
-            dateFilter += " AND DATE(s.sale_timestamp) <= @ToDate";
-            pms.Add("ToDate", toDate.Value.Date);
+            dateFilter += " AND s.sale_timestamp <= @ToDate";
+            pms.Add("ToDate", toDate.Value);
         }
 
         var sql = $@"
@@ -279,31 +280,35 @@ public class DashboardController : BaseController
         pms.Add("CurrentBranchNo", CurrentBranchNo);
 
         var dateFilter = string.Empty;
-        if (fromDate.HasValue && toDate.HasValue)
+        if (fromDate.HasValue || toDate.HasValue)
         {
-            dateFilter = " AND DATE(l.transaction_date) >= @FromDate AND DATE(l.transaction_date) <= @ToDate";
-            pms.Add("FromDate", fromDate.Value.Date);
-            pms.Add("ToDate", toDate.Value.Date);
-        }
-        else if (fromDate.HasValue)
-        {
-            dateFilter = " AND DATE(l.transaction_date) >= @FromDate";
-            pms.Add("FromDate", fromDate.Value.Date);
-        }
-        else if (toDate.HasValue)
-        {
-            dateFilter = " AND DATE(l.transaction_date) <= @ToDate";
-            pms.Add("ToDate", toDate.Value.Date);
+            (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
+            if (fromDate.HasValue)
+            {
+                dateFilter += " AND l.transaction_date >= @FromDate";
+                pms.Add("FromDate", fromDate.Value);
+            }
+            if (toDate.HasValue)
+            {
+                dateFilter += " AND l.transaction_date <= @ToDate";
+                pms.Add("ToDate", toDate.Value);
+            }
         }
         else if (date.HasValue)
         {
-            dateFilter = " AND DATE(l.transaction_date) = @TargetDate";
-            pms.Add("TargetDate", date.Value.Date);
+            var dFrom = DateHelper.ToStartOfDayUtc(date.Value);
+            var dTo = DateHelper.ToEndOfDayUtc(date.Value);
+            dateFilter = " AND l.transaction_date >= @FromDate AND l.transaction_date <= @ToDate";
+            pms.Add("FromDate", dFrom);
+            pms.Add("ToDate", dTo);
         }
         else
         {
-            // Default to today if nothing passed
-            dateFilter = " AND DATE(l.transaction_date) = CURRENT_DATE";
+            var todayFrom = DateHelper.ToStartOfDayUtc(DateTime.UtcNow);
+            var todayTo = DateHelper.ToEndOfDayUtc(DateTime.UtcNow);
+            dateFilter = " AND l.transaction_date >= @FromDate AND l.transaction_date <= @ToDate";
+            pms.Add("FromDate", todayFrom);
+            pms.Add("ToDate", todayTo);
         }
 
         var accFilter = string.Empty;
@@ -355,12 +360,13 @@ public class DashboardController : BaseController
         pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
         pms.Add("CurrentBranchNo", CurrentBranchNo);
 
+        var (nFrom, nTo) = DateHelper.NormalizeDateRange(fromDate, toDate);
         string seriesSql;
-        if (fromDate.HasValue && toDate.HasValue)
+        if (nFrom.HasValue && nTo.HasValue)
         {
             seriesSql = "SELECT generate_series(@FromDate::date, @ToDate::date, '1 day'::interval)::date AS day";
-            pms.Add("FromDate", fromDate.Value.Date);
-            pms.Add("ToDate", toDate.Value.Date);
+            pms.Add("FromDate", nFrom.Value.Date);
+            pms.Add("ToDate", nTo.Value.Date);
         }
         else
         {
@@ -415,8 +421,9 @@ public class DashboardController : BaseController
         [FromQuery] DateTime? toDate)
     {
         using var conn = _db.CreateConnection();
-        var fDate = (fromDate ?? DateTime.UtcNow).Date;
-        var tDate = (toDate ?? DateTime.UtcNow).Date;
+        var (fromUtc, toUtc) = DateHelper.NormalizeDateRange(fromDate ?? DateTime.UtcNow, toDate ?? DateTime.UtcNow);
+        var fDate = fromUtc!.Value;
+        var tDate = toUtc!.Value;
 
         var pms = new { CurrentPharmacyNo, CurrentBranchNo, FromDate = fDate, ToDate = tDate };
 
@@ -427,7 +434,7 @@ public class DashboardController : BaseController
                    COALESCE(SUM(CASE WHEN payment_method = 1 THEN customer_will_pay - change_amount ELSE 0 END), 0) AS CashCollected
             FROM sale_invoices
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(sale_timestamp) >= @FromDate AND DATE(sale_timestamp) <= @ToDate
+              AND sale_timestamp >= @FromDate AND sale_timestamp <= @ToDate
               AND document_status = 2;",
             pms);
 
@@ -435,7 +442,7 @@ public class DashboardController : BaseController
             SELECT COALESCE(SUM(final_price), 0)
             FROM pur_purchase_invoices
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(purchase_date) >= @FromDate AND DATE(purchase_date) <= @ToDate
+              AND purchase_date >= @FromDate AND purchase_date <= @ToDate
               AND document_status = 2;",
             pms) ?? 0m;
 
@@ -443,42 +450,42 @@ public class DashboardController : BaseController
             SELECT COALESCE(SUM(amount), 0)
             FROM acc_expenses
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(expense_date) >= @FromDate AND DATE(expense_date) <= @ToDate;",
+              AND expense_date >= @FromDate AND expense_date <= @ToDate;",
             pms) ?? 0m;
 
         var incomesTotal = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM acc_incomes
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(income_date) >= @FromDate AND DATE(income_date) <= @ToDate;",
+              AND income_date >= @FromDate AND income_date <= @ToDate;",
             pms) ?? 0m;
 
         var dueCollected = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM due_collections
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(payment_date) >= @FromDate AND DATE(payment_date) <= @ToDate;",
+              AND payment_date >= @FromDate AND payment_date <= @ToDate;",
             pms) ?? 0m;
 
         var supplierPaid = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM pur_supplier_payments
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(payment_date) >= @FromDate AND DATE(payment_date) <= @ToDate;",
+              AND payment_date >= @FromDate AND payment_date <= @ToDate;",
             pms) ?? 0m;
 
         var saleReturns = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(final_refund_price), 0)
             FROM sale_returns
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(return_date) >= @FromDate AND DATE(return_date) <= @ToDate;",
+              AND return_date >= @FromDate AND return_date <= @ToDate;",
             pms) ?? 0m;
 
         var purchaseReturns = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(gross_return_amount), 0)
             FROM pur_purchase_returns
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(return_date) >= @FromDate AND DATE(return_date) <= @ToDate;",
+              AND return_date >= @FromDate AND return_date <= @ToDate;",
             pms) ?? 0m;
 
         var netProfit = salesStats.TotalProfit + incomesTotal - expensesTotal;

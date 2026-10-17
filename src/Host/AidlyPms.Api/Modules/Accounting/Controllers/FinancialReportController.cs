@@ -76,6 +76,7 @@ public class FinancialReportController : BaseController
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate)
     {
+        (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
         using var conn = _db.CreateConnection();
         var sql = @"
             SELECT a.account_no, a.account_code, a.account_name, a.account_category,
@@ -122,6 +123,7 @@ public class FinancialReportController : BaseController
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate)
     {
+        (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
         using var conn = _db.CreateConnection();
         var sql = @"
             SELECT ledger_no, transaction_date, transaction_type,

@@ -83,6 +83,7 @@ public class IncomeController : BaseController
         [FromQuery] DateTime? toDate,
         [FromQuery] string? search)
     {
+        (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
         using var conn = _db.CreateConnection();
         var sql = @"
             SELECT i.*, c.name AS category_name, a.account_name
@@ -119,14 +120,14 @@ public class IncomeController : BaseController
         {
             sql += " AND i.income_date >= @FromDate";
             countSql += " AND i.income_date >= @FromDate";
-            pms.Add("FromDate", fromDate.Value.ToUniversalTime());
+            pms.Add("FromDate", fromDate.Value);
         }
 
         if (toDate.HasValue)
         {
             sql += " AND i.income_date <= @ToDate";
             countSql += " AND i.income_date <= @ToDate";
-            pms.Add("ToDate", toDate.Value.ToUniversalTime());
+            pms.Add("ToDate", toDate.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(search))
