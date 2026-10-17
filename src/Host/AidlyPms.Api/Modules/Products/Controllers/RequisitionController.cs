@@ -607,9 +607,10 @@ public class RequisitionController : BaseController
                 return NotFoundResponse<ProdProductRequisition>("Requisition not found.");
             }
 
-            if (string.Equals((string)existing.status, "Approved", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals((string)existing.status, "Approved", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals((string)existing.status, "Fulfilled", StringComparison.OrdinalIgnoreCase))
             {
-                return FailResponse<ProdProductRequisition>("Requisition has been approved and cannot be modified or deleted.");
+                return FailResponse<ProdProductRequisition>("Requisition has been approved or fulfilled and cannot be modified or deleted.");
             }
 
             var maxItemNo = await conn.ExecuteScalarAsync<long>(
@@ -784,10 +785,11 @@ public class RequisitionController : BaseController
             return NotFoundResponse<bool>("Requisition not found.");
         }
 
-        if (string.Equals(currentStatus, "Approved", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(request.Status, "Approved", StringComparison.OrdinalIgnoreCase))
+        if ((string.Equals(currentStatus, "Approved", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(currentStatus, "Fulfilled", StringComparison.OrdinalIgnoreCase)) &&
+            !string.Equals(request.Status, currentStatus, StringComparison.OrdinalIgnoreCase))
         {
-            return FailResponse<bool>("Approved requisitions cannot be modified or cancelled.");
+            return FailResponse<bool>("Approved or fulfilled requisitions cannot be modified, unapproved, or cancelled.");
         }
 
         const string sql = @"
