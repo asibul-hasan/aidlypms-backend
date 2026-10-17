@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.1.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.1.1...v1.1.2) (2026-10-17)
+
+
+### 🐛 Bug Fixes
+
+* **requisition:** prevent updating or cancelling approved requisitions ([49a666a](https://github.com/asibul-hasan/aidlypms-backend/commit/49a666ad3849bcff812cccb5878b2c975a3ad04b))
+
 ## [1.1.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.1.0...v1.1.1) (2026-10-17)
 
 
