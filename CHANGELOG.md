@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.3.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.3.2...v1.3.3) (2026-10-18)
+
+
+### 🐛 Bug Fixes
+
+* **sales:** enhance sale return processing with proportional discount and due adjustment ([8c66c78](https://github.com/asibul-hasan/aidlypms-backend/commit/8c66c780196f92d595c51ee257ce253d20f4072f))
+
 ## [1.3.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.3.1...v1.3.2) (2026-10-18)
 
 
