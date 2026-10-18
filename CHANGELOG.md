@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.3.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.3.1...v1.3.2) (2026-10-18)
+
+
+### 🐛 Bug Fixes
+
+* **products:** ensure stock calculations check valid expiry and positive quantity ([f08cba2](https://github.com/asibul-hasan/aidlypms-backend/commit/f08cba2aa6df072a3a7006a6b66356b195699527))
+
 ## [1.3.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.3.0...v1.3.1) (2026-10-17)
 
 
