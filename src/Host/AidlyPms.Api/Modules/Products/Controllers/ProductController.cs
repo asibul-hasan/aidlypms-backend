@@ -65,6 +65,8 @@ public class ProductController : BaseController
                     SELECT SUM(b.total_quantity_pcs)
                     FROM prod_product_batches b
                     WHERE b.product_no = p.product_no AND b.pharmacy_no = p.pharmacy_no AND b.branch_no = p.branch_no
+                      AND b.total_quantity_pcs > 0
+                      AND (b.expiry_date IS NULL OR b.expiry_date >= CURRENT_DATE)
                 ), 0) AS stock_qty
             FROM prod_products p
             LEFT JOIN prod_companies c ON p.company_no = c.company_no
@@ -135,7 +137,7 @@ public class ProductController : BaseController
                 AND b.pharmacy_no = @CurrentPharmacyNo 
                 AND b.branch_no = @CurrentBranchNo
                 AND b.total_quantity_pcs > 0
-                AND b.expiry_date >= CURRENT_DATE
+                AND (b.expiry_date IS NULL OR b.expiry_date >= CURRENT_DATE)
             LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             LEFT JOIN prod_companies c ON p.company_no = c.company_no
             WHERE p.pharmacy_no = @CurrentPharmacyNo 
