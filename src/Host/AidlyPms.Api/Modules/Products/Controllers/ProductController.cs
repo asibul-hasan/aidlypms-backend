@@ -114,8 +114,11 @@ public class ProductController : BaseController
                 GREATEST(1, COALESCE(p.quantity_per_box, 1))::int AS quantity_per_box,
                 CASE 
                     WHEN GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0)) > 0 
-                    THEN CEIL(GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0))::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)))::int
-                    ELSE 1 
+                    THEN CEIL(GREATEST(
+                        COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10),
+                        GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0))
+                    )::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)))::int
+                    ELSE CEIL(COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)))::int 
                 END AS suggested_box_qty,
                 COALESCE(p.purchase_price_per_piece, 0) AS purchase_price_per_piece,
                 COALESCE(p.cost_per_box, 0) AS cost_per_box,
@@ -169,7 +172,7 @@ public class ProductController : BaseController
                     COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)::int AS min_stock_qty_pcs,
                     GREATEST(0, COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10) - COALESCE(SUM(b.total_quantity_pcs), 0))::int AS shortfall_pcs,
                     GREATEST(1, COALESCE(p.quantity_per_box, 1))::int AS quantity_per_box,
-                    1 AS suggested_box_qty,
+                    CEIL(COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)::numeric / GREATEST(1, COALESCE(p.quantity_per_box, 1)))::int AS suggested_box_qty,
                     COALESCE(p.purchase_price_per_piece, 0) AS purchase_price_per_piece,
                     COALESCE(p.cost_per_box, 0) AS cost_per_box,
                     COALESCE(sale_price_per_piece, 0) AS sale_price_per_piece,
