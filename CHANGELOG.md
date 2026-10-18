@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.3.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.3.3...v1.3.4) (2026-10-18)
+
+
+### 🐛 Bug Fixes
+
+* **pos:** auto-cap applied payments against change amount to prevent double-entry imbalance ([5b38c5d](https://github.com/asibul-hasan/aidlypms-backend/commit/5b38c5db7c24cdc8a9738d6b6cedda2224f9191d))
+
 ## [1.3.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.3.2...v1.3.3) (2026-10-18)
 
 
