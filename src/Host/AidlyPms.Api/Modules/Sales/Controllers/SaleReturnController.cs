@@ -130,10 +130,25 @@ public class SaleReturnController : BaseController
             }
 
             // Look up original invoice if provided
-            if (!saleInvoiceNo.HasValue && !string.IsNullOrWhiteSpace(originalInvoiceNo))
+            SaleInvoice? origInvoice = null;
+            if (saleInvoiceNo.HasValue)
             {
-                var origInvoice = await conn.QuerySingleOrDefaultAsync<SaleInvoice>(@"
-                    SELECT sale_invoice_no, customer_no, payment_method, gross_total_price, final_price
+                origInvoice = await conn.QuerySingleOrDefaultAsync<SaleInvoice>(@"
+                    SELECT sale_invoice_no, customer_no, payment_method, gross_total_price, final_price, discount_value, due_amount, sales_number
+                    FROM sale_invoices
+                    WHERE sale_invoice_no = @saleInvoiceNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                    new { saleInvoiceNo = saleInvoiceNo.Value, CurrentPharmacyNo, CurrentBranchNo },
+                    transaction: tran);
+                if (origInvoice != null)
+                {
+                    if (!customerNo.HasValue || customerNo.Value <= 0) customerNo = origInvoice.CustomerNo;
+                    if (string.IsNullOrWhiteSpace(originalInvoiceNo)) originalInvoiceNo = origInvoice.SalesNumber;
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(originalInvoiceNo))
+            {
+                origInvoice = await conn.QuerySingleOrDefaultAsync<SaleInvoice>(@"
+                    SELECT sale_invoice_no, customer_no, payment_method, gross_total_price, final_price, discount_value, due_amount, sales_number
                     FROM sale_invoices
                     WHERE sales_number = @originalInvoiceNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
                     new { originalInvoiceNo, CurrentPharmacyNo, CurrentBranchNo },
@@ -234,8 +249,10 @@ public class SaleReturnController : BaseController
                     }
                 }
 
-                // Check disposition: 1: Restock to Batch
-                if (line.Disposition == 1)
+                // Check disposition: 1: Restock to Batch (always default to restock)
+                var disposition = line.Disposition > 0 ? line.Disposition : (short)1;
+                line.Disposition = disposition;
+                if (disposition == 1)
                 {
                     totalCogsReversal += lineCogs;
 
@@ -279,11 +296,29 @@ public class SaleReturnController : BaseController
                 processedItems.Add(line);
             }
 
-            var discountDeduction = returnData.DiscountDeduction;
+            var discountDeduction = payload.DiscountDeduction ?? returnData.DiscountDeduction;
+            if (discountDeduction <= 0 && origInvoice != null && origInvoice.GrossTotalPrice > 0 && origInvoice.DiscountValue > 0)
+            {
+                var discRatio = origInvoice.DiscountValue / origInvoice.GrossTotalPrice;
+                discountDeduction = Math.Round(grossRefund * discRatio, 4);
+            }
+
             var netAmount = Math.Max(0, grossRefund - discountDeduction);
             var finalRefund = Math.Round(netAmount + totalVat, 4);
-            var cashPaidRefund = payload.CashPaidRefund ?? returnData.CashPaidRefund;
-            if (cashPaidRefund <= 0) cashPaidRefund = finalRefund;
+
+            var cashPaidRefund = payload.CashPaidRefund ?? payload.ReturnAmount ?? returnData.CashPaidRefund;
+            if (cashPaidRefund <= 0)
+            {
+                if (origInvoice != null && origInvoice.DueAmount > 0)
+                {
+                    var origPaid = Math.Max(0, origInvoice.FinalPrice - origInvoice.DueAmount);
+                    cashPaidRefund = Math.Min(finalRefund, origPaid);
+                }
+                else
+                {
+                    cashPaidRefund = finalRefund;
+                }
+            }
 
             // Insert sale_returns
             await conn.ExecuteAsync(@"

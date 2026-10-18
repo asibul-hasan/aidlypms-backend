@@ -465,6 +465,12 @@ public class CreateSaleReturnPayload
     [JsonPropertyName("cash_paid_refund")]
     public decimal? CashPaidRefund { get; set; }
 
+    [JsonPropertyName("discount_deduction")]
+    public decimal? DiscountDeduction { get; set; }
+
+    [JsonPropertyName("discount_percent")]
+    public decimal? DiscountPercent { get; set; }
+
     [JsonPropertyName("return_amount")]
     public decimal? ReturnAmount
     {
