@@ -558,15 +558,38 @@ public class PosSaleController : BaseController
                 }
             }
 
-            if (paymentsToRecord.Count == 0 && finalPrice > 0 && dueAmount < finalPrice)
+            var expectedPaymentTotal = Math.Max(0, finalPrice - dueAmount);
+
+            if (paymentsToRecord.Count == 0 && expectedPaymentTotal > 0)
             {
                 // Default cash payment
                 paymentsToRecord.Add(new SaleInvoicePayment
                 {
                     AccountNo = 1, // Main Cash Drawer
                     PaymentMethod = invoice.PaymentMethod > 0 ? invoice.PaymentMethod : (short)1,
-                    Amount = finalPrice - dueAmount
+                    Amount = expectedPaymentTotal
                 });
+            }
+            else
+            {
+                // If payments include tendered amounts that exceed the payable balance (change was returned to customer),
+                // cap the applied payments so the journal entry and payment records reflect the net cash retained.
+                var totalTendered = paymentsToRecord.Sum(p => p.Amount);
+                if (totalTendered > expectedPaymentTotal && expectedPaymentTotal >= 0)
+                {
+                    var remainingToAllocate = expectedPaymentTotal;
+                    // Allocate non-cash first, then cash last so change is deducted from cash drawer
+                    var sortedPayments = paymentsToRecord
+                        .OrderBy(p => p.PaymentMethod == 1 ? 1 : 0)
+                        .ToList();
+
+                    foreach (var p in sortedPayments)
+                    {
+                        var allocated = Math.Min(p.Amount, remainingToAllocate);
+                        remainingToAllocate -= allocated;
+                        p.Amount = allocated;
+                    }
+                }
             }
 
             var recordedPayments = new List<SaleInvoicePayment>();
