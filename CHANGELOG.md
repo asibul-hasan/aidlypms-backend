@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.10.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.9.0...v1.10.0) (2026-10-21)
+
+
+### 🚀 Features
+
+* **roles:** add menu and role permissions management endpoints and schema ([dc139a1](https://github.com/asibul-hasan/aidlypms-backend/commit/dc139a13e6cb98ed65d10ad43b33e33141b78ef1))
+
+
+### 🐛 Bug Fixes
+
+* **tests:** correct cfg_sale_configs seed columns and schema-scoped fk check ([2cc3c0d](https://github.com/asibul-hasan/aidlypms-backend/commit/2cc3c0d6c19dde99c1c6b14fa3610747bb51333d))
+
+
+### 📝 Documentation
+
+* add AGENTS.md with mandatory pull before push rule ([420ad7b](https://github.com/asibul-hasan/aidlypms-backend/commit/420ad7b7dfbcb7b55cfd3a76ea838644caa1af92))
+
 ## [1.9.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.4...v1.9.0) (2026-10-21)
 
 
