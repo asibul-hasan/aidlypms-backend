@@ -173,16 +173,16 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
             -- Manager Role (9)
             INSERT INTO sys_roles (
-                role_no, pharmacy_no, branch_no, alias, description, is_system, created_at, updated_at
+                role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
             ) VALUES (
-                9, @p, @b, 'Manager', 'Manager', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                9, @p, @b, 'Manager', 'Manager', 'Manager', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (role_no) DO NOTHING;
 
             -- Restricted Role without 'void' permission
             INSERT INTO sys_roles (
-                role_no, pharmacy_no, branch_no, alias, description, is_system, created_at, updated_at
+                role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
             ) VALUES (
-                @restrictedRole, @p, @b, 'No-Void Cashier', 'Role lacking void permission', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                @restrictedRole, @p, @b, 'No-Void Cashier', 'No-Void Cashier', 'Role lacking void permission', FALSE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (role_no) DO NOTHING;
 
             -- Seed SysUsers

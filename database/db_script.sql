@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS sys_menus (
     icon VARCHAR(100),
     parent_menu_no BIGINT REFERENCES sys_menus(menu_no) ON DELETE SET NULL,
     order_no INT NOT NULL,
-    status BOOLEAN NOT NULL,
+    status BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS sys_roles (
     alias VARCHAR(100) NOT NULL,
     description TEXT,
     is_system BOOLEAN NOT NULL,
-    status BOOLEAN NOT NULL,
+    status BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_role_per_branch UNIQUE (pharmacy_no, branch_no, alias)

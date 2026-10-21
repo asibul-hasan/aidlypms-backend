@@ -182,15 +182,15 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
             ) ON CONFLICT (branch_no) DO NOTHING;
 
             INSERT INTO sys_roles (
-                role_no, pharmacy_no, branch_no, alias, description, is_system, created_at, updated_at
+                role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
             ) VALUES (
-                10, @pharmacyNo, @branchNo, 'Pharmacist', 'Pharmacist', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                10, @pharmacyNo, @branchNo, 'Pharmacist', 'Pharmacist', 'Pharmacist', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (role_no) DO NOTHING;
 
             INSERT INTO sys_roles (
-                role_no, pharmacy_no, branch_no, alias, description, is_system, created_at, updated_at
+                role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
             ) VALUES (
-                9, @pharmacyNo, @branchNo, 'Manager', 'Manager', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                9, @pharmacyNo, @branchNo, 'Manager', 'Manager', 'Manager', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (role_no) DO NOTHING;
 
             INSERT INTO sys_users (

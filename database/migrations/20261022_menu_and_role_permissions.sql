@@ -28,11 +28,12 @@ CREATE TABLE IF NOT EXISTS sys_menus (
 
 -- 3. Ensure role_name and status exist on sys_roles
 ALTER TABLE sys_roles ADD COLUMN IF NOT EXISTS role_name VARCHAR(150);
-ALTER TABLE sys_roles ADD COLUMN IF NOT EXISTS status BOOLEAN;
+ALTER TABLE sys_roles ADD COLUMN IF NOT EXISTS status BOOLEAN DEFAULT TRUE;
 
 UPDATE sys_roles SET role_name = alias WHERE role_name IS NULL;
 UPDATE sys_roles SET status = TRUE WHERE status IS NULL;
 ALTER TABLE sys_roles ALTER COLUMN status SET NOT NULL;
+ALTER TABLE sys_roles ALTER COLUMN status SET DEFAULT TRUE;
 
 -- 4. Role Menu Permissions Join Table (Pharmacy Scoped, No Branch Required)
 CREATE TABLE IF NOT EXISTS sys_role_menu_permissions (
