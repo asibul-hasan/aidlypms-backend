@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.5.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.4.0...v1.5.0) (2026-10-21)
+
+
+### 🚀 Features
+
+* **clinical-inventory:** add FEFO expiry guards, inventory adjustments, transfers, clinical reports, and audit filter ([20b2e22](https://github.com/asibul-hasan/aidlypms-backend/commit/20b2e22aeb5f456d0dcbb9aa2266553b9918f8b9))
+
 ## [1.4.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.3.4...v1.4.0) (2026-10-18)
 
 
