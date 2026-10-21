@@ -106,15 +106,17 @@ public class RoleController : BaseController
             model.RoleNo = nextNo;
             model.PharmacyNo = CurrentPharmacyNo;
             model.BranchNo = CurrentBranchNo;
+            model.RoleName = !string.IsNullOrWhiteSpace(model.RoleName) ? model.RoleName : model.Alias;
+            model.Alias = !string.IsNullOrWhiteSpace(model.Alias) ? model.Alias : model.RoleName;
             model.IsSystem = false;
             model.CreatedAt = DateTime.UtcNow;
             model.UpdatedAt = DateTime.UtcNow;
 
             await conn.ExecuteAsync(@"
                 INSERT INTO sys_roles (
-                    role_no, pharmacy_no, branch_no, alias, description, is_system, created_at, updated_at
+                    role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
                 ) VALUES (
-                    @RoleNo, @PharmacyNo, @BranchNo, @Alias, @Description, @IsSystem, @CreatedAt, @UpdatedAt
+                    @RoleNo, @PharmacyNo, @BranchNo, @RoleName, @Alias, @Description, @IsSystem, @Status, @CreatedAt, @UpdatedAt
                 );", model, transaction: tran);
 
             if (model.Permissions != null && model.Permissions.Count > 0)
@@ -166,13 +168,15 @@ public class RoleController : BaseController
             if (existing == null)
                 return FailResponse<SysRole>("Role not found.", statusCode: 404);
 
-            existing.Alias = !string.IsNullOrWhiteSpace(model.Alias) ? model.Alias : existing.Alias;
+            existing.RoleName = !string.IsNullOrWhiteSpace(model.RoleName) ? model.RoleName : (!string.IsNullOrWhiteSpace(model.Alias) ? model.Alias : existing.RoleName);
+            existing.Alias = !string.IsNullOrWhiteSpace(model.Alias) ? model.Alias : (!string.IsNullOrWhiteSpace(model.RoleName) ? model.RoleName : existing.Alias);
             existing.Description = model.Description ?? existing.Description;
+            existing.Status = model.Status;
             existing.UpdatedAt = DateTime.UtcNow;
 
             await conn.ExecuteAsync(@"
                 UPDATE sys_roles
-                SET alias = @Alias, description = @Description, updated_at = @UpdatedAt
+                SET role_name = @RoleName, alias = @Alias, description = @Description, status = @Status, updated_at = @UpdatedAt
                 WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo;",
                 existing, transaction: tran);
 
@@ -231,5 +235,135 @@ public class RoleController : BaseController
 
         if (rows == 0) return NotFoundResponse<bool>("Role not found.");
         return OkResponse(true, "Role deleted successfully.");
+    }
+
+    [HttpGet("{roleNo}/menu-permissions")]
+    public async Task<ActionResult<ApiResponse<List<RoleMenuPermissionItemDto>>>> GetRoleMenuPermissions(long roleNo)
+    {
+        using var conn = _db.CreateConnection();
+
+        // Verify role belongs to current pharmacy
+        var roleExists = await conn.ExecuteScalarAsync<bool>(@"
+            SELECT EXISTS(SELECT 1 FROM sys_roles WHERE role_no = @roleNo AND pharmacy_no = @CurrentPharmacyNo);",
+            new { roleNo, CurrentPharmacyNo });
+
+        if (!roleExists)
+            return FailResponse<List<RoleMenuPermissionItemDto>>("Role not found in the current pharmacy.", statusCode: 404);
+
+        var sql = @"
+            SELECT 
+                m.menu_no,
+                m.title,
+                m.path,
+                m.icon,
+                m.parent_menu_no,
+                p.title AS parent_title,
+                m.order_no,
+                COALESCE(rmp.can_view, FALSE) AS can_view,
+                COALESCE(rmp.can_create, FALSE) AS can_create,
+                COALESCE(rmp.can_edit, FALSE) AS can_edit,
+                COALESCE(rmp.can_delete, FALSE) AS can_delete
+            FROM sys_menus m
+            LEFT JOIN sys_menus p ON m.parent_menu_no = p.menu_no
+            LEFT JOIN sys_role_menu_permissions rmp 
+                ON m.menu_no = rmp.menu_no 
+                AND rmp.role_no = @roleNo 
+                AND rmp.pharmacy_no = @CurrentPharmacyNo
+            WHERE m.status = TRUE
+            ORDER BY COALESCE(m.parent_menu_no, m.menu_no), m.order_no ASC;";
+
+        var perms = (await conn.QueryAsync<RoleMenuPermissionItemDto>(sql, new { roleNo, CurrentPharmacyNo })).ToList();
+        return OkResponse(perms);
+    }
+
+    [HttpPost("{roleNo}/menu-permissions")]
+    [RequirePermission("role.manage")]
+    public async Task<ActionResult<ApiResponse<bool>>> SaveRoleMenuPermissions(long roleNo, [FromBody] List<RoleMenuPermissionItemDto> items)
+    {
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        using var tran = conn.BeginTransaction();
+
+        try
+        {
+            var role = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
+                SELECT * FROM sys_roles WHERE role_no = @roleNo AND pharmacy_no = @CurrentPharmacyNo;",
+                new { roleNo, CurrentPharmacyNo }, transaction: tran);
+
+            if (role == null)
+                return FailResponse<bool>("Role not found in current pharmacy.", statusCode: 404);
+
+            var now = DateTime.UtcNow;
+
+            foreach (var item in items)
+            {
+                var upsertSql = @"
+                    INSERT INTO sys_role_menu_permissions (
+                        role_menu_perm_no, pharmacy_no, role_no, menu_no,
+                        can_view, can_create, can_edit, can_delete,
+                        created_at, updated_at
+                    ) VALUES (
+                        nextval('seq_role_menu_perm_no'), @CurrentPharmacyNo, @roleNo, @MenuNo,
+                        @CanView, @CanCreate, @CanEdit, @CanDelete,
+                        @Now, @Now
+                    )
+                    ON CONFLICT (pharmacy_no, role_no, menu_no) DO UPDATE SET
+                        can_view = EXCLUDED.can_view,
+                        can_create = EXCLUDED.can_create,
+                        can_edit = EXCLUDED.can_edit,
+                        can_delete = EXCLUDED.can_delete,
+                        updated_at = EXCLUDED.updated_at;";
+
+                await conn.ExecuteAsync(upsertSql, new
+                {
+                    CurrentPharmacyNo,
+                    roleNo,
+                    item.MenuNo,
+                    item.CanView,
+                    item.CanCreate,
+                    item.CanEdit,
+                    item.CanDelete,
+                    Now = now
+                }, transaction: tran);
+            }
+
+            tran.Commit();
+            return OkResponse(true, "Menu permissions updated successfully.");
+        }
+        catch
+        {
+            tran.Rollback();
+            throw;
+        }
+    }
+
+    [HttpGet("my-menu-permissions")]
+    public async Task<ActionResult<ApiResponse<List<RoleMenuPermissionItemDto>>>> GetMyMenuPermissions()
+    {
+        using var conn = _db.CreateConnection();
+        var sql = @"
+            SELECT 
+                m.menu_no,
+                m.title,
+                m.path,
+                m.icon,
+                m.parent_menu_no,
+                p.title AS parent_title,
+                m.order_no,
+                COALESCE(rmp.can_view, FALSE) AS can_view,
+                COALESCE(rmp.can_create, FALSE) AS can_create,
+                COALESCE(rmp.can_edit, FALSE) AS can_edit,
+                COALESCE(rmp.can_delete, FALSE) AS can_delete
+            FROM sys_menus m
+            LEFT JOIN sys_menus p ON m.parent_menu_no = p.menu_no
+            LEFT JOIN sys_role_menu_permissions rmp 
+                ON m.menu_no = rmp.menu_no 
+                AND rmp.role_no = @CurrentRoleNo 
+                AND rmp.pharmacy_no = @CurrentPharmacyNo
+            WHERE m.status = TRUE
+            ORDER BY COALESCE(m.parent_menu_no, m.menu_no), m.order_no ASC;";
+
+        var perms = (await conn.QueryAsync<RoleMenuPermissionItemDto>(sql, new { CurrentRoleNo, CurrentPharmacyNo })).ToList();
+        return OkResponse(perms);
     }
 }

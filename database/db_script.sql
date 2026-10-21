@@ -113,14 +113,29 @@ CREATE TABLE IF NOT EXISTS sys_branches (
     CONSTRAINT uq_sys_branch UNIQUE (pharmacy_no, name)
 );
 
+-- Application System Menus (Global Definition, No Company/Org Fields)
+CREATE TABLE IF NOT EXISTS sys_menus (
+    menu_no BIGINT PRIMARY KEY,
+    title VARCHAR(150) NOT NULL,
+    path VARCHAR(255),
+    icon VARCHAR(100),
+    parent_menu_no BIGINT REFERENCES sys_menus(menu_no) ON DELETE SET NULL,
+    order_no INT NOT NULL,
+    status BOOLEAN NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
 -- Roles
 CREATE TABLE IF NOT EXISTS sys_roles (
     role_no BIGINT PRIMARY KEY,
     pharmacy_no BIGINT NOT NULL REFERENCES sys_pharmacies(pharmacy_no) ON DELETE RESTRICT,
     branch_no BIGINT REFERENCES sys_branches(branch_no) ON DELETE RESTRICT,
+    role_name VARCHAR(150),
     alias VARCHAR(100) NOT NULL,
     description TEXT,
     is_system BOOLEAN NOT NULL,
+    status BOOLEAN NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_role_per_branch UNIQUE (pharmacy_no, branch_no, alias)
@@ -143,6 +158,21 @@ CREATE TABLE IF NOT EXISTS sys_role_permissions (
     pharmacy_no BIGINT NOT NULL REFERENCES sys_pharmacies(pharmacy_no) ON DELETE RESTRICT,
     branch_no BIGINT REFERENCES sys_branches(branch_no) ON DELETE RESTRICT,
     PRIMARY KEY (role_no, permission_no)
+);
+
+-- Role Menu Permissions Join Table (Pharmacy Scoped, No Branch Required)
+CREATE TABLE IF NOT EXISTS sys_role_menu_permissions (
+    role_menu_perm_no BIGINT PRIMARY KEY,
+    pharmacy_no BIGINT NOT NULL REFERENCES sys_pharmacies(pharmacy_no) ON DELETE RESTRICT,
+    role_no BIGINT NOT NULL REFERENCES sys_roles(role_no) ON DELETE CASCADE,
+    menu_no BIGINT NOT NULL REFERENCES sys_menus(menu_no) ON DELETE CASCADE,
+    can_view BOOLEAN NOT NULL,
+    can_create BOOLEAN NOT NULL,
+    can_edit BOOLEAN NOT NULL,
+    can_delete BOOLEAN NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT uq_role_menu UNIQUE (pharmacy_no, role_no, menu_no)
 );
 
 -- Users / Representatives / Pharmacists
@@ -1312,9 +1342,9 @@ VALUES (1, 'Standard Pharmacy Cloud', 500, 5000, 14, TRUE)
 ON CONFLICT (plan_no) DO NOTHING;
 
 -- Default System Roles (PMS Manager = 9, PMS Salesman = 10 as shown in UI)
-INSERT INTO sys_roles (role_no, pharmacy_no, branch_no, alias, description, is_system, created_at, updated_at) VALUES
-(9, 1, 1, 'PMS Manager', 'Full operational control over store inventory, accounting, settings, and staff', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-(10, 1, 1, 'PMS Salesman', 'Restricted access for counter sales, POS billing, and customer balance lookup', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+INSERT INTO sys_roles (role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at) VALUES
+(9, 1, 1, 'PMS Manager', 'PMS Manager', 'Full operational control over store inventory, accounting, settings, and staff', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(10, 1, 1, 'PMS Salesman', 'PMS Salesman', 'Restricted access for counter sales, POS billing, and customer balance lookup', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT (role_no) DO NOTHING;
 
 -- Assign all permissions to PMS Manager (Role 9)
@@ -1327,6 +1357,68 @@ INSERT INTO sys_role_permissions (role_no, permission_no, pharmacy_no, branch_no
 SELECT 10, permission_no, 1, 1 FROM sys_permissions
 WHERE code IN ('PMS-Sale-Module', 'PMS-Customer-Module', 'PMS-Product-Module', 'PMS-Barcode-Module', 'sale.return', 'void', 'stock.adjust')
 ON CONFLICT DO NOTHING;
+
+-- Pre-seed Default Menus (Level 1 Root Modules)
+INSERT INTO sys_menus (menu_no, title, path, icon, parent_menu_no, order_no, status, created_at, updated_at)
+VALUES
+(1, 'Sales & Customers', '/customer/sale', 'shopping-cart', NULL, 1, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(2, 'Purchases & Suppliers', '/supplier/purchase', 'shop', NULL, 2, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(3, 'Medicines & Stock', '/products/list', 'medicine-box', NULL, 3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(4, 'Accounts & Cash', '/cash/closers', 'calculator', NULL, 4, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(5, 'Settings & Admin', '/settings/configs', 'setting', NULL, 5, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT (menu_no) DO NOTHING;
+
+-- Pre-seed Default Sub-Menus (Level 2)
+INSERT INTO sys_menus (menu_no, title, path, icon, parent_menu_no, order_no, status, created_at, updated_at)
+VALUES
+-- Sales Sub-Menus
+(11, 'POS Sale Terminal', '/customer/sale', 'thunderbolt', 1, 1, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(12, 'Sales Invoice Register', '/customer/sales-register', 'file-text', 1, 2, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(13, 'Customer Directory', '/customer/list', 'team', 1, 3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(14, 'Customer Due Collection', '/customer/due', 'credit-card', 1, 4, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(15, 'Sales Returns & Exchanges', '/customer/returns', 'rollback', 1, 5, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+-- Purchase Sub-Menus
+(21, 'Purchase Entry', '/supplier/purchase', 'import', 2, 1, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(22, 'Purchase Invoices', '/supplier/invoices', 'file-done', 2, 2, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(23, 'Supplier Directory', '/supplier/list', 'contacts', 2, 3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(24, 'Supplier Payments', '/supplier/payment', 'dollar', 2, 4, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(25, 'Purchase Returns', '/supplier/returns', 'swap', 2, 5, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+-- Inventory Sub-Menus
+(31, 'Master Medicine Catalog', '/products/list', 'database', 3, 1, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(32, 'Add Medicine', '/products/add', 'plus-circle', 3, 2, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(33, 'Batch Expiry & Stock Ledger', '/products/batches', 'history', 3, 3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(34, 'Stock Adjustment', '/products/adjust', 'sliders', 3, 4, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(35, 'Inter-Branch Stock Transfer', '/products/transfers', 'deployment-unit', 3, 5, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+-- Accounting Sub-Menus
+(41, 'Daily Cash Shift Register', '/cash/closers', 'audit', 4, 1, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(42, 'Day-End Reconciliation', '/reconciliation', 'file-protect', 4, 2, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(43, 'Expense Management', '/accounting/expenses', 'red-envelope', 4, 3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(44, 'Chart of Accounts', '/accounting/accounts', 'apartment', 4, 4, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(45, 'Financial Statement Reports', '/reports', 'line-chart', 4, 5, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+-- Settings & Admin Sub-Menus
+(51, 'Role Management', '/roles', 'safety', 5, 1, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(52, 'Menu Management', '/menus', 'menu', 5, 2, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(53, 'Role Menu Permissions', '/roles/permissions', 'key', 5, 3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(54, 'Pharmacy Configurations', '/settings/configs', 'tool', 5, 4, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(55, 'Doctors Directory', '/doctors', 'idcard', 5, 5, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT (menu_no) DO NOTHING;
+
+-- Seed full menu permissions for initial roles
+INSERT INTO sys_role_menu_permissions (
+    role_menu_perm_no, pharmacy_no, role_no, menu_no,
+    can_view, can_create, can_edit, can_delete,
+    created_at, updated_at
+)
+SELECT
+    ROW_NUMBER() OVER () as role_menu_perm_no,
+    r.pharmacy_no,
+    r.role_no,
+    m.menu_no,
+    TRUE, TRUE, TRUE, TRUE,
+    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM sys_roles r
+CROSS JOIN sys_menus m
+ON CONFLICT (pharmacy_no, role_no, menu_no) DO NOTHING;
 
 -- Exchange Return Circular FK (Added after both tables exist)
 DO $$
@@ -1355,6 +1447,8 @@ CREATE SEQUENCE IF NOT EXISTS seq_purchase_invoice_item_no;
 CREATE SEQUENCE IF NOT EXISTS seq_ledger_no;
 CREATE SEQUENCE IF NOT EXISTS seq_journal_no;
 CREATE SEQUENCE IF NOT EXISTS seq_stock_movement_no;
+CREATE SEQUENCE IF NOT EXISTS seq_sys_menu_no START WITH 100 INCREMENT BY 1;
+CREATE SEQUENCE IF NOT EXISTS seq_role_menu_perm_no START WITH 1 INCREMENT BY 1;
 
 SELECT setval('seq_sale_invoice_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_no) FROM sale_invoices), 0) + 1, 1), false);
 SELECT setval('seq_sale_invoice_item_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_item_no) FROM sale_invoice_items), 0) + 1, 1), false);
@@ -1366,6 +1460,8 @@ SELECT setval('seq_purchase_invoice_item_no', GREATEST(COALESCE((SELECT MAX(purc
 SELECT setval('seq_ledger_no', GREATEST(COALESCE((SELECT MAX(ledger_no) FROM acc_transaction_ledger), 0) + 1, 1), false);
 SELECT setval('seq_journal_no', GREATEST(COALESCE((SELECT MAX(journal_no) FROM acc_transaction_ledger), 0) + 1, 1), false);
 SELECT setval('seq_stock_movement_no', GREATEST(COALESCE((SELECT MAX(movement_no) FROM inv_stock_movement), 0) + 1, 1), false);
+SELECT setval('seq_sys_menu_no', GREATEST(COALESCE((SELECT MAX(menu_no) FROM sys_menus), 0) + 1, 100), false);
+SELECT setval('seq_role_menu_perm_no', GREATEST(COALESCE((SELECT MAX(role_menu_perm_no) FROM sys_role_menu_permissions), 0) + 1, 1), false);
 
 -- ============================================================================
 -- END OF SCHEMA

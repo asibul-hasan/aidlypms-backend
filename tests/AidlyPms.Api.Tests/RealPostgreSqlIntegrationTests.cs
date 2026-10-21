@@ -286,7 +286,9 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
             var tables = (await conn.QueryAsync<string>(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'test_fresh_schema' AND table_type = 'BASE TABLE'")).ToHashSet();
 
-            Assert.Equal(57, tables.Count);
+            Assert.Equal(59, tables.Count);
+            Assert.Contains("sys_menus", tables);
+            Assert.Contains("sys_role_menu_permissions", tables);
             Assert.Contains("sale_invoices", tables);
             Assert.Contains("sale_returns", tables);
             Assert.Contains("sale_invoice_items", tables);
@@ -312,7 +314,7 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                 "SELECT column_name FROM information_schema.columns WHERE table_schema = 'test_fresh_schema' AND table_name = 'doc_doctors'")).ToHashSet();
             Assert.Contains("bmdc_reg_no", docCols);
 
-            _output.WriteLine("Test_1 Passed: schema.sql loaded cleanly into empty test_fresh_schema with all 57 tables and constraints.");
+            _output.WriteLine("Test_1 Passed: schema.sql loaded cleanly into empty test_fresh_schema with all 59 tables and constraints.");
         }
         finally
         {

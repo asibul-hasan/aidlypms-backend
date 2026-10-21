@@ -13,6 +13,9 @@ public class SysRole
     [JsonPropertyName("branch_no")]
     public long? BranchNo { get; set; }
 
+    [JsonPropertyName("role_name")]
+    public string RoleName { get; set; } = string.Empty;
+
     [JsonPropertyName("alias")]
     public string Alias { get; set; } = string.Empty;
 
@@ -21,6 +24,9 @@ public class SysRole
 
     [JsonPropertyName("is_system")]
     public bool IsSystem { get; set; }
+
+    [JsonPropertyName("status")]
+    public bool Status { get; set; } = true;
 
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -102,4 +108,118 @@ public class SysUser
     // Joined
     [JsonPropertyName("role_name")]
     public string? RoleName { get; set; }
+}
+
+public class SysMenu
+{
+    [JsonPropertyName("menu_no")]
+    public long MenuNo { get; set; }
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("path")]
+    public string? Path { get; set; }
+
+    [JsonPropertyName("icon")]
+    public string? Icon { get; set; }
+
+    [JsonPropertyName("parent_menu_no")]
+    public long? ParentMenuNo { get; set; }
+
+    [JsonPropertyName("parent_title")]
+    public string? ParentTitle { get; set; }
+
+    [JsonPropertyName("order_no")]
+    public int OrderNo { get; set; } = 1;
+
+    [JsonPropertyName("status")]
+    public bool Status { get; set; } = true;
+
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    [JsonPropertyName("children")]
+    public List<SysMenu>? Children { get; set; }
+}
+
+public class SysRoleMenuPermission
+{
+    [JsonPropertyName("role_menu_perm_no")]
+    public long RoleMenuPermNo { get; set; }
+
+    [JsonPropertyName("pharmacy_no")]
+    public long PharmacyNo { get; set; }
+
+    [JsonPropertyName("role_no")]
+    public long RoleNo { get; set; }
+
+    [JsonPropertyName("menu_no")]
+    public long MenuNo { get; set; }
+
+    [JsonPropertyName("can_view")]
+    public bool CanView { get; set; }
+
+    [JsonPropertyName("can_create")]
+    public bool CanCreate { get; set; }
+
+    [JsonPropertyName("can_edit")]
+    public bool CanEdit { get; set; }
+
+    [JsonPropertyName("can_delete")]
+    public bool CanDelete { get; set; }
+
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class RoleMenuPermissionItemDto
+{
+    [JsonPropertyName("menu_no")]
+    public long MenuNo { get; set; }
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("path")]
+    public string? Path { get; set; }
+
+    [JsonPropertyName("icon")]
+    public string? Icon { get; set; }
+
+    [JsonPropertyName("parent_menu_no")]
+    public long? ParentMenuNo { get; set; }
+
+    [JsonPropertyName("parent_title")]
+    public string? ParentTitle { get; set; }
+
+    [JsonPropertyName("order_no")]
+    public int OrderNo { get; set; }
+
+    [JsonPropertyName("can_view")]
+    public bool CanView { get; set; }
+
+    [JsonPropertyName("can_create")]
+    public bool CanCreate { get; set; }
+
+    [JsonPropertyName("can_edit")]
+    public bool CanEdit { get; set; }
+
+    [JsonPropertyName("can_delete")]
+    public bool CanDelete { get; set; }
+}
+
+public class SaveRoleMenuPermissionsRequest
+{
+    [JsonPropertyName("role_no")]
+    public long RoleNo { get; set; }
+
+    [JsonPropertyName("permissions")]
+    public List<RoleMenuPermissionItemDto> Permissions { get; set; } = new();
 }
