@@ -1,4 +1,4 @@
-name: Deploy .NET API to Hugging Face
+name: Test and Deploy .NET API to Hugging Face
 
 on:
   push:
@@ -6,14 +6,65 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-push:
+  test-and-deploy:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: aidly_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           lfs: true
+
+      - name: Verify schema.sql and db_script.sql into fresh PostgreSQL databases
+        env:
+          PGPASSWORD: testpassword
+        run: |
+          echo "Testing fresh schema.sql load into empty database..."
+          psql -h localhost -U postgres -d postgres -c "DROP DATABASE IF EXISTS test_schema;"
+          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE test_schema;"
+          psql -h localhost -U postgres -d test_schema -v ON_ERROR_STOP=1 -f database/schema.sql
+
+          echo "Testing fresh db_script.sql load into empty database..."
+          psql -h localhost -U postgres -d postgres -c "DROP DATABASE IF EXISTS test_db_script;"
+          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE test_db_script;"
+          psql -h localhost -U postgres -d test_db_script -v ON_ERROR_STOP=1 -f database/db_script.sql
+
+          SCHEMA_COUNT=$(psql -h localhost -U postgres -d test_schema -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';")
+          SCRIPT_COUNT=$(psql -h localhost -U postgres -d test_db_script -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';")
+          echo "schema.sql tables: $SCHEMA_COUNT"
+          echo "db_script.sql tables: $SCRIPT_COUNT"
+          if [ "${SCHEMA_COUNT// /}" -ne 57 ] || [ "${SCRIPT_COUNT// /}" -ne 57 ]; then
+            echo "::error::Schema verification failed: Expected 57 tables in both databases!"
+            exit 1
+          fi
+          echo "Both schema.sql and db_script.sql loaded into empty databases without errors (57 tables each)."
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Run Integration Tests on throwaway PostgreSQL 16
+        env:
+          TEST_POSTGRES_CONNECTION: "Host=localhost;Port=5432;Database=aidly_test;Username=postgres;Password=testpassword"
+        run: |
+          dotnet test tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj --logger "console;verbosity=normal"
 
       - name: Push to Hugging Face
         env:
