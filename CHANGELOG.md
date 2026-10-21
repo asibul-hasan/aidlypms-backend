@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.8.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.7.0...v1.8.0) (2026-10-21)
+
+
+### 🚀 Features
+
+* **compliance:** add DGDA dar_number, drug_schedule classification, and doctor bmdc_reg_no ([74a2673](https://github.com/asibul-hasan/aidlypms-backend/commit/74a26737099c407220a3e236f3819a92d477e0ff))
+
+
+### 📝 Documentation
+
+* add strict architecture rules for frontend-driven lookups and zero DB defaults/constraints ([03f0cb0](https://github.com/asibul-hasan/aidlypms-backend/commit/03f0cb06e4253ff7ce625ab3b59a8d2da632c852))
+
 ## [1.7.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.6.0...v1.7.0) (2026-10-21)
 
 
