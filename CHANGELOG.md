@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.8.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.0...v1.8.1) (2026-10-21)
+
+
+### 🧪 Tests
+
+* **db:** add automated migration verification test for DGDA and BMDC compliance ([15b194f](https://github.com/asibul-hasan/aidlypms-backend/commit/15b194fa416109b1b0cf384503662a7b82c15534))
+
 ## [1.8.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.7.0...v1.8.0) (2026-10-21)
 
 
