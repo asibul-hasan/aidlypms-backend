@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.10.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.0...v1.10.1) (2026-10-21)
+
+
+### 🐛 Bug Fixes
+
+* **tests:** add DEFAULT TRUE to sys_roles.status and include status in test seeds ([10108ce](https://github.com/asibul-hasan/aidlypms-backend/commit/10108ce68bb4174fba59dad2a13c233912d58123))
+
 ## [1.10.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.9.0...v1.10.0) (2026-10-21)
 
 
