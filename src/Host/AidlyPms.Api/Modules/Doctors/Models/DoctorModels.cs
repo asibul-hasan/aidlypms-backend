@@ -40,6 +40,9 @@ public class DocDoctor
     [JsonPropertyName("signature_image_url")]
     public string? SignatureImageUrl { get; set; }
 
+    [JsonPropertyName("bmdc_reg_no")]
+    public string? BmdcRegNo { get; set; }
+
     [JsonPropertyName("is_active")]
     public bool IsActive { get; set; } = true;
 

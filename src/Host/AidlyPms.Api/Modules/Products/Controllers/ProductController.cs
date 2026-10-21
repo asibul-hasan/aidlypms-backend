@@ -58,7 +58,7 @@ public class ProductController : BaseController
                 p.wholesale_price_per_box, p.wholesale_price_per_piece,
                 p.country_of_origin, p.barcode_value, p.is_medicine,
                 p.is_prescription_required, p.is_narcotic, p.min_stock_qty_pcs,
-                p.rak_number, p.is_active, p.created_at, p.updated_at,
+                p.rak_number, p.dar_number, COALESCE(p.drug_schedule, 'OTC') AS drug_schedule, p.is_active, p.created_at, p.updated_at,
                 c.name AS company_name,
                 g.name AS generic_name,
                 COALESCE((
@@ -387,7 +387,7 @@ public class ProductController : BaseController
                 p.wholesale_price_per_box, p.wholesale_price_per_piece,
                 p.country_of_origin, p.barcode_value, p.is_medicine,
                 p.is_prescription_required, p.is_narcotic, p.min_stock_qty_pcs,
-                p.rak_number, p.is_active, p.created_at, p.updated_at,
+                p.rak_number, p.dar_number, COALESCE(p.drug_schedule, 'OTC') AS drug_schedule, p.is_active, p.created_at, p.updated_at,
                 c.name AS company_name,
                 g.name AS generic_name,
                 COALESCE((
@@ -457,7 +457,7 @@ public class ProductController : BaseController
                     wholesale_price_per_box, wholesale_price_per_piece,
                     country_of_origin, barcode_value, is_medicine,
                     is_prescription_required, is_narcotic, min_stock_qty_pcs,
-                    rak_number, is_active, created_at, updated_at
+                    rak_number, dar_number, drug_schedule, is_active, created_at, updated_at
                 ) VALUES (
                     @productNo, gen_random_uuid(), @CurrentPharmacyNo, @CurrentBranchNo, @CompanyNo, @GenericNo,
                     @ProductName, @Strength, @Volume, @MedicineType, @UnitType,
@@ -466,7 +466,7 @@ public class ProductController : BaseController
                     @WholesalePricePerBox, @WholesalePricePerPiece,
                     @CountryOfOrigin, @barcode, @IsMedicine,
                     @IsPrescriptionRequired, @IsNarcotic, @MinStockQtyPcs,
-                    @RakNumber, @IsActive, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    @RakNumber, @DarNumber, @DrugSchedule, @IsActive, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 );";
 
             await conn.ExecuteAsync(insertSql, new
@@ -495,6 +495,8 @@ public class ProductController : BaseController
                 model.IsNarcotic,
                 model.MinStockQtyPcs,
                 model.RakNumber,
+                model.DarNumber,
+                DrugSchedule = !string.IsNullOrWhiteSpace(model.DrugSchedule) ? model.DrugSchedule : (model.IsNarcotic ? "NARCOTIC" : (model.IsPrescriptionRequired ? "POM" : "OTC")),
                 model.IsActive
             }, transaction: tran);
 
@@ -607,6 +609,8 @@ public class ProductController : BaseController
                 is_narcotic = @IsNarcotic,
                 min_stock_qty_pcs = @MinStockQtyPcs,
                 rak_number = @RakNumber,
+                dar_number = @DarNumber,
+                drug_schedule = @DrugSchedule,
                 is_active = @IsActive,
                 updated_at = CURRENT_TIMESTAMP
             WHERE product_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;";
@@ -637,6 +641,8 @@ public class ProductController : BaseController
             model.IsNarcotic,
             model.MinStockQtyPcs,
             model.RakNumber,
+            model.DarNumber,
+            DrugSchedule = !string.IsNullOrWhiteSpace(model.DrugSchedule) ? model.DrugSchedule : (model.IsNarcotic ? "NARCOTIC" : (model.IsPrescriptionRequired ? "POM" : "OTC")),
             model.IsActive
         });
 
@@ -1050,7 +1056,7 @@ public class ProductController : BaseController
                             wholesale_price_per_box, wholesale_price_per_piece,
                             country_of_origin, barcode_value, is_medicine,
                             is_prescription_required, is_narcotic, min_stock_qty_pcs,
-                            rak_number, is_active, created_at, updated_at
+                            rak_number, dar_number, drug_schedule, is_active, created_at, updated_at
                         ) VALUES (
                             @productNo, gen_random_uuid(), @CurrentPharmacyNo, @CurrentBranchNo, @companyNo, @genericNo,
                             @productName, @strength, @volume, @medType, @uType,
@@ -1059,7 +1065,7 @@ public class ProductController : BaseController
                             @wholesaleBox, @wholesalePiece,
                             @country, @barcode, TRUE,
                             @isPresc, @isNarc, @minStock,
-                            @rak, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                            @rak, @darNumber, @drugSchedule, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                         );";
 
                     await conn.ExecuteAsync(insertSql, new
@@ -1086,7 +1092,9 @@ public class ProductController : BaseController
                         isPresc = row.IsPrescriptionRequired,
                         isNarc = row.IsNarcotic,
                         minStock,
-                        rak
+                        rak,
+                        darNumber = row.DarNumber,
+                        drugSchedule = !string.IsNullOrWhiteSpace(row.DrugSchedule) ? row.DrugSchedule : (row.IsNarcotic ? "NARCOTIC" : (row.IsPrescriptionRequired ? "POM" : "OTC"))
                     }, transaction: tran);
 
                     productMap[productKey] = productNo;

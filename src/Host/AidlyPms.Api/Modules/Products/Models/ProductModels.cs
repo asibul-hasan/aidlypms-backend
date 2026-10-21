@@ -133,6 +133,12 @@ public class ProdProduct
     [JsonPropertyName("rak_number")]
     public string? RakNumber { get; set; }
 
+    [JsonPropertyName("dar_number")]
+    public string? DarNumber { get; set; }
+
+    [JsonPropertyName("drug_schedule")]
+    public string DrugSchedule { get; set; } = "OTC";
+
     [JsonPropertyName("is_active")]
     public bool IsActive { get; set; } = true;
 
@@ -513,6 +519,12 @@ public class ProductImportItemDto
 
     [JsonPropertyName("is_narcotic")]
     public bool IsNarcotic { get; set; }
+
+    [JsonPropertyName("dar_number")]
+    public string? DarNumber { get; set; }
+
+    [JsonPropertyName("drug_schedule")]
+    public string? DrugSchedule { get; set; }
 
     [JsonPropertyName("opening_stock_pcs")]
     public int OpeningStockPcs { get; set; }

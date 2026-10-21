@@ -102,12 +102,12 @@ public class DoctorController : BaseController
             INSERT INTO doc_doctors (
                 doctor_no, pharmacy_no, branch_no, first_name_en, last_name_en,
                 first_name_bn, last_name_bn, phone, gender, description_en,
-                description_bn, password_hash, signature_image_url, is_active,
+                description_bn, password_hash, signature_image_url, bmdc_reg_no, is_active,
                 created_at, updated_at
             ) VALUES (
                 @DoctorNo, @PharmacyNo, @BranchNo, @FirstNameEn, @LastNameEn,
                 @FirstNameBn, @LastNameBn, @Phone, @Gender, @DescriptionEn,
-                @DescriptionBn, '', @SignatureImageUrl, @IsActive,
+                @DescriptionBn, '', @SignatureImageUrl, @BmdcRegNo, @IsActive,
                 @CreatedAt, @UpdatedAt
             );", model);
 
@@ -135,6 +135,7 @@ public class DoctorController : BaseController
         existing.DescriptionEn = model.DescriptionEn ?? existing.DescriptionEn;
         existing.DescriptionBn = model.DescriptionBn ?? existing.DescriptionBn;
         existing.SignatureImageUrl = model.SignatureImageUrl ?? existing.SignatureImageUrl;
+        existing.BmdcRegNo = model.BmdcRegNo ?? existing.BmdcRegNo;
         existing.IsActive = model.IsActive;
         existing.UpdatedAt = DateTime.UtcNow;
 
@@ -144,7 +145,7 @@ public class DoctorController : BaseController
                 first_name_bn = @FirstNameBn, last_name_bn = @LastNameBn,
                 phone = @Phone, gender = @Gender, description_en = @DescriptionEn,
                 description_bn = @DescriptionBn, signature_image_url = @SignatureImageUrl,
-                is_active = @IsActive, updated_at = @UpdatedAt
+                bmdc_reg_no = @BmdcRegNo, is_active = @IsActive, updated_at = @UpdatedAt
             WHERE doctor_no = @DoctorNo AND pharmacy_no = @PharmacyNo AND branch_no = @BranchNo;",
             existing);
 
