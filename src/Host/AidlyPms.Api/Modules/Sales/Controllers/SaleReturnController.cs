@@ -134,7 +134,7 @@ public class SaleReturnController : BaseController
             if (saleInvoiceNo.HasValue)
             {
                 origInvoice = await conn.QuerySingleOrDefaultAsync<SaleInvoice>(@"
-                    SELECT sale_invoice_no, customer_no, payment_method, gross_total_price, final_price, discount_value, due_amount, sales_number
+                    SELECT sale_invoice_no, customer_no, payment_method, gross_total_price, final_price, discount_value, due_amount, sales_number, document_status
                     FROM sale_invoices
                     WHERE sale_invoice_no = @saleInvoiceNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
                     new { saleInvoiceNo = saleInvoiceNo.Value, CurrentPharmacyNo, CurrentBranchNo },
@@ -148,7 +148,7 @@ public class SaleReturnController : BaseController
             else if (!string.IsNullOrWhiteSpace(originalInvoiceNo))
             {
                 origInvoice = await conn.QuerySingleOrDefaultAsync<SaleInvoice>(@"
-                    SELECT sale_invoice_no, customer_no, payment_method, gross_total_price, final_price, discount_value, due_amount, sales_number
+                    SELECT sale_invoice_no, customer_no, payment_method, gross_total_price, final_price, discount_value, due_amount, sales_number, document_status
                     FROM sale_invoices
                     WHERE sales_number = @originalInvoiceNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
                     new { originalInvoiceNo, CurrentPharmacyNo, CurrentBranchNo },
@@ -162,6 +162,11 @@ public class SaleReturnController : BaseController
                         customerNo = origInvoice.CustomerNo;
                     }
                 }
+            }
+
+            if (origInvoice != null && origInvoice.DocumentStatus == 3)
+            {
+                return FailResponse<SaleReturn>($"Cannot process return: Original sale invoice {origInvoice.SalesNumber} has already been voided.");
             }
 
             var returnNumber = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "SALE_RETURN");

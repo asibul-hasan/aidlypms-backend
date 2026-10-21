@@ -485,3 +485,14 @@ public class CreateSaleReturnPayload
     public string? Reason { get; set; }
 }
 
+public class VoidSaleRequest
+{
+    [JsonPropertyName("reason")]
+    public string Reason { get; set; } = string.Empty;
+
+    [JsonPropertyName("approval_note")]
+    public string? ApprovalNote { get; set; }
+
+    [JsonPropertyName("approved_by_user_no")]
+    public long? ApprovedByUserNo { get; set; }
+}

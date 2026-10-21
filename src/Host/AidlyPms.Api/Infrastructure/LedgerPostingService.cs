@@ -11,6 +11,7 @@ public class LedgerLeg
     public short? PartyType { get; set; }
     public long? PartyNo { get; set; }
     public string? Narration { get; set; }
+    public long? ReversalOfLedgerNo { get; set; }
 }
 
 public class CompoundJournalEntry
@@ -96,12 +97,12 @@ public class LedgerPostingService : ILedgerPostingService
             // Append ledger entry
             const string insertLedger = @"
                 INSERT INTO acc_transaction_ledger (
-                    ledger_no, pharmacy_no, branch_no, journal_no, account_no, transaction_date,
+                    ledger_no, pharmacy_no, branch_no, journal_no, reversal_of_ledger_no, account_no, transaction_date,
                     transaction_type, debit_amount, credit_amount, balance_after,
                     source_document_type, source_document_no, source_document_id,
                     party_type, party_no, narration, created_by_user_no, created_at
                 ) VALUES (
-                    @ledgerNo, @PharmacyNo, @BranchNo, @journalNo, @AccountNo, @TransactionDate,
+                    @ledgerNo, @PharmacyNo, @BranchNo, @journalNo, @ReversalOfLedgerNo, @AccountNo, @TransactionDate,
                     @TransactionType, @DebitAmount, @CreditAmount, @newBalance,
                     @SourceDocumentType, @SourceDocumentNo, @SourceDocumentId,
                     @PartyType, @PartyNo, @Narration, @CreatedByUserNo, CURRENT_TIMESTAMP
@@ -113,6 +114,7 @@ public class LedgerPostingService : ILedgerPostingService
                 entry.PharmacyNo,
                 entry.BranchNo,
                 journalNo,
+                leg.ReversalOfLedgerNo,
                 leg.AccountNo,
                 entry.TransactionDate,
                 entry.TransactionType,
