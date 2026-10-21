@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.8.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.2...v1.8.3) (2026-10-21)
+
+
+### 🧪 Tests
+
+* **integration:** enforce throwaway postgres container, delete migration tests, isolate test pharmacy 9001, and add CI schema load checks ([c5fea7c](https://github.com/asibul-hasan/aidlypms-backend/commit/c5fea7c4dcc9a1d010ad4593c3b9640fff924020))
+
 ## [1.8.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.1...v1.8.2) (2026-10-21)
 
 
