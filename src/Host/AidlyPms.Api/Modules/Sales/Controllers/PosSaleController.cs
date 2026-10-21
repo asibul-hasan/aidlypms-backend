@@ -246,7 +246,12 @@ public class PosSaleController : BaseController
         {
             var voidReason = !string.IsNullOrWhiteSpace(request?.Reason)
                 ? request.Reason.Trim()
-                : (!string.IsNullOrWhiteSpace(reason) ? reason.Trim() : "Sale invoice cancellation requested at POS counter");
+                : (!string.IsNullOrWhiteSpace(reason) ? reason.Trim() : null);
+
+            if (string.IsNullOrWhiteSpace(voidReason))
+            {
+                return FailResponse<bool>("A mandatory void reason must be provided to void a sale invoice.", statusCode: 422);
+            }
 
             var approverNo = request?.ApprovedByUserNo ?? approvedByUserNo ?? CurrentUserNo;
             var approvalNote = request?.ApprovalNote?.Trim();

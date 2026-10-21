@@ -187,7 +187,7 @@ public class DashboardController : BaseController
               AND cash_received_status = 1 AND document_status = 2;",
             new { CurrentPharmacyNo, CurrentBranchNo });
 
-        var netTodaySales = Math.Max(0, salesStats.TotalSales - todaySaleReturns);
+        var netTodaySales = salesStats.TotalSales - todaySaleReturns;
 
         var summary = new ExecutiveDashboardSummary
         {

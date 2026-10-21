@@ -543,6 +543,9 @@ public class ExchangeReq
     [JsonPropertyName("payment_method")]
     public short? PaymentMethod { get; set; } = 1;
 
+    [JsonPropertyName("settlement_payment_method")]
+    public short? SettlementPaymentMethod { get; set; } = 1;
+
     [JsonPropertyName("additional_payments")]
     public List<SaleInvoicePayment>? AdditionalPayments { get; set; }
 

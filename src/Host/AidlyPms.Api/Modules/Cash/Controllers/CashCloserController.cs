@@ -85,6 +85,157 @@ public class CashCloserController : BaseController
         return OkResponse(summary);
     }
 
+    [HttpGet("day-end-reconciliation")]
+    public async Task<ActionResult<ApiResponse<DayEndReconciliationResult>>> GetDayEndReconciliation([FromQuery] DateTime? date)
+    {
+        using var conn = _db.CreateConnection();
+        var dhakaDate = date.HasValue
+            ? DateOnly.FromDateTime(date.Value)
+            : DateHelper.GetDhakaToday();
+
+        var dhakaMidnight = dhakaDate.ToDateTime(TimeOnly.MinValue);
+        var (startUtc, endUtc) = DateHelper.GetDhakaDayUtcRange(dhakaDate);
+
+        // 1. Shift Drawer Check
+        var metrics = await ComputeShiftMetricsAsync(conn, null, CurrentPharmacyNo, CurrentBranchNo, dhakaDate);
+        var lastCloser = await conn.QueryFirstOrDefaultAsync<CashCloser>(@"
+            SELECT * FROM cash_closers
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND closing_date = @DhakaMidnight
+            ORDER BY cash_closer_no DESC LIMIT 1;",
+            new { CurrentPharmacyNo, CurrentBranchNo, DhakaMidnight = dhakaMidnight });
+
+        var openingBal = lastCloser?.OpeningBalance ?? 0m;
+        var expectedDrawer = openingBal + metrics.CashSales + metrics.DueCollections - metrics.CashReturnsPaid - metrics.ExpensesPaid;
+        var actualCounted = lastCloser?.ActualCountedBalance;
+        var drawerDiscrepancy = lastCloser != null ? (actualCounted.GetValueOrDefault() - expectedDrawer) : 0m;
+        var drawerPassed = lastCloser == null || Math.Round(drawerDiscrepancy, 2) == 0;
+
+        var drawerCheck = new DrawerCheckResult
+        {
+            Passed = drawerPassed,
+            OpeningBalance = openingBal,
+            CashSales = metrics.CashSales,
+            DueCollections = metrics.DueCollections,
+            CashReturns = metrics.CashReturnsPaid,
+            Expenses = metrics.ExpensesPaid,
+            ExpectedDrawer = expectedDrawer,
+            ActualCounted = actualCounted,
+            Discrepancy = lastCloser != null ? drawerDiscrepancy : null,
+            Message = drawerPassed ? "Drawer cash matches expected collections." : $"Drawer variance of ৳{drawerDiscrepancy:N2} detected."
+        };
+
+        // 2. Net Sales Check
+        var salesStats = await conn.QuerySingleOrDefaultAsync<(decimal TotalSales, decimal TotalDue, int Count)>(@"
+            SELECT COALESCE(SUM(final_price), 0) AS TotalSales,
+                   COALESCE(SUM(due_amount), 0) AS TotalDue,
+                   COUNT(1) AS Count
+            FROM sale_invoices
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND document_status = 2
+              AND sale_timestamp >= @StartUtc AND sale_timestamp <= @EndUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc });
+
+        var returnStats = await conn.QuerySingleOrDefaultAsync<(decimal TotalRefund, int Count)>(@"
+            SELECT COALESCE(SUM(final_refund_price), 0) AS TotalRefund,
+                   COUNT(1) AS Count
+            FROM sale_returns
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND return_status = 2
+              AND return_date >= @StartUtc AND return_date <= @EndUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc });
+
+        var totalPaymentsOnInvoices = await conn.ExecuteScalarAsync<decimal>(@"
+            SELECT COALESCE(SUM(p.amount), 0)
+            FROM sale_invoice_payments p
+            JOIN sale_invoices s ON p.sale_invoice_no = s.sale_invoice_no
+            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+              AND s.document_status = 2
+              AND s.sale_timestamp >= @StartUtc AND s.sale_timestamp <= @EndUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc });
+
+        var netSales = salesStats.TotalSales - returnStats.TotalRefund;
+        var totalTenderedAndDue = totalPaymentsOnInvoices + salesStats.TotalDue;
+        var salesDiscrepancy = Math.Round(Math.Abs(salesStats.TotalSales - totalTenderedAndDue), 2);
+        var netSalesPassed = salesDiscrepancy == 0;
+
+        var netSalesCheck = new NetSalesCheckResult
+        {
+            Passed = netSalesPassed,
+            GrossSales = salesStats.TotalSales,
+            TotalReturns = returnStats.TotalRefund,
+            NetSales = netSales,
+            TotalTenderedAndDue = totalTenderedAndDue,
+            Discrepancy = salesDiscrepancy,
+            Message = netSalesPassed ? "Net sales and payment tender allocations tie out completely." : $"Discrepancy of ৳{salesDiscrepancy:N2} between sales and tender channels."
+        };
+
+        // 3. Trial Balance Check with Clearing = 0
+        var ledgerTotals = await conn.QuerySingleOrDefaultAsync<(decimal Debits, decimal Credits)>(@"
+            SELECT COALESCE(SUM(debit_amount), 0) AS Debits,
+                   COALESCE(SUM(credit_amount), 0) AS Credits
+            FROM acc_transaction_ledger
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND (transaction_date AT TIME ZONE 'Asia/Dhaka')::date = @DhakaDate;",
+            new { CurrentPharmacyNo, CurrentBranchNo, DhakaDate = dhakaMidnight });
+
+        var clearingBalance = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT current_balance FROM acc_transaction_accounts
+            WHERE account_code = '10901' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 0m;
+
+        var trialBalanceBalanced = Math.Round(ledgerTotals.Debits, 2) == Math.Round(ledgerTotals.Credits, 2);
+        var clearingNetsToZero = Math.Round(clearingBalance, 2) == 0;
+        var trialBalancePassed = trialBalanceBalanced && clearingNetsToZero;
+
+        var trialBalanceCheck = new TrialBalanceCheckResult
+        {
+            Passed = trialBalancePassed,
+            TotalDebits = ledgerTotals.Debits,
+            TotalCredits = ledgerTotals.Credits,
+            Difference = Math.Round(Math.Abs(ledgerTotals.Debits - ledgerTotals.Credits), 2),
+            ClearingBalance = clearingBalance,
+            ClearingNetsToZero = clearingNetsToZero,
+            Message = trialBalancePassed
+                ? "Trial balance in equilibrium; exchange clearing balance is net zero."
+                : (!trialBalanceBalanced
+                    ? $"Trial balance out of balance by ৳{Math.Abs(ledgerTotals.Debits - ledgerTotals.Credits):N2}."
+                    : $"Clearing account (10901) has non-zero unsettled balance of ৳{clearingBalance:N2}.")
+        };
+
+        // 4. Stock per Batch Check
+        var negativeBatches = await conn.ExecuteScalarAsync<int>(@"
+            SELECT COUNT(1) FROM prod_product_batches
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND available_quantity_pcs < 0;",
+            new { CurrentPharmacyNo, CurrentBranchNo });
+
+        var stockBatchPassed = negativeBatches == 0;
+        var stockBatchCheck = new StockBatchCheckResult
+        {
+            Passed = stockBatchPassed,
+            NegativeBatchesCount = negativeBatches,
+            DiscrepantBatchesCount = 0,
+            Message = stockBatchPassed
+                ? "Batch stock quantities consistent with zero negative balances."
+                : $"Warning: {negativeBatches} product batch(es) report negative available stock."
+        };
+
+        var allPassed = drawerPassed && netSalesPassed && trialBalancePassed && stockBatchPassed;
+
+        var result = new DayEndReconciliationResult
+        {
+            AllChecksPassed = allPassed,
+            OverallStatus = allPassed ? "BALANCED" : "DISCREPANCY",
+            Date = dhakaDate.ToString("yyyy-MM-dd"),
+            DrawerCheck = drawerCheck,
+            NetSalesCheck = netSalesCheck,
+            TrialBalanceCheck = trialBalanceCheck,
+            StockBatchCheck = stockBatchCheck
+        };
+
+        return OkResponse(result);
+    }
+
     [HttpPost("close-shift")]
     public async Task<ActionResult<ApiResponse<CashCloser>>> CloseShift([FromBody] CloseShiftPayload payload)
     {
@@ -299,53 +450,6 @@ public class CashCloserController : BaseController
 
         var affected = await conn.ExecuteAsync(sql, pms);
         return OkResponse<object>(new { count = affected }, $"Reconciled {affected} transactions into cash drawer.");
-    }
-
-    [HttpGet("day-end-reconciliation")]
-    public async Task<ActionResult<ApiResponse<DayEndReconciliationDto>>> GetDayEndReconciliation([FromQuery] string? date)
-    {
-        using var conn = _db.CreateConnection();
-        var dhakaDate = DateHelper.GetDhakaToday();
-        if (!string.IsNullOrWhiteSpace(date) && DateHelper.TryParse(date, out var parsedDate))
-        {
-            dhakaDate = DateOnly.FromDateTime(parsedDate);
-        }
-
-        var metrics = await ComputeShiftMetricsAsync(conn, null, CurrentPharmacyNo, CurrentBranchNo, dhakaDate);
-
-        var openingBal = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT opening_balance FROM cash_closers
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND closing_date = @ClosingDate
-            ORDER BY shift_no ASC LIMIT 1;",
-            new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = dhakaDate.ToDateTime(TimeOnly.MinValue) }) ?? 0m;
-
-        var expectedCash = openingBal + metrics.CashSales + metrics.DueCollections - metrics.CashReturnsPaid - metrics.ExpensesPaid;
-
-        var dto = new DayEndReconciliationDto
-        {
-            Date = dhakaDate.ToString("yyyy-MM-dd"),
-            OpeningBalance = openingBal,
-            GrossSales = metrics.GrossSales,
-            NetSales = metrics.NetSales,
-            CashSalesCollected = metrics.CashSales,
-            DigitalCollected = metrics.Card + metrics.Bkash + metrics.Nagad + metrics.Rocket + metrics.Bank,
-            BkashCollected = metrics.Bkash,
-            NagadCollected = metrics.Nagad,
-            CardCollected = metrics.Card,
-            BankCollected = metrics.Bank,
-            DueSales = metrics.DueSales,
-            DueCollections = metrics.DueCollections,
-            CashReturnsPaid = metrics.CashReturnsPaid,
-            TotalReturnsAmount = metrics.TotalReturnsAmount,
-            ExpensesPaid = metrics.ExpensesPaid,
-            ExpectedDrawerCash = expectedCash,
-            TotalSalesCount = metrics.SalesCount,
-            TotalReturnsCount = metrics.TotalReturnsCount,
-            ExchangesCount = metrics.ExchangesCount
-        };
-
-        return OkResponse(dto);
     }
 
     private async Task<ShiftMetrics> ComputeShiftMetricsAsync(

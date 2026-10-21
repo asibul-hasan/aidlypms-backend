@@ -256,3 +256,123 @@ public class DayEndReconciliationDto
     public int ExchangesCount { get; set; }
 }
 
+public class DayEndReconciliationResult
+{
+    [JsonPropertyName("all_checks_passed")]
+    public bool AllChecksPassed { get; set; }
+
+    [JsonPropertyName("overall_status")]
+    public string OverallStatus { get; set; } = "BALANCED";
+
+    [JsonPropertyName("date")]
+    public string Date { get; set; } = string.Empty;
+
+    [JsonPropertyName("drawer_check")]
+    public DrawerCheckResult DrawerCheck { get; set; } = new();
+
+    [JsonPropertyName("net_sales_check")]
+    public NetSalesCheckResult NetSalesCheck { get; set; } = new();
+
+    [JsonPropertyName("trial_balance_check")]
+    public TrialBalanceCheckResult TrialBalanceCheck { get; set; } = new();
+
+    [JsonPropertyName("stock_batch_check")]
+    public StockBatchCheckResult StockBatchCheck { get; set; } = new();
+}
+
+public class DrawerCheckResult
+{
+    [JsonPropertyName("passed")]
+    public bool Passed { get; set; }
+
+    [JsonPropertyName("opening_balance")]
+    public decimal OpeningBalance { get; set; }
+
+    [JsonPropertyName("cash_sales")]
+    public decimal CashSales { get; set; }
+
+    [JsonPropertyName("due_collections")]
+    public decimal DueCollections { get; set; }
+
+    [JsonPropertyName("cash_returns")]
+    public decimal CashReturns { get; set; }
+
+    [JsonPropertyName("expenses")]
+    public decimal Expenses { get; set; }
+
+    [JsonPropertyName("expected_drawer")]
+    public decimal ExpectedDrawer { get; set; }
+
+    [JsonPropertyName("actual_counted")]
+    public decimal? ActualCounted { get; set; }
+
+    [JsonPropertyName("discrepancy")]
+    public decimal? Discrepancy { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+}
+
+public class NetSalesCheckResult
+{
+    [JsonPropertyName("passed")]
+    public bool Passed { get; set; }
+
+    [JsonPropertyName("gross_sales")]
+    public decimal GrossSales { get; set; }
+
+    [JsonPropertyName("total_returns")]
+    public decimal TotalReturns { get; set; }
+
+    [JsonPropertyName("net_sales")]
+    public decimal NetSales { get; set; }
+
+    [JsonPropertyName("total_tendered_and_due")]
+    public decimal TotalTenderedAndDue { get; set; }
+
+    [JsonPropertyName("discrepancy")]
+    public decimal Discrepancy { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+}
+
+public class TrialBalanceCheckResult
+{
+    [JsonPropertyName("passed")]
+    public bool Passed { get; set; }
+
+    [JsonPropertyName("total_debits")]
+    public decimal TotalDebits { get; set; }
+
+    [JsonPropertyName("total_credits")]
+    public decimal TotalCredits { get; set; }
+
+    [JsonPropertyName("difference")]
+    public decimal Difference { get; set; }
+
+    [JsonPropertyName("clearing_balance")]
+    public decimal ClearingBalance { get; set; }
+
+    [JsonPropertyName("clearing_nets_to_zero")]
+    public bool ClearingNetsToZero { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+}
+
+public class StockBatchCheckResult
+{
+    [JsonPropertyName("passed")]
+    public bool Passed { get; set; }
+
+    [JsonPropertyName("negative_batches_count")]
+    public int NegativeBatchesCount { get; set; }
+
+    [JsonPropertyName("discrepant_batches_count")]
+    public int DiscrepantBatchesCount { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+}
+

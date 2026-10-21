@@ -1180,6 +1180,25 @@ public class SaleReturnController : BaseController
 
             if (excessRefundToCustomer > 0)
             {
+                var settlementAccountCode = (req.SettlementPaymentMethod ?? req.PaymentMethod) switch
+                {
+                    2 => "10201",
+                    3 => "10202",
+                    4 => "10203",
+                    5 => "10204",
+                    6 => "10205",
+                    _ => "10101"
+                };
+
+                var settlementAccNo = await conn.ExecuteScalarAsync<long?>(@"
+                    SELECT account_no FROM acc_transaction_accounts
+                    WHERE account_code = @settlementAccountCode AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                    new { settlementAccountCode, CurrentPharmacyNo, CurrentBranchNo }, transaction: tran)
+                    ?? await conn.ExecuteScalarAsync<long?>(@"
+                    SELECT account_no FROM acc_transaction_accounts
+                    WHERE account_code = '10101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+
                 // Disburse excess cash back or store credit to clear 10901 to exactly zero
                 var settlementJournal = new CompoundJournalEntry
                 {
@@ -1200,13 +1219,13 @@ public class SaleReturnController : BaseController
                             CreditAmount = 0,
                             Narration = $"Relief of remaining return credit on exchange {returnNumber}"
                         },
-                        // Cr Cash Drawer (refund to customer)
+                        // Cr Settlement Account (Cash Drawer / Bank / MFS refund to customer)
                         new LedgerLeg
                         {
-                            AccountNo = 1, // Cash Drawer
+                            AccountNo = settlementAccNo,
                             DebitAmount = 0,
                             CreditAmount = excessRefundToCustomer,
-                            Narration = $"Cash difference paid to customer on exchange {returnNumber}"
+                            Narration = $"Payment difference refund to customer on exchange {returnNumber}"
                         }
                     }
                 };
