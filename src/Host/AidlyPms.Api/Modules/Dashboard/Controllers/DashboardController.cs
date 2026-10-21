@@ -20,31 +20,43 @@ public class DashboardController : BaseController
     public async Task<ActionResult<ApiResponse<ExecutiveDashboardSummary>>> GetSummary()
     {
         using var conn = _db.CreateConnection();
-        var today = DateTime.UtcNow.Date;
+        var dhakaToday = DateHelper.GetDhakaToday();
+        var (startUtc, endUtc) = DateHelper.GetDhakaDayUtcRange(dhakaToday);
 
-        var salesStats = await conn.QuerySingleOrDefaultAsync<(decimal TotalSales, int SalesCount, decimal TotalProfit, decimal CashCollected)>(@"
+        var salesStats = await conn.QuerySingleOrDefaultAsync<(decimal TotalSales, int SalesCount, decimal TotalProfit)>(@"
             SELECT COALESCE(SUM(final_price), 0) AS TotalSales,
                    COUNT(1) AS SalesCount,
-                   COALESCE(SUM(approximate_profit), 0) AS TotalProfit,
-                   COALESCE(SUM(CASE WHEN payment_method = 1 THEN customer_will_pay - change_amount ELSE 0 END), 0) AS CashCollected
+                   COALESCE(SUM(approximate_profit), 0) AS TotalProfit
             FROM sale_invoices
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(sale_timestamp) = @Today AND document_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today });
+              AND sale_timestamp >= @StartUtc AND sale_timestamp <= @EndUtc
+              AND document_status = 2;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc });
+
+        var cashCollectedToday = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(p.amount), 0)
+            FROM sale_invoice_payments p
+            JOIN sale_invoices s ON p.sale_invoice_no = s.sale_invoice_no
+            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+              AND s.sale_timestamp >= @StartUtc AND s.sale_timestamp <= @EndUtc
+              AND s.document_status = 2
+              AND p.payment_method = 1;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
 
         var purchasesToday = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(final_price), 0)
             FROM pur_purchase_invoices
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(purchase_date) = @Today AND document_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+              AND purchase_date >= @StartUtc AND purchase_date <= @EndUtc
+              AND document_status = 2;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
 
         var expensesToday = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM acc_expenses
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(expense_date) = @Today;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+              AND expense_date >= @StartUtc AND expense_date <= @EndUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
 
         var totalCustomerDue = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(current_due), 0)
@@ -119,52 +131,53 @@ public class DashboardController : BaseController
             SELECT COALESCE(SUM(final_refund_price), 0)
             FROM sale_returns
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(return_date) = @Today;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+              AND return_status = 2
+              AND return_date >= @StartUtc AND return_date <= @EndUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
 
         var todayPurchaseReturns = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(gross_return_amount), 0)
             FROM pur_purchase_returns
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(return_date) = @Today;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+              AND return_date >= @StartUtc AND return_date <= @EndUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
 
         var todayDueCollected = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM due_collections
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(payment_date) = @Today;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+              AND payment_date >= @StartUtc AND payment_date <= @EndUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
 
         var todaySupplierPaid = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM pur_supplier_payments
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(payment_date) = @Today;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+              AND payment_date >= @StartUtc AND payment_date <= @EndUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
 
         var totalCashBalance = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(current_balance), 0)
             FROM acc_transaction_accounts
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
               AND account_type = 1 AND is_active = TRUE;",
-            new { CurrentPharmacyNo, CurrentBranchNo }) ?? salesStats.CashCollected;
+            new { CurrentPharmacyNo, CurrentBranchNo }) ?? cashCollectedToday;
 
         var todayIncomes = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM acc_incomes
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(income_date) = @Today;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+              AND income_date >= @StartUtc AND income_date <= @EndUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
 
         var todayDemurrage = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(e.amount), 0)
             FROM acc_expenses e
             JOIN acc_expense_categories c ON e.expense_category_no = c.expense_category_no
             WHERE e.pharmacy_no = @CurrentPharmacyNo AND e.branch_no = @CurrentBranchNo
-              AND DATE(e.expense_date) = @Today
+              AND e.expense_date >= @StartUtc AND e.expense_date <= @EndUtc
               AND (c.name ILIKE '%demurrage%' OR c.name ILIKE '%damage%' OR c.name ILIKE '%loss%');",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
 
         var pendingHandoverStats = await conn.QuerySingleOrDefaultAsync<(int Count, decimal Amount)>(@"
             SELECT COUNT(1) AS Count,
@@ -174,14 +187,16 @@ public class DashboardController : BaseController
               AND cash_received_status = 1 AND document_status = 2;",
             new { CurrentPharmacyNo, CurrentBranchNo });
 
+        var netTodaySales = Math.Max(0, salesStats.TotalSales - todaySaleReturns);
+
         var summary = new ExecutiveDashboardSummary
         {
-            TodaySales = salesStats.TotalSales,
+            TodaySales = netTodaySales,
             TodaySalesCount = salesStats.SalesCount,
             TodayProfit = salesStats.TotalProfit,
             TodayPurchases = purchasesToday,
             TodayExpenses = expensesToday,
-            TodayCashCollected = salesStats.CashCollected,
+            TodayCashCollected = cashCollectedToday,
             TotalCustomerDue = totalCustomerDue,
             TotalSupplierPayable = totalSupplierPayable,
             TotalInventoryValuation = totalInventoryValuation,

@@ -91,6 +91,9 @@ public class SaleInvoice
     [JsonPropertyName("is_quick_printed")]
     public bool IsQuickPrinted { get; set; }
 
+    [JsonPropertyName("exchange_of_return_no")]
+    public long? ExchangeOfReturnNo { get; set; }
+
     [JsonPropertyName("sale_timestamp")]
     public DateTime SaleTimestamp { get; set; } = DateTime.UtcNow;
 
@@ -224,6 +227,12 @@ public class SaleInvoiceItem
         get => PcsPerBox;
         set { if (PcsPerBox == 1) PcsPerBox = value; }
     }
+
+    [JsonPropertyName("already_returned_qty")]
+    public int AlreadyReturnedQty { get; set; }
+
+    [JsonPropertyName("returnable_qty")]
+    public int ReturnableQty => Math.Max(0, SaleQty - AlreadyReturnedQty);
 }
 
 
@@ -338,6 +347,15 @@ public class SaleReturn
     [JsonPropertyName("return_status")]
     public short ReturnStatus { get; set; } = 2; // 2: Completed
 
+    [JsonPropertyName("refund_method")]
+    public short? RefundMethod { get; set; }
+
+    [JsonPropertyName("exchange_invoice_no")]
+    public long? ExchangeInvoiceNo { get; set; }
+
+    [JsonPropertyName("idempotency_key")]
+    public Guid? IdempotencyKey { get; set; }
+
     [JsonPropertyName("created_by_user_no")]
     public long? CreatedByUserNo { get; set; }
 
@@ -441,15 +459,30 @@ public class SaleReturnItem
     public string? ProductName { get; set; }
 }
 
-public class CreateSaleReturnPayload
+public class ReturnLineReq
 {
-    [JsonPropertyName("return_data")]
-    public SaleReturn? ReturnData { get; set; }
+    [JsonPropertyName("sale_invoice_item_no")]
+    public long SaleInvoiceItemNo { get; set; }
 
-    [JsonPropertyName("items")]
-    public List<SaleReturnItem> Items { get; set; } = new();
+    [JsonPropertyName("qty_pcs")]
+    public int QtyPcs { get; set; }
 
-    // Convenience properties if sent directly
+    [JsonPropertyName("return_qty")]
+    public int ReturnQty
+    {
+        get => QtyPcs;
+        set { if (QtyPcs == 0) QtyPcs = value; }
+    }
+
+    [JsonPropertyName("reason_code")]
+    public short ReasonCode { get; set; } = 4; // 1: Defective, 2: Wrong Item, 3: Expired/Damaged, 4: Customer Choice
+
+    [JsonPropertyName("disposition")]
+    public short Disposition { get; set; } = 1; // 1: Restock, 2: Quarantine/Damaged
+}
+
+public class ReturnReq
+{
     [JsonPropertyName("sale_invoice_no")]
     public long? SaleInvoiceNo { get; set; }
 
@@ -459,30 +492,86 @@ public class CreateSaleReturnPayload
     [JsonPropertyName("customer_no")]
     public long? CustomerNo { get; set; }
 
-    [JsonPropertyName("account_no")]
-    public long? AccountNo { get; set; } = 1; // Default Cash Drawer 10101
-
-    [JsonPropertyName("cash_paid_refund")]
-    public decimal? CashPaidRefund { get; set; }
-
-    [JsonPropertyName("discount_deduction")]
-    public decimal? DiscountDeduction { get; set; }
-
-    [JsonPropertyName("discount_percent")]
-    public decimal? DiscountPercent { get; set; }
-
-    [JsonPropertyName("return_amount")]
-    public decimal? ReturnAmount
-    {
-        get => CashPaidRefund;
-        set { if (!CashPaidRefund.HasValue) CashPaidRefund = value; }
-    }
-
     [JsonPropertyName("refund_method")]
-    public string? RefundMethod { get; set; }
+    public short? RefundMethod { get; set; } = 1;
+
+    [JsonPropertyName("idempotency_key")]
+    public Guid? IdempotencyKey { get; set; }
 
     [JsonPropertyName("reason")]
     public string? Reason { get; set; }
+
+    [JsonPropertyName("note")]
+    public string? Note { get; set; }
+
+    [JsonPropertyName("lines")]
+    public List<ReturnLineReq> Lines { get; set; } = new();
+
+    [JsonPropertyName("items")]
+    public List<ReturnLineReq> Items
+    {
+        get => Lines;
+        set { if (Lines.Count == 0 && value != null) Lines = value; }
+    }
+}
+
+// Backward-compatible payload without client price fields
+public class CreateSaleReturnPayload : ReturnReq
+{
+}
+
+public class ExchangeCartLineReq
+{
+    [JsonPropertyName("product_no")]
+    public long ProductNo { get; set; }
+
+    [JsonPropertyName("qty_pcs")]
+    public int QtyPcs { get; set; } = 1;
+
+    [JsonPropertyName("sale_mode")]
+    public short SaleMode { get; set; } = 1;
+}
+
+public class ExchangeReq
+{
+    [JsonPropertyName("return")]
+    public ReturnReq Return { get; set; } = new();
+
+    [JsonPropertyName("new_items")]
+    public List<ExchangeCartLineReq> NewItems { get; set; } = new();
+
+    [JsonPropertyName("payment_method")]
+    public short? PaymentMethod { get; set; } = 1;
+
+    [JsonPropertyName("additional_payments")]
+    public List<SaleInvoicePayment>? AdditionalPayments { get; set; }
+
+    [JsonPropertyName("idempotency_key")]
+    public Guid? IdempotencyKey { get; set; }
+
+    [JsonPropertyName("note")]
+    public string? Note { get; set; }
+}
+
+public class ExchangeResult
+{
+    [JsonPropertyName("return")]
+    public SaleReturn Return { get; set; } = null!;
+
+    [JsonPropertyName("sale")]
+    public SaleInvoice Sale { get; set; } = null!;
+
+    [JsonPropertyName("return_credit_amount")]
+    public decimal ReturnCreditAmount { get; set; }
+
+    [JsonPropertyName("additional_collected")]
+    public decimal AdditionalCollected { get; set; }
+
+    [JsonPropertyName("cash_refunded")]
+    public decimal CashRefunded { get; set; }
+
+    [JsonPropertyName("due_adjusted")]
+    public decimal DueAdjusted { get; set; }
 }
 
 public class VoidSaleRequest

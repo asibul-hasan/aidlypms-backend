@@ -66,6 +66,36 @@ public static class DateHelper
         return DateTime.SpecifyKind(date.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
     }
 
+    public static readonly TimeZoneInfo DhakaTimeZone = ResolveDhakaTimeZone();
+
+    private static TimeZoneInfo ResolveDhakaTimeZone()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Asia/Dhaka"); }
+        catch { }
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Bangladesh Standard Time"); }
+        catch { }
+        return TimeZoneInfo.CreateCustomTimeZone("Asia/Dhaka", TimeSpan.FromHours(6), "Dhaka Time", "Dhaka Standard Time");
+    }
+
+    public static DateTime GetDhakaNow()
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, DhakaTimeZone);
+    }
+
+    public static DateOnly GetDhakaToday()
+    {
+        return DateOnly.FromDateTime(GetDhakaNow());
+    }
+
+    public static (DateTime StartUtc, DateTime EndUtc) GetDhakaDayUtcRange(DateOnly dhakaDate)
+    {
+        var startLocal = dhakaDate.ToDateTime(TimeOnly.MinValue);
+        var endLocal = dhakaDate.ToDateTime(TimeOnly.MaxValue);
+        var startUtc = TimeZoneInfo.ConvertTimeToUtc(startLocal, DhakaTimeZone);
+        var endUtc = TimeZoneInfo.ConvertTimeToUtc(endLocal, DhakaTimeZone);
+        return (startUtc, endUtc);
+    }
+
     public static (DateTime? fromUtc, DateTime? toUtc) NormalizeDateRange(DateTime? fromDate, DateTime? toDate)
     {
         DateTime? fromUtc = fromDate.HasValue ? ToStartOfDayUtc(fromDate.Value) : null;

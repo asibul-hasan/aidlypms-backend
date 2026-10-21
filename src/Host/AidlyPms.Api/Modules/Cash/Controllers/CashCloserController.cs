@@ -63,68 +63,23 @@ public class CashCloserController : BaseController
     public async Task<ActionResult<ApiResponse<CashCloser>>> GetCurrentShiftSummary()
     {
         using var conn = _db.CreateConnection();
-        var today = DateTime.UtcNow.Date;
-
-        // Cash sales collected today
-        var cashSales = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT COALESCE(SUM(customer_will_pay - change_amount), 0)
-            FROM sale_invoices
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(sale_timestamp) = @Today AND payment_method = 1 AND document_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
-
-        // Digital collections
-        var bkash = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT COALESCE(SUM(customer_will_pay), 0) FROM sale_invoices
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(sale_timestamp) = @Today AND payment_method = 3 AND document_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
-
-        var nagad = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT COALESCE(SUM(customer_will_pay), 0) FROM sale_invoices
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(sale_timestamp) = @Today AND payment_method = 4 AND document_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
-
-        var card = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT COALESCE(SUM(customer_will_pay), 0) FROM sale_invoices
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(sale_timestamp) = @Today AND payment_method = 6 AND document_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
-
-        // Due collections today
-        var dueColl = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT COALESCE(SUM(amount), 0) FROM due_collections
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(payment_date) = @Today AND payment_method = 1;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
-
-        // Cash returns paid today
-        var returns = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT COALESCE(SUM(cash_paid_refund), 0) FROM sale_returns
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(return_date) = @Today AND return_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
-
-        // Petty cash expenses paid today
-        var expenses = await conn.ExecuteScalarAsync<decimal?>(@"
-            SELECT COALESCE(SUM(amount), 0) FROM acc_expenses
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND DATE(expense_date) = @Today AND payment_type ILIKE 'Cash';",
-            new { CurrentPharmacyNo, CurrentBranchNo, Today = today }) ?? 0m;
+        var dhakaToday = DateHelper.GetDhakaToday();
+        var metrics = await ComputeShiftMetricsAsync(conn, null, CurrentPharmacyNo, CurrentBranchNo, dhakaToday);
 
         var summary = new CashCloser
         {
             PharmacyNo = CurrentPharmacyNo,
             BranchNo = CurrentBranchNo,
-            CashSalesCollected = cashSales,
-            BkashCollected = bkash,
-            NagadCollected = nagad,
-            CardCollected = card,
-            DueCollections = dueColl,
-            CashReturnsPaid = returns,
-            ExpensesPaid = expenses,
-            ClosingDate = today
+            CashSalesCollected = metrics.CashSales,
+            CardCollected = metrics.Card,
+            BkashCollected = metrics.Bkash,
+            NagadCollected = metrics.Nagad,
+            RocketCollected = metrics.Rocket,
+            SplitCollected = 0m,
+            DueCollections = metrics.DueCollections,
+            CashReturnsPaid = metrics.CashReturnsPaid,
+            ExpensesPaid = metrics.ExpensesPaid,
+            ClosingDate = dhakaToday.ToDateTime(TimeOnly.MinValue)
         };
 
         return OkResponse(summary);
@@ -139,61 +94,14 @@ public class CashCloserController : BaseController
 
         try
         {
-            var closingDate = (payload.ClosingDate ?? DateTime.UtcNow).Date;
+            var dhakaDate = payload.ClosingDate.HasValue
+                ? DateOnly.FromDateTime(payload.ClosingDate.Value)
+                : DateHelper.GetDhakaToday();
 
-            // Compute live figures on server
-            var cashSales = await conn.ExecuteScalarAsync<decimal?>(@"
-                SELECT COALESCE(SUM(customer_will_pay - change_amount), 0)
-                FROM sale_invoices
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                  AND DATE(sale_timestamp) = @ClosingDate AND payment_method = 1 AND document_status = 2;",
-                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = closingDate },
-                transaction: tran) ?? 0m;
-
-            var card = await conn.ExecuteScalarAsync<decimal?>(@"
-                SELECT COALESCE(SUM(customer_will_pay), 0) FROM sale_invoices
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                  AND DATE(sale_timestamp) = @ClosingDate AND payment_method = 6 AND document_status = 2;",
-                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = closingDate },
-                transaction: tran) ?? 0m;
-
-            var bkash = await conn.ExecuteScalarAsync<decimal?>(@"
-                SELECT COALESCE(SUM(customer_will_pay), 0) FROM sale_invoices
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                  AND DATE(sale_timestamp) = @ClosingDate AND payment_method = 3 AND document_status = 2;",
-                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = closingDate },
-                transaction: tran) ?? 0m;
-
-            var nagad = await conn.ExecuteScalarAsync<decimal?>(@"
-                SELECT COALESCE(SUM(customer_will_pay), 0) FROM sale_invoices
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                  AND DATE(sale_timestamp) = @ClosingDate AND payment_method = 4 AND document_status = 2;",
-                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = closingDate },
-                transaction: tran) ?? 0m;
-
-            var dueColl = await conn.ExecuteScalarAsync<decimal?>(@"
-                SELECT COALESCE(SUM(amount), 0) FROM due_collections
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                  AND DATE(payment_date) = @ClosingDate AND payment_method = 1;",
-                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = closingDate },
-                transaction: tran) ?? 0m;
-
-            var returns = await conn.ExecuteScalarAsync<decimal?>(@"
-                SELECT COALESCE(SUM(cash_paid_refund), 0) FROM sale_returns
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                  AND DATE(return_date) = @ClosingDate AND return_status = 2;",
-                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = closingDate },
-                transaction: tran) ?? 0m;
-
-            var expenses = await conn.ExecuteScalarAsync<decimal?>(@"
-                SELECT COALESCE(SUM(amount), 0) FROM acc_expenses
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                  AND DATE(expense_date) = @ClosingDate AND payment_type ILIKE 'Cash';",
-                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = closingDate },
-                transaction: tran) ?? 0m;
+            var metrics = await ComputeShiftMetricsAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, dhakaDate);
 
             // Server Calculation Authority for expected cash in drawer
-            var calculatedClosing = payload.OpeningBalance + cashSales + dueColl - returns - expenses;
+            var calculatedClosing = payload.OpeningBalance + metrics.CashSales + metrics.DueCollections - metrics.CashReturnsPaid - metrics.ExpensesPaid;
             var discrepancy = payload.ActualCountedBalance - calculatedClosing;
 
             var nextCloserNo = await conn.ExecuteScalarAsync<long>(
@@ -202,7 +110,7 @@ public class CashCloserController : BaseController
             var nextShiftNo = await conn.ExecuteScalarAsync<int>(@"
                 SELECT COALESCE(MAX(shift_no), 0) + 1 FROM cash_closers
                 WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND closing_date = @ClosingDate;",
-                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = closingDate },
+                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = dhakaDate.ToDateTime(TimeOnly.MinValue) },
                 transaction: tran);
 
             var shiftNo = payload.ShiftNo > 0 ? payload.ShiftNo : nextShiftNo;
@@ -216,20 +124,20 @@ public class CashCloserController : BaseController
                 RegisterId = payload.RegisterId ?? "REG-MAIN-01",
                 ShiftNo = shiftNo,
                 OpeningBalance = payload.OpeningBalance,
-                CashSalesCollected = cashSales,
-                CardCollected = card,
-                BkashCollected = bkash,
-                NagadCollected = nagad,
-                RocketCollected = 0m,
+                CashSalesCollected = metrics.CashSales,
+                CardCollected = metrics.Card,
+                BkashCollected = metrics.Bkash,
+                NagadCollected = metrics.Nagad,
+                RocketCollected = metrics.Rocket,
                 SplitCollected = 0m,
-                DueCollections = dueColl,
-                CashReturnsPaid = returns,
-                ExpensesPaid = expenses,
+                DueCollections = metrics.DueCollections,
+                CashReturnsPaid = metrics.CashReturnsPaid,
+                ExpensesPaid = metrics.ExpensesPaid,
                 CalculatedClosingBalance = calculatedClosing,
                 ActualCountedBalance = payload.ActualCountedBalance,
                 DiscrepancyAmount = discrepancy,
                 Note = payload.Note,
-                ClosingDate = closingDate,
+                ClosingDate = dhakaDate.ToDateTime(TimeOnly.MinValue),
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -310,7 +218,7 @@ public class CashCloserController : BaseController
                     BranchNo = CurrentBranchNo,
                     TransactionType = 12, // Stock/Cash Adjustment
                     SourceDocumentType = "CASH_CLOSER",
-                    SourceDocumentNo = $"CC-{closingDate:yyyyMMdd}-{shiftNo}",
+                    SourceDocumentNo = $"CC-{dhakaDate:yyyyMMdd}-{shiftNo}",
                     SourceDocumentId = nextCloserNo,
                     CreatedByUserNo = CurrentUserNo,
                     Legs = legs
@@ -391,6 +299,179 @@ public class CashCloserController : BaseController
 
         var affected = await conn.ExecuteAsync(sql, pms);
         return OkResponse<object>(new { count = affected }, $"Reconciled {affected} transactions into cash drawer.");
+    }
+
+    [HttpGet("day-end-reconciliation")]
+    public async Task<ActionResult<ApiResponse<DayEndReconciliationDto>>> GetDayEndReconciliation([FromQuery] string? date)
+    {
+        using var conn = _db.CreateConnection();
+        var dhakaDate = DateHelper.GetDhakaToday();
+        if (!string.IsNullOrWhiteSpace(date) && DateHelper.TryParse(date, out var parsedDate))
+        {
+            dhakaDate = DateOnly.FromDateTime(parsedDate);
+        }
+
+        var metrics = await ComputeShiftMetricsAsync(conn, null, CurrentPharmacyNo, CurrentBranchNo, dhakaDate);
+
+        var openingBal = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT opening_balance FROM cash_closers
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND closing_date = @ClosingDate
+            ORDER BY shift_no ASC LIMIT 1;",
+            new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = dhakaDate.ToDateTime(TimeOnly.MinValue) }) ?? 0m;
+
+        var expectedCash = openingBal + metrics.CashSales + metrics.DueCollections - metrics.CashReturnsPaid - metrics.ExpensesPaid;
+
+        var dto = new DayEndReconciliationDto
+        {
+            Date = dhakaDate.ToString("yyyy-MM-dd"),
+            OpeningBalance = openingBal,
+            GrossSales = metrics.GrossSales,
+            NetSales = metrics.NetSales,
+            CashSalesCollected = metrics.CashSales,
+            DigitalCollected = metrics.Card + metrics.Bkash + metrics.Nagad + metrics.Rocket + metrics.Bank,
+            BkashCollected = metrics.Bkash,
+            NagadCollected = metrics.Nagad,
+            CardCollected = metrics.Card,
+            BankCollected = metrics.Bank,
+            DueSales = metrics.DueSales,
+            DueCollections = metrics.DueCollections,
+            CashReturnsPaid = metrics.CashReturnsPaid,
+            TotalReturnsAmount = metrics.TotalReturnsAmount,
+            ExpensesPaid = metrics.ExpensesPaid,
+            ExpectedDrawerCash = expectedCash,
+            TotalSalesCount = metrics.SalesCount,
+            TotalReturnsCount = metrics.TotalReturnsCount,
+            ExchangesCount = metrics.ExchangesCount
+        };
+
+        return OkResponse(dto);
+    }
+
+    private async Task<ShiftMetrics> ComputeShiftMetricsAsync(
+        System.Data.IDbConnection conn,
+        System.Data.IDbTransaction? tran,
+        long pharmacyNo,
+        long branchNo,
+        DateOnly dhakaDate)
+    {
+        var (startUtc, endUtc) = DateHelper.GetDhakaDayUtcRange(dhakaDate);
+
+        // 1. Payment collections from sale_invoice_payments for completed invoices (document_status = 2)
+        // Exclude ReturnCredit (9) as that is an internal exchange settlement, not real tender
+        var payments = (await conn.QueryAsync<(short PaymentMethod, decimal Amount)>(@"
+            SELECT p.payment_method, COALESCE(SUM(p.amount), 0) AS total_collected
+            FROM sale_invoice_payments p
+            INNER JOIN sale_invoices s ON p.sale_invoice_no = s.sale_invoice_no
+            WHERE s.pharmacy_no = @pharmacyNo AND s.branch_no = @branchNo
+              AND s.document_status = 2
+              AND s.sale_timestamp >= @startUtc AND s.sale_timestamp <= @endUtc
+              AND p.payment_method != 9
+            GROUP BY p.payment_method;",
+            new { pharmacyNo, branchNo, startUtc, endUtc },
+            transaction: tran)).ToDictionary(x => x.PaymentMethod, x => x.Amount);
+
+        decimal cashSales = payments.GetValueOrDefault((short)1, 0m);
+        decimal bank = payments.GetValueOrDefault((short)2, 0m);
+        decimal bkash = payments.GetValueOrDefault((short)3, 0m);
+        decimal nagad = payments.GetValueOrDefault((short)4, 0m);
+        decimal rocket = payments.GetValueOrDefault((short)5, 0m);
+        decimal card = payments.GetValueOrDefault((short)6, 0m);
+
+        // 2. Sales totals
+        var salesStats = await conn.QueryFirstOrDefaultAsync<(decimal GrossSales, decimal NetSales, decimal DueSales, int TotalCount)>(@"
+            SELECT 
+                COALESCE(SUM(gross_total_price), 0) AS GrossSales,
+                COALESCE(SUM(final_price), 0) AS NetSales,
+                COALESCE(SUM(due_amount), 0) AS DueSales,
+                COUNT(1) AS TotalCount
+            FROM sale_invoices
+            WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+              AND document_status = 2
+              AND sale_timestamp >= @startUtc AND sale_timestamp <= @endUtc;",
+            new { pharmacyNo, branchNo, startUtc, endUtc },
+            transaction: tran);
+
+        // 3. Due collections today
+        var dueColl = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(amount), 0) FROM due_collections
+            WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+              AND payment_date >= @startUtc AND payment_date <= @endUtc
+              AND payment_method = 1;",
+            new { pharmacyNo, branchNo, startUtc, endUtc },
+            transaction: tran) ?? 0m;
+
+        // 4. Returns: cash paid refunds and total return amount from completed returns (return_status = 2)
+        var returnStats = await conn.QueryFirstOrDefaultAsync<(decimal CashRefunds, decimal TotalReturns, int TotalCount)>(@"
+            SELECT 
+                COALESCE(SUM(cash_paid_refund), 0) AS CashRefunds,
+                COALESCE(SUM(final_refund_price), 0) AS TotalReturns,
+                COUNT(1) AS TotalCount
+            FROM sale_returns
+            WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+              AND return_date >= @startUtc AND return_date <= @endUtc
+              AND return_status = 2;",
+            new { pharmacyNo, branchNo, startUtc, endUtc },
+            transaction: tran);
+
+        // 5. Exchanges count
+        var exchangeCount = await conn.ExecuteScalarAsync<int>(@"
+            SELECT COUNT(1) FROM sale_invoices
+            WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+              AND document_status = 2
+              AND exchange_of_return_no IS NOT NULL
+              AND sale_timestamp >= @startUtc AND sale_timestamp <= @endUtc;",
+            new { pharmacyNo, branchNo, startUtc, endUtc },
+            transaction: tran);
+
+        // 6. Petty cash expenses paid today
+        var expenses = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT COALESCE(SUM(amount), 0) FROM acc_expenses
+            WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+              AND expense_date >= @startUtc AND expense_date <= @endUtc
+              AND payment_type ILIKE 'Cash';",
+            new { pharmacyNo, branchNo, startUtc, endUtc },
+            transaction: tran) ?? 0m;
+
+        return new ShiftMetrics
+        {
+            CashSales = cashSales,
+            Bank = bank,
+            Bkash = bkash,
+            Nagad = nagad,
+            Rocket = rocket,
+            Card = card,
+            DueCollections = dueColl,
+            CashReturnsPaid = returnStats.CashRefunds,
+            TotalReturnsAmount = returnStats.TotalReturns,
+            TotalReturnsCount = returnStats.TotalCount,
+            ExpensesPaid = expenses,
+            GrossSales = salesStats.GrossSales,
+            NetSales = salesStats.NetSales,
+            DueSales = salesStats.DueSales,
+            SalesCount = salesStats.TotalCount,
+            ExchangesCount = exchangeCount
+        };
+    }
+
+    private sealed class ShiftMetrics
+    {
+        public decimal CashSales { get; set; }
+        public decimal Bank { get; set; }
+        public decimal Bkash { get; set; }
+        public decimal Nagad { get; set; }
+        public decimal Rocket { get; set; }
+        public decimal Card { get; set; }
+        public decimal DueCollections { get; set; }
+        public decimal CashReturnsPaid { get; set; }
+        public decimal TotalReturnsAmount { get; set; }
+        public int TotalReturnsCount { get; set; }
+        public decimal ExpensesPaid { get; set; }
+        public decimal GrossSales { get; set; }
+        public decimal NetSales { get; set; }
+        public decimal DueSales { get; set; }
+        public int SalesCount { get; set; }
+        public int ExchangesCount { get; set; }
     }
 }
 

@@ -49,6 +49,9 @@ public class CfgSaleConfig
     [JsonPropertyName("business_type")]
     public short BusinessType { get; set; } = 1;
 
+    [JsonPropertyName("return_window_days")]
+    public int ReturnWindowDays { get; set; } = 7;
+
     [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

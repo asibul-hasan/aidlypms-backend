@@ -2,6 +2,7 @@ using System.Text.Json;
 using AidlyPms.Api.Common;
 using AidlyPms.Api.Common.Database;
 using AidlyPms.Api.Infrastructure;
+using AidlyPms.Api.Modules.Sales.Services;
 using Npgsql;
 
 Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
@@ -15,6 +16,7 @@ builder.Services.AddSingleton<IDbConnectionFactory, NpgsqlConnectionFactory>();
 builder.Services.AddScoped<IDocumentNumberService, DocumentNumberService>();
 builder.Services.AddScoped<ILedgerPostingService, LedgerPostingService>();
 builder.Services.AddScoped<IStockPostingService, StockPostingService>();
+builder.Services.AddScoped<ISalePostingEngine, SalePostingEngine>();
 
 // JWT Authentication
 var jwtConfig = builder.Configuration.GetSection("Jwt");

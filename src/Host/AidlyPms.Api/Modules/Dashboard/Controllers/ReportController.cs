@@ -107,6 +107,19 @@ public class ReportController : BaseController
                   AND si.document_status = 2
                 GROUP BY sii.product_no
             ),
+            ProductReturns AS (
+                SELECT
+                    sri.product_no,
+                    COALESCE(SUM(sri.total_qty_pcs), 0) AS units_returned,
+                    COALESCE(SUM(sri.total_price), 0) AS revenue_returned
+                FROM sale_return_items sri
+                JOIN sale_returns sr ON sri.sale_return_no = sr.sale_return_no
+                WHERE sr.pharmacy_no = @CurrentPharmacyNo
+                  AND sr.branch_no = @CurrentBranchNo
+                  AND sr.return_date >= CURRENT_DATE - (@CutoffDays || ' days')::INTERVAL
+                  AND sr.return_status = 2
+                GROUP BY sri.product_no
+            ),
             CurrentStock AS (
                 SELECT product_no, COALESCE(SUM(total_quantity_pcs), 0) AS current_stock
                 FROM prod_product_batches
@@ -119,13 +132,14 @@ public class ReportController : BaseController
                 g.name AS generic_name,
                 c.name AS company_name,
                 COALESCE(cs.current_stock, 0) AS current_stock_pcs,
-                COALESCE(ps.units_sold, 0) AS units_sold,
-                COALESCE(ps.total_revenue, 0) AS total_revenue,
+                GREATEST(0, COALESCE(ps.units_sold, 0) - COALESCE(pr.units_returned, 0)) AS units_sold,
+                GREATEST(0, COALESCE(ps.total_revenue, 0) - COALESCE(pr.revenue_returned, 0)) AS total_revenue,
                 COALESCE(ps.movement_frequency, 0) AS movement_frequency
             FROM prod_products p
             LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             LEFT JOIN prod_companies c ON p.company_no = c.company_no
             LEFT JOIN ProductSales ps ON p.product_no = ps.product_no
+            LEFT JOIN ProductReturns pr ON p.product_no = pr.product_no
             LEFT JOIN CurrentStock cs ON p.product_no = cs.product_no
             WHERE p.pharmacy_no = @CurrentPharmacyNo
               AND p.branch_no = @CurrentBranchNo
@@ -202,8 +216,8 @@ public class ReportController : BaseController
                         ROUND(((COALESCE(p.sale_price_per_piece, 0) - COALESCE(p.purchase_price_per_piece, 0)) / p.sale_price_per_piece) * 100, 2)
                     ELSE 0
                 END AS margin_percent,
-                COALESCE(sales.total_qty, 0) AS total_units_sold,
-                COALESCE(sales.realized_profit, 0) AS total_realized_profit
+                GREATEST(0, COALESCE(sales.total_qty, 0) - COALESCE(returns.returned_qty, 0)) AS total_units_sold,
+                GREATEST(0, COALESCE(sales.realized_profit, 0) - COALESCE(returns.returned_profit, 0)) AS total_realized_profit
             FROM prod_products p
             LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             LEFT JOIN prod_companies c ON p.company_no = c.company_no
@@ -219,6 +233,19 @@ public class ReportController : BaseController
                   AND si.document_status = 2
                 GROUP BY sii.product_no
             ) sales ON p.product_no = sales.product_no
+            LEFT JOIN (
+                SELECT
+                    sri.product_no,
+                    SUM(sri.total_qty_pcs) AS returned_qty,
+                    SUM(sri.total_price - (COALESCE(sii.unit_cost_price, 0) * sri.total_qty_pcs)) AS returned_profit
+                FROM sale_return_items sri
+                JOIN sale_returns sr ON sri.sale_return_no = sr.sale_return_no
+                LEFT JOIN sale_invoice_items sii ON sri.sale_invoice_item_no = sii.sale_invoice_item_no
+                WHERE sr.pharmacy_no = @CurrentPharmacyNo
+                  AND sr.branch_no = @CurrentBranchNo
+                  AND sr.return_status = 2
+                GROUP BY sri.product_no
+            ) returns ON p.product_no = returns.product_no
             WHERE p.pharmacy_no = @CurrentPharmacyNo
               AND p.branch_no = @CurrentBranchNo
               AND p.is_active = TRUE
@@ -226,5 +253,62 @@ public class ReportController : BaseController
 
         var rows = (await conn.QueryAsync<ProductMarginItem>(sql, new { CurrentPharmacyNo, CurrentBranchNo })).ToList();
         return OkResponse(rows);
+    }
+
+    /// <summary>
+    /// Gets detailed audit breakdown of all customer returns and exchanges for a given Dhaka date.
+    /// </summary>
+    [HttpGet("daily-returns")]
+    public async Task<ActionResult<ApiResponse<DailyReturnsReport>>> GetDailyReturns([FromQuery] string? date)
+    {
+        using var conn = _db.CreateConnection();
+        var dhakaDate = DateHelper.GetDhakaToday();
+        if (!string.IsNullOrWhiteSpace(date) && DateHelper.TryParse(date, out var parsed))
+        {
+            dhakaDate = DateOnly.FromDateTime(parsed);
+        }
+
+        var (startUtc, endUtc) = DateHelper.GetDhakaDayUtcRange(dhakaDate);
+
+        const string sql = @"
+            SELECT
+                r.sale_return_no,
+                r.return_invoice_no AS return_number,
+                r.sale_invoice_no,
+                si.sales_number,
+                COALESCE(c.first_name || ' ' || c.last_name, 'Walking Customer') AS customer_name,
+                r.return_date,
+                r.total_items,
+                r.final_refund_price,
+                r.cash_paid_refund,
+                r.refund_method,
+                r.return_status,
+                r.exchange_invoice_no,
+                ex.sales_number AS exchange_sales_number,
+                COALESCE(u.first_name || ' ' || u.last_name, 'Admin') AS created_by_user_name
+            FROM sale_returns r
+            INNER JOIN sale_invoices si ON r.sale_invoice_no = si.sale_invoice_no
+            LEFT JOIN cust_customers c ON r.customer_no = c.customer_no
+            LEFT JOIN sale_invoices ex ON r.exchange_invoice_no = ex.sale_invoice_no
+            LEFT JOIN sys_users u ON r.created_by_user_no = u.user_no
+            WHERE r.pharmacy_no = @CurrentPharmacyNo
+              AND r.branch_no = @CurrentBranchNo
+              AND r.return_date >= @startUtc AND r.return_date <= @endUtc
+            ORDER BY r.sale_return_no DESC;";
+
+        var items = (await conn.QueryAsync<DailyReturnItem>(sql, new { CurrentPharmacyNo, CurrentBranchNo, startUtc, endUtc })).ToList();
+
+        var completed = items.Where(x => x.ReturnStatus == 2).ToList();
+
+        var report = new DailyReturnsReport
+        {
+            Date = dhakaDate.ToString("yyyy-MM-dd"),
+            TotalReturnsCount = items.Count,
+            TotalRefundAmount = completed.Sum(x => x.FinalRefundPrice),
+            TotalCashRefund = completed.Sum(x => x.CashPaidRefund),
+            Items = items
+        };
+
+        return OkResponse(report);
     }
 }

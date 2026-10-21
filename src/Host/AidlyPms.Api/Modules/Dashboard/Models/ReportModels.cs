@@ -163,3 +163,66 @@ public class ProductMarginItem
     [JsonPropertyName("total_realized_profit")]
     public decimal TotalRealizedProfit { get; set; }
 }
+
+public class DailyReturnItem
+{
+    [JsonPropertyName("sale_return_no")]
+    public long SaleReturnNo { get; set; }
+
+    [JsonPropertyName("return_number")]
+    public string ReturnNumber { get; set; } = string.Empty;
+
+    [JsonPropertyName("sale_invoice_no")]
+    public long SaleInvoiceNo { get; set; }
+
+    [JsonPropertyName("sales_number")]
+    public string SalesNumber { get; set; } = string.Empty;
+
+    [JsonPropertyName("customer_name")]
+    public string CustomerName { get; set; } = string.Empty;
+
+    [JsonPropertyName("return_date")]
+    public DateTime ReturnDate { get; set; }
+
+    [JsonPropertyName("total_items")]
+    public int TotalItems { get; set; }
+
+    [JsonPropertyName("final_refund_price")]
+    public decimal FinalRefundPrice { get; set; }
+
+    [JsonPropertyName("cash_paid_refund")]
+    public decimal CashPaidRefund { get; set; }
+
+    [JsonPropertyName("refund_method")]
+    public short RefundMethod { get; set; }
+
+    [JsonPropertyName("return_status")]
+    public short ReturnStatus { get; set; }
+
+    [JsonPropertyName("exchange_invoice_no")]
+    public long? ExchangeInvoiceNo { get; set; }
+
+    [JsonPropertyName("exchange_sales_number")]
+    public string? ExchangeSalesNumber { get; set; }
+
+    [JsonPropertyName("created_by_user_name")]
+    public string? CreatedByUserName { get; set; }
+}
+
+public class DailyReturnsReport
+{
+    [JsonPropertyName("date")]
+    public string Date { get; set; } = string.Empty;
+
+    [JsonPropertyName("total_returns_count")]
+    public int TotalReturnsCount { get; set; }
+
+    [JsonPropertyName("total_refund_amount")]
+    public decimal TotalRefundAmount { get; set; }
+
+    [JsonPropertyName("total_cash_refund")]
+    public decimal TotalCashRefund { get; set; }
+
+    [JsonPropertyName("items")]
+    public List<DailyReturnItem> Items { get; set; } = [];
+}

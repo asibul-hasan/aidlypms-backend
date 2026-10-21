@@ -196,3 +196,63 @@ public class ReconcileHandoverPayload
     public List<long>? InvoiceNos { get; set; }
 }
 
+public class DayEndReconciliationDto
+{
+    [JsonPropertyName("date")]
+    public string Date { get; set; } = string.Empty;
+
+    [JsonPropertyName("opening_balance")]
+    public decimal OpeningBalance { get; set; }
+
+    [JsonPropertyName("gross_sales")]
+    public decimal GrossSales { get; set; }
+
+    [JsonPropertyName("net_sales")]
+    public decimal NetSales { get; set; }
+
+    [JsonPropertyName("cash_sales_collected")]
+    public decimal CashSalesCollected { get; set; }
+
+    [JsonPropertyName("digital_collected")]
+    public decimal DigitalCollected { get; set; }
+
+    [JsonPropertyName("bkash_collected")]
+    public decimal BkashCollected { get; set; }
+
+    [JsonPropertyName("nagad_collected")]
+    public decimal NagadCollected { get; set; }
+
+    [JsonPropertyName("card_collected")]
+    public decimal CardCollected { get; set; }
+
+    [JsonPropertyName("bank_collected")]
+    public decimal BankCollected { get; set; }
+
+    [JsonPropertyName("due_sales")]
+    public decimal DueSales { get; set; }
+
+    [JsonPropertyName("due_collections")]
+    public decimal DueCollections { get; set; }
+
+    [JsonPropertyName("cash_returns_paid")]
+    public decimal CashReturnsPaid { get; set; }
+
+    [JsonPropertyName("total_returns_amount")]
+    public decimal TotalReturnsAmount { get; set; }
+
+    [JsonPropertyName("expenses_paid")]
+    public decimal ExpensesPaid { get; set; }
+
+    [JsonPropertyName("expected_drawer_cash")]
+    public decimal ExpectedDrawerCash { get; set; }
+
+    [JsonPropertyName("total_sales_count")]
+    public int TotalSalesCount { get; set; }
+
+    [JsonPropertyName("total_returns_count")]
+    public int TotalReturnsCount { get; set; }
+
+    [JsonPropertyName("exchanges_count")]
+    public int ExchangesCount { get; set; }
+}
+
