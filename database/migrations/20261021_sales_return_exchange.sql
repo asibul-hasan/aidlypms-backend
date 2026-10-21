@@ -15,7 +15,10 @@ ALTER TABLE sale_returns
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'uq_sale_returns_idempotency_key'
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = current_schema()
+          AND table_name = 'sale_returns'
+          AND constraint_name = 'uq_sale_returns_idempotency_key'
     ) THEN
         ALTER TABLE sale_returns ADD CONSTRAINT uq_sale_returns_idempotency_key UNIQUE (idempotency_key);
     END IF;

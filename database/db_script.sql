@@ -1332,7 +1332,10 @@ ON CONFLICT DO NOTHING;
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_si_exchange_return'
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = current_schema()
+          AND table_name = 'sale_invoices'
+          AND constraint_name = 'fk_si_exchange_return'
     ) THEN
         ALTER TABLE sale_invoices
         ADD CONSTRAINT fk_si_exchange_return

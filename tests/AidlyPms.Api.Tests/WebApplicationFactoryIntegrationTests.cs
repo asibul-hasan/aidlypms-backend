@@ -238,9 +238,15 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
             -- Sale config
             INSERT INTO cfg_sale_configs (
-                pharmacy_no, branch_no, return_window_days, allow_negative_stock, allow_due_sale, allow_partial_payment, print_invoice_on_sale, invoice_paper_size, is_active, created_at, updated_at
+                sale_config_no, pharmacy_no, branch_no, cash_received, out_of_stock_sale,
+                allow_loss_sale, product_purchase_cost, stock_qty, company_name,
+                profit_margin, rak_number, opening_stock_percent, max_sale_discount_percent,
+                is_max_discount_enabled, business_type, return_window_days, updated_at
             ) VALUES (
-                @p, @b, 14, TRUE, TRUE, TRUE, FALSE, 1, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                @p, @p, @b, TRUE, FALSE,
+                TRUE, TRUE, TRUE, TRUE,
+                TRUE, TRUE, 0, 10,
+                FALSE, 1, 14, CURRENT_TIMESTAMP
             ) ON CONFLICT (pharmacy_no, branch_no) DO NOTHING;
         ", new { p = TestPharmacyNo, b = TestBranchNo, u = TestUserNo, restrictedRole = TestRestrictedRoleNo });
     }

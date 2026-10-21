@@ -113,14 +113,29 @@ CREATE TABLE IF NOT EXISTS sys_branches (
     CONSTRAINT uq_sys_branch UNIQUE (pharmacy_no, name)
 );
 
+-- Application System Menus (Global Definition, No Company/Org Fields)
+CREATE TABLE IF NOT EXISTS sys_menus (
+    menu_no BIGINT PRIMARY KEY,
+    title VARCHAR(150) NOT NULL,
+    path VARCHAR(255),
+    icon VARCHAR(100),
+    parent_menu_no BIGINT REFERENCES sys_menus(menu_no) ON DELETE SET NULL,
+    order_no INT NOT NULL,
+    status BOOLEAN NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
 -- Roles
 CREATE TABLE IF NOT EXISTS sys_roles (
     role_no BIGINT PRIMARY KEY,
     pharmacy_no BIGINT NOT NULL REFERENCES sys_pharmacies(pharmacy_no) ON DELETE RESTRICT,
     branch_no BIGINT REFERENCES sys_branches(branch_no) ON DELETE RESTRICT,
+    role_name VARCHAR(150),
     alias VARCHAR(100) NOT NULL,
     description TEXT,
     is_system BOOLEAN NOT NULL,
+    status BOOLEAN NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_role_per_branch UNIQUE (pharmacy_no, branch_no, alias)
@@ -143,6 +158,21 @@ CREATE TABLE IF NOT EXISTS sys_role_permissions (
     pharmacy_no BIGINT NOT NULL REFERENCES sys_pharmacies(pharmacy_no) ON DELETE RESTRICT,
     branch_no BIGINT REFERENCES sys_branches(branch_no) ON DELETE RESTRICT,
     PRIMARY KEY (role_no, permission_no)
+);
+
+-- Role Menu Permissions Join Table (Pharmacy Scoped, No Branch Required)
+CREATE TABLE IF NOT EXISTS sys_role_menu_permissions (
+    role_menu_perm_no BIGINT PRIMARY KEY,
+    pharmacy_no BIGINT NOT NULL REFERENCES sys_pharmacies(pharmacy_no) ON DELETE RESTRICT,
+    role_no BIGINT NOT NULL REFERENCES sys_roles(role_no) ON DELETE CASCADE,
+    menu_no BIGINT NOT NULL REFERENCES sys_menus(menu_no) ON DELETE CASCADE,
+    can_view BOOLEAN NOT NULL,
+    can_create BOOLEAN NOT NULL,
+    can_edit BOOLEAN NOT NULL,
+    can_delete BOOLEAN NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT uq_role_menu UNIQUE (pharmacy_no, role_no, menu_no)
 );
 
 -- Users / Representatives / Pharmacists
@@ -1332,7 +1362,10 @@ ON CONFLICT DO NOTHING;
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_si_exchange_return'
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = current_schema()
+          AND table_name = 'sale_invoices'
+          AND constraint_name = 'fk_si_exchange_return'
     ) THEN
         ALTER TABLE sale_invoices
         ADD CONSTRAINT fk_si_exchange_return

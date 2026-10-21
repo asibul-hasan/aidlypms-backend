@@ -222,13 +222,15 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
             ) ON CONFLICT (account_no) DO NOTHING;
 
             INSERT INTO cfg_sale_configs (
-                pharmacy_no, branch_no, return_window_days, allow_negative_stock, allow_due_sale,
-                allow_partial_payment, print_invoice_on_sale, invoice_paper_size, invoice_header_note,
-                invoice_footer_note, is_active, created_at, updated_at
+                sale_config_no, pharmacy_no, branch_no, cash_received, out_of_stock_sale,
+                allow_loss_sale, product_purchase_cost, stock_qty, company_name,
+                profit_margin, rak_number, opening_stock_percent, max_sale_discount_percent,
+                is_max_discount_enabled, business_type, return_window_days, updated_at
             ) VALUES (
-                @pharmacyNo, @branchNo, 7, FALSE, TRUE,
-                TRUE, FALSE, 1, 'Header Note',
-                'Footer Note', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                @pharmacyNo, @pharmacyNo, @branchNo, TRUE, FALSE,
+                TRUE, TRUE, TRUE, TRUE,
+                TRUE, TRUE, 0, 10,
+                FALSE, 1, 7, CURRENT_TIMESTAMP
             ) ON CONFLICT (pharmacy_no, branch_no) DO NOTHING;
         ", new { pharmacyNo, branchNo, userNo });
     }
@@ -334,22 +336,15 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
             var oldSchemaSql = await File.ReadAllTextAsync(oldSchemaPath);
             await conn.ExecuteAsync(oldSchemaSql);
 
-            // Apply migration 1: DGDA / BMDC compliance
-            var mig1Path = ResolveDatabaseFilePath(Path.Combine("migrations", "20261021_dgda_bmdc_compliance.sql"));
-            var mig1Sql = await File.ReadAllTextAsync(mig1Path);
-            await conn.ExecuteAsync(mig1Sql);
-
-            // Apply migration 2: Sales Return & Exchange
-            var mig2Path = ResolveDatabaseFilePath(Path.Combine("migrations", "20261021_sales_return_exchange.sql"));
-            var mig2Sql = await File.ReadAllTextAsync(mig2Path);
-            await conn.ExecuteAsync(mig2Sql);
-
-            // Apply migration 3: Controller Permissions & Sequences
-            var mig3Path = ResolveDatabaseFilePath(Path.Combine("migrations", "20261022_controller_permissions_and_sequences.sql"));
-            if (File.Exists(mig3Path))
+            // Apply all migrations dynamically in chronological order
+            var migrationsDir = Path.Combine(Path.GetDirectoryName(oldSchemaPath)!, "migrations");
+            if (Directory.Exists(migrationsDir))
             {
-                var mig3Sql = await File.ReadAllTextAsync(mig3Path);
-                await conn.ExecuteAsync(mig3Sql);
+                foreach (var migFile in Directory.GetFiles(migrationsDir, "*.sql").OrderBy(f => f))
+                {
+                    var migSql = await File.ReadAllTextAsync(migFile);
+                    await conn.ExecuteAsync(migSql);
+                }
             }
 
             // Get all columns from migrated schema
