@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Suppliers.Controllers;
 
 [Route("api/v1/pur")]
+[RequirePermission("PMS-Vendor-Module")]
 public class PurchaseInvoiceController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -160,7 +161,7 @@ public class PurchaseInvoiceController : BaseController
             var inventoryNumber = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "PUR_INVOICE");
 
             var nextInvoiceNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(purchase_invoice_no), 0) + 1 FROM pur_purchase_invoices;", transaction: tran);
+                "SELECT nextval('seq_purchase_invoice_no');", transaction: tran);
 
             decimal grossTotal = 0;
             decimal totalVat = 0;
@@ -400,7 +401,7 @@ public class PurchaseInvoiceController : BaseController
             foreach (var item in processedItems)
             {
                 var nextItemNo = await conn.ExecuteScalarAsync<long>(
-                    "SELECT COALESCE(MAX(purchase_item_no), 0) + 1 FROM pur_purchase_invoice_items;", transaction: tran);
+                    "SELECT nextval('seq_purchase_invoice_item_no');", transaction: tran);
 
                 await conn.ExecuteAsync(@"
                     INSERT INTO pur_purchase_invoice_items (

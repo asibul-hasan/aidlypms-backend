@@ -20,12 +20,15 @@ using Npgsql;
 using Xunit;
 using Xunit.Abstractions;
 
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+
 namespace AidlyPms.Api.Tests;
 
 /// <summary>
 /// Integration test suite that runs exclusively against a dedicated throwaway PostgreSQL 16 instance.
 /// It strictly requires TEST_POSTGRES_CONNECTION and will refuse to run against any production/Supabase host.
 /// </summary>
+[Collection("PostgresDatabaseIntegration")]
 public class RealPostgreSqlIntegrationTests : IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
@@ -140,43 +143,72 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
             DELETE FROM cfg_sale_configs WHERE pharmacy_no = @pharmacyNo;
             DELETE FROM prod_generics WHERE pharmacy_no = @pharmacyNo;
             DELETE FROM prod_companies WHERE pharmacy_no = @pharmacyNo;
-            DELETE FROM sys_users WHERE user_no = @pharmacyNo;
-            DELETE FROM sys_branches WHERE branch_no = @pharmacyNo;
+            DELETE FROM sys_user_pharmacy_access WHERE pharmacy_no = @pharmacyNo;
+            DELETE FROM sys_users WHERE pharmacy_no = @pharmacyNo;
+            DELETE FROM sys_role_permissions WHERE pharmacy_no = @pharmacyNo;
+            DELETE FROM sys_roles WHERE pharmacy_no = @pharmacyNo;
+            DELETE FROM sys_branches WHERE pharmacy_no = @pharmacyNo;
             DELETE FROM sys_pharmacies WHERE pharmacy_no = @pharmacyNo;
         ", new { pharmacyNo });
     }
 
+    internal static async Task EnsurePublicSchemaInitializedAsync(NpgsqlConnection conn)
+    {
+        var tableCount = await conn.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';");
+        if (tableCount < 50)
+        {
+            var schemaPath = ResolveDatabaseFilePath("schema.sql");
+            var schemaSql = await File.ReadAllTextAsync(schemaPath);
+            await conn.ExecuteAsync(schemaSql);
+        }
+    }
+
     private static async Task EnsureTestPharmacySeededAsync(NpgsqlConnection conn, long pharmacyNo, long branchNo, long userNo)
     {
+        await EnsurePublicSchemaInitializedAsync(conn);
+
         await conn.ExecuteAsync(@"
             INSERT INTO sys_pharmacies (
-                pharmacy_no, uuid, name, code, contact_number, email, address, is_active, created_at, updated_at
+                pharmacy_no, uuid, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
             ) VALUES (
-                @pharmacyNo, gen_random_uuid(), 'Test Pharmacy 9001', 'TEST9001', '01700000000', 'test9001@example.com', 'Test Address', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                @pharmacyNo, gen_random_uuid(), 'Test Pharmacy 9001', '01700000000', 'test9001@example.com', 'Test Address', 'Dhaka', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (pharmacy_no) DO NOTHING;
 
             INSERT INTO sys_branches (
-                branch_no, uuid, pharmacy_no, branch_name, branch_code, address, contact_number, is_active, created_at, updated_at
+                branch_no, uuid, pharmacy_no, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
             ) VALUES (
-                @branchNo, gen_random_uuid(), @pharmacyNo, 'Main Branch 9001', 'BR9001', 'Branch Address', '01700000000', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                @branchNo, gen_random_uuid(), @pharmacyNo, 'Main Branch 9001', '01700000000', 'test9001@example.com', 'Branch Address', 'Dhaka', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (branch_no) DO NOTHING;
 
-            INSERT INTO sys_users (
-                user_no, uuid, pharmacy_no, branch_no, username, email, full_name, phone, role_no, is_active, created_at, updated_at
+            INSERT INTO sys_roles (
+                role_no, pharmacy_no, branch_no, alias, description, is_system, created_at, updated_at
             ) VALUES (
-                @userNo, gen_random_uuid(), @pharmacyNo, @branchNo, 'testuser9001', 'user9001@example.com', 'Integration User 9001', '01700000000', 10, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                10, @pharmacyNo, @branchNo, 'Pharmacist', 'Pharmacist', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (role_no) DO NOTHING;
+
+            INSERT INTO sys_roles (
+                role_no, pharmacy_no, branch_no, alias, description, is_system, created_at, updated_at
+            ) VALUES (
+                9, @pharmacyNo, @branchNo, 'Manager', 'Manager', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (role_no) DO NOTHING;
+
+            INSERT INTO sys_users (
+                user_no, uuid, pharmacy_no, branch_no, role_no, first_name, last_name, phone, email, password_hash, is_active, created_at, updated_at
+            ) VALUES (
+                @userNo, gen_random_uuid(), @pharmacyNo, @branchNo, 10, 'Integration', 'User 9001', '01700000000', 'user9001@example.com', 'hash', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (user_no) DO NOTHING;
 
             INSERT INTO prod_companies (
-                company_no, uuid, pharmacy_no, branch_no, company_name, is_active, created_at, updated_at
+                company_no, pharmacy_no, branch_no, name, is_active, created_at, updated_at
             ) VALUES (
-                @pharmacyNo, gen_random_uuid(), @pharmacyNo, @branchNo, 'Test Pharma Corp', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                @pharmacyNo, @pharmacyNo, @branchNo, 'Test Pharma Corp', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (company_no) DO NOTHING;
 
             INSERT INTO prod_generics (
-                generic_no, uuid, pharmacy_no, branch_no, generic_name, is_active, created_at, updated_at
+                generic_no, pharmacy_no, branch_no, name, is_active, created_at, updated_at
             ) VALUES (
-                @pharmacyNo, gen_random_uuid(), @pharmacyNo, @branchNo, 'Test Generic Mol', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                @pharmacyNo, @pharmacyNo, @branchNo, 'Test Generic Mol', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (generic_no) DO NOTHING;
 
             INSERT INTO acc_transaction_accounts (
@@ -212,6 +244,9 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
             var candidate2 = Path.Combine(current, "apps", "aidlyPms", "database", relativePath);
             if (File.Exists(candidate2)) return candidate2;
 
+            var candidate3 = Path.Combine(current, "aidlypms-backend", "database", relativePath);
+            if (File.Exists(candidate3)) return candidate3;
+
             var parent = Directory.GetParent(current);
             if (parent == null) break;
             current = parent.FullName;
@@ -236,43 +271,51 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
 
-        // Ensure database is completely empty by resetting public schema
-        await conn.ExecuteAsync("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+        // Use an isolated temporary schema so public schema is untouched and other tests are not disrupted
+        await conn.ExecuteAsync("DROP SCHEMA IF EXISTS test_fresh_schema CASCADE; CREATE SCHEMA test_fresh_schema;");
+        await conn.ExecuteAsync("SET search_path TO test_fresh_schema, public;");
 
-        var schemaPath = ResolveDatabaseFilePath("schema.sql");
-        var schemaSql = await File.ReadAllTextAsync(schemaPath);
-        await conn.ExecuteAsync(schemaSql);
+        try
+        {
+            var schemaPath = ResolveDatabaseFilePath("schema.sql");
+            var schemaSql = await File.ReadAllTextAsync(schemaPath);
+            await conn.ExecuteAsync(schemaSql);
 
-        var tables = (await conn.QueryAsync<string>(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")).ToHashSet();
+            var tables = (await conn.QueryAsync<string>(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'test_fresh_schema' AND table_type = 'BASE TABLE'")).ToHashSet();
 
-        Assert.Equal(57, tables.Count);
-        Assert.Contains("sale_invoices", tables);
-        Assert.Contains("sale_returns", tables);
-        Assert.Contains("sale_invoice_items", tables);
-        Assert.Contains("sale_invoice_payments", tables);
-        Assert.Contains("inv_stock_movement", tables);
-        Assert.Contains("prod_product_batches", tables);
-        Assert.Contains("acc_transaction_ledger", tables);
+            Assert.Equal(57, tables.Count);
+            Assert.Contains("sale_invoices", tables);
+            Assert.Contains("sale_returns", tables);
+            Assert.Contains("sale_invoice_items", tables);
+            Assert.Contains("sale_invoice_payments", tables);
+            Assert.Contains("inv_stock_movement", tables);
+            Assert.Contains("prod_product_batches", tables);
+            Assert.Contains("acc_transaction_ledger", tables);
 
-        // Assert foreign key fk_si_exchange_return exists
-        var fkCount = await conn.ExecuteScalarAsync<int>(@"
-            SELECT COUNT(1) FROM information_schema.table_constraints 
-            WHERE table_name = 'sale_invoices' AND constraint_name = 'fk_si_exchange_return';");
-        Assert.True(fkCount > 0, "Foreign key fk_si_exchange_return must exist on sale_invoices");
+            // Assert foreign key fk_si_exchange_return exists
+            var fkCount = await conn.ExecuteScalarAsync<int>(@"
+                SELECT COUNT(1) FROM information_schema.table_constraints 
+                WHERE table_schema = 'test_fresh_schema' AND table_name = 'sale_invoices' AND constraint_name = 'fk_si_exchange_return';");
+            Assert.True(fkCount > 0, "Foreign key fk_si_exchange_return must exist on sale_invoices");
 
-        // Assert compliance columns
-        var prodCols = (await conn.QueryAsync<string>(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'prod_products'")).ToHashSet();
-        Assert.Contains("dar_number", prodCols);
-        Assert.Contains("drug_schedule", prodCols);
-        Assert.Contains("is_prescription_required", prodCols);
+            // Assert compliance columns
+            var prodCols = (await conn.QueryAsync<string>(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'test_fresh_schema' AND table_name = 'prod_products'")).ToHashSet();
+            Assert.Contains("dar_number", prodCols);
+            Assert.Contains("drug_schedule", prodCols);
+            Assert.Contains("is_prescription_required", prodCols);
 
-        var docCols = (await conn.QueryAsync<string>(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'doc_doctors'")).ToHashSet();
-        Assert.Contains("bmdc_reg_no", docCols);
+            var docCols = (await conn.QueryAsync<string>(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'test_fresh_schema' AND table_name = 'doc_doctors'")).ToHashSet();
+            Assert.Contains("bmdc_reg_no", docCols);
 
-        _output.WriteLine("Test_1 Passed: schema.sql loaded cleanly into empty database with all 57 tables and constraints.");
+            _output.WriteLine("Test_1 Passed: schema.sql loaded cleanly into empty test_fresh_schema with all 57 tables and constraints.");
+        }
+        finally
+        {
+            await conn.ExecuteAsync("SET search_path TO public; DROP SCHEMA IF EXISTS test_fresh_schema CASCADE;");
+        }
     }
 
     [Fact]
@@ -281,66 +324,80 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
 
-        // 1. Load pre-migration schema into public schema
-        await conn.ExecuteAsync("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+        // 1. Load pre-migration schema into dedicated 'migrated_test' schema
+        await conn.ExecuteAsync("DROP SCHEMA IF EXISTS migrated_test CASCADE; CREATE SCHEMA migrated_test;");
+        await conn.ExecuteAsync("SET search_path TO migrated_test, public;");
 
-        var oldSchemaPath = ResolveDatabaseFilePath("schema_pre_migration.sql");
-        var oldSchemaSql = await File.ReadAllTextAsync(oldSchemaPath);
-        await conn.ExecuteAsync(oldSchemaSql);
-
-        // Apply migration 1: DGDA / BMDC compliance
-        var mig1Path = ResolveDatabaseFilePath(Path.Combine("migrations", "20261021_dgda_bmdc_compliance.sql"));
-        var mig1Sql = await File.ReadAllTextAsync(mig1Path);
-        await conn.ExecuteAsync(mig1Sql);
-
-        // Apply migration 2: Sales Return & Exchange
-        var mig2Path = ResolveDatabaseFilePath(Path.Combine("migrations", "20261021_sales_return_exchange.sql"));
-        var mig2Sql = await File.ReadAllTextAsync(mig2Path);
-        await conn.ExecuteAsync(mig2Sql);
-
-        // Get all columns from migrated public schema
-        var migratedColumns = (await conn.QueryAsync<(string TableName, string ColumnName)>(@"
-            SELECT table_name, column_name 
-            FROM information_schema.columns 
-            WHERE table_schema = 'public' 
-            ORDER BY table_name, column_name;")).ToList();
-
-        var migratedMap = migratedColumns
-            .GroupBy(x => x.TableName)
-            .ToDictionary(g => g.Key, g => g.Select(x => x.ColumnName).OrderBy(c => c).ToList());
-
-        // 2. Load fresh schema.sql into a dedicated 'fresh_test' schema
-        await conn.ExecuteAsync("DROP SCHEMA IF EXISTS fresh_test CASCADE; CREATE SCHEMA fresh_test;");
-        await conn.ExecuteAsync("SET search_path TO fresh_test;");
-
-        var freshSchemaPath = ResolveDatabaseFilePath("schema.sql");
-        var freshSchemaSql = await File.ReadAllTextAsync(freshSchemaPath);
-        await conn.ExecuteAsync(freshSchemaSql);
-
-        var freshColumns = (await conn.QueryAsync<(string TableName, string ColumnName)>(@"
-            SELECT table_name, column_name 
-            FROM information_schema.columns 
-            WHERE table_schema = 'fresh_test' 
-            ORDER BY table_name, column_name;")).ToList();
-
-        var freshMap = freshColumns
-            .GroupBy(x => x.TableName)
-            .ToDictionary(g => g.Key, g => g.Select(x => x.ColumnName).OrderBy(c => c).ToList());
-
-        // Restore default search path & cleanup temp schema
-        await conn.ExecuteAsync("SET search_path TO public; DROP SCHEMA fresh_test CASCADE;");
-
-        // 3. Compare tables & columns column-for-column
-        Assert.Equal(freshMap.Keys.OrderBy(k => k), migratedMap.Keys.OrderBy(k => k));
-
-        foreach (var tableName in freshMap.Keys)
+        try
         {
-            var freshCols = freshMap[tableName];
-            var migratedCols = migratedMap[tableName];
-            Assert.Equal(freshCols, migratedCols);
-        }
+            var oldSchemaPath = ResolveDatabaseFilePath("schema_pre_migration.sql");
+            var oldSchemaSql = await File.ReadAllTextAsync(oldSchemaPath);
+            await conn.ExecuteAsync(oldSchemaSql);
 
-        _output.WriteLine($"Test_2 Passed: Upgraded database matches fresh schema column-for-column across all {freshMap.Count} tables!");
+            // Apply migration 1: DGDA / BMDC compliance
+            var mig1Path = ResolveDatabaseFilePath(Path.Combine("migrations", "20261021_dgda_bmdc_compliance.sql"));
+            var mig1Sql = await File.ReadAllTextAsync(mig1Path);
+            await conn.ExecuteAsync(mig1Sql);
+
+            // Apply migration 2: Sales Return & Exchange
+            var mig2Path = ResolveDatabaseFilePath(Path.Combine("migrations", "20261021_sales_return_exchange.sql"));
+            var mig2Sql = await File.ReadAllTextAsync(mig2Path);
+            await conn.ExecuteAsync(mig2Sql);
+
+            // Apply migration 3: Controller Permissions & Sequences
+            var mig3Path = ResolveDatabaseFilePath(Path.Combine("migrations", "20261022_controller_permissions_and_sequences.sql"));
+            if (File.Exists(mig3Path))
+            {
+                var mig3Sql = await File.ReadAllTextAsync(mig3Path);
+                await conn.ExecuteAsync(mig3Sql);
+            }
+
+            // Get all columns from migrated schema
+            var migratedColumns = (await conn.QueryAsync<(string TableName, string ColumnName)>(@"
+                SELECT table_name, column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'migrated_test' 
+                ORDER BY table_name, column_name;")).ToList();
+
+            var migratedMap = migratedColumns
+                .GroupBy(x => x.TableName)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.ColumnName).OrderBy(c => c).ToList());
+
+            // 2. Load fresh schema.sql into a dedicated 'fresh_test' schema
+            await conn.ExecuteAsync("DROP SCHEMA IF EXISTS fresh_test CASCADE; CREATE SCHEMA fresh_test;");
+            await conn.ExecuteAsync("SET search_path TO fresh_test, public;");
+
+            var freshSchemaPath = ResolveDatabaseFilePath("schema.sql");
+            var freshSchemaSql = await File.ReadAllTextAsync(freshSchemaPath);
+            await conn.ExecuteAsync(freshSchemaSql);
+
+            var freshColumns = (await conn.QueryAsync<(string TableName, string ColumnName)>(@"
+                SELECT table_name, column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'fresh_test' 
+                ORDER BY table_name, column_name;")).ToList();
+
+            var freshMap = freshColumns
+                .GroupBy(x => x.TableName)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.ColumnName).OrderBy(c => c).ToList());
+
+            // 3. Compare tables & columns column-for-column
+            Assert.Equal(freshMap.Keys.OrderBy(k => k), migratedMap.Keys.OrderBy(k => k));
+
+            foreach (var tableName in freshMap.Keys)
+            {
+                var freshCols = freshMap[tableName];
+                var migratedCols = migratedMap[tableName];
+                Assert.Equal(freshCols, migratedCols);
+            }
+
+            _output.WriteLine($"Test_2 Passed: Upgraded database matches fresh schema column-for-column across all {freshMap.Count} tables!");
+        }
+        finally
+        {
+            // Restore default search path & cleanup temp schemas
+            await conn.ExecuteAsync("SET search_path TO public; DROP SCHEMA IF EXISTS migrated_test CASCADE; DROP SCHEMA IF EXISTS fresh_test CASCADE;");
+        }
     }
 
     [Fact]
@@ -460,7 +517,7 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                 RefundMethod = 1,
                 Lines = new List<ReturnLineReq>
                 {
-                    new() { SaleInvoiceItemNo = invoiceItemNo, QtyPcs = 1 }
+                    new() { SaleInvoiceItemNo = invoiceItemNo, QtyPcs = 1, ReasonCode = 4, Disposition = 1 }
                 }
             };
 

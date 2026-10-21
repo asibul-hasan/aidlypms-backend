@@ -59,14 +59,14 @@ public class RequirePermissionAttribute : Attribute, IAsyncActionFilter
             }
         }
 
-        // Check if role has the specific permission in sys_role_permissions
+        // Check if role has the specific permission in sys_role_permissions (tenant pharmacy or global default 1)
         var hasPermission = await conn.ExecuteScalarAsync<bool>(@"
             SELECT EXISTS(
                 SELECT 1
                 FROM sys_role_permissions rp
                 JOIN sys_permissions p ON rp.permission_no = p.permission_no
                 WHERE rp.role_no = @RoleNo
-                  AND rp.pharmacy_no = @PharmacyNo
+                  AND (rp.pharmacy_no = @PharmacyNo OR rp.pharmacy_no = 1)
                   AND p.code = @PermissionCode
             );",
             new { RoleNo = roleNo, PharmacyNo = pharmacyNo, PermissionCode = _permissionCode });

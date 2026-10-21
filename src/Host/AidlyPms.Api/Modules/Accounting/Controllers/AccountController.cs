@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Accounting.Controllers;
 
 [Route("api/v1/acc/accounts")]
+[RequirePermission("Account-Module")]
 public class AccountController : BaseController
 {
     private readonly IDbConnectionFactory _db;

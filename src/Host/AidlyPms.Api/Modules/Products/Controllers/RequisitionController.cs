@@ -89,6 +89,7 @@ public class UpdateRequisitionStatusRequest
 }
 
 [Route("api/v1/prod/requisitions")]
+[RequirePermission("PMS-Requisition-Module")]
 public class RequisitionController : BaseController
 {
     private readonly IDbConnectionFactory _db;

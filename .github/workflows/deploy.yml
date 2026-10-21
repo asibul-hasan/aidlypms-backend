@@ -55,6 +55,9 @@ jobs:
           fi
           echo "Both schema.sql and db_script.sql loaded into empty databases without errors (57 tables each)."
 
+          echo "Pre-populating aidly_test database with schema.sql..."
+          psql -h localhost -U postgres -d aidly_test -v ON_ERROR_STOP=1 -f database/schema.sql
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

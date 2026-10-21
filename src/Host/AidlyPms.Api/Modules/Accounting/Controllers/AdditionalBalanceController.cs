@@ -9,6 +9,7 @@ namespace AidlyPms.Api.Modules.Accounting.Controllers;
 
 [Route("api/v1/acc/additional-balances")]
 [Route("api/v1/acc/additional-balance")]
+[RequirePermission("Account-Module")]
 public class AdditionalBalanceController : BaseController
 {
     private readonly IDbConnectionFactory _db;

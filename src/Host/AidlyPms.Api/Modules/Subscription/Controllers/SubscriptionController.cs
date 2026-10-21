@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Subscription.Controllers;
 
 [Route("api/v1/sub")]
+[RequirePermission("Pharmacy-Module")]
 public class SubscriptionController : BaseController
 {
     private readonly IDbConnectionFactory _db;

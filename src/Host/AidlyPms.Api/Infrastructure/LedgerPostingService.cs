@@ -51,7 +51,7 @@ public class LedgerPostingService : ILedgerPostingService
 
         // Generate next journal_no
         var journalNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(journal_no), 0) + 1 FROM acc_transaction_ledger;", transaction: tran);
+            "SELECT nextval('seq_journal_no');", transaction: tran);
 
         foreach (var leg in entry.Legs)
         {
@@ -92,7 +92,7 @@ public class LedgerPostingService : ILedgerPostingService
 
             // Generate ledger_no
             var ledgerNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(ledger_no), 0) + 1 FROM acc_transaction_ledger;", transaction: tran);
+                "SELECT nextval('seq_ledger_no');", transaction: tran);
 
             // Append ledger entry
             const string insertLedger = @"

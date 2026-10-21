@@ -445,4 +445,137 @@ public class SecurityAndHardeningAuditTests
             Assert.Contains("SAFETY BLOCK", ex.Message);
         }
     }
+
+    // =========================================================================
+    // 12. CORS Configuration: Localhost strictly in Development, production config clean
+    // =========================================================================
+    [Fact]
+    public void Test_12_CorsAllowedOrigins_NoLocalhostInProductionConfig()
+    {
+        var prodConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        if (File.Exists(prodConfigPath))
+        {
+            var json = File.ReadAllText(prodConfigPath);
+            var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("AllowedOrigins", out var originsProp))
+            {
+                var origins = originsProp.EnumerateArray().Select(x => x.GetString() ?? "").ToList();
+                foreach (var origin in origins)
+                {
+                    Assert.DoesNotContain("localhost", origin, StringComparison.OrdinalIgnoreCase);
+                    Assert.DoesNotContain("127.0.0.1", origin, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+        }
+
+        var devConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.Development.json");
+        if (File.Exists(devConfigPath))
+        {
+            var json = File.ReadAllText(devConfigPath);
+            var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("AllowedOrigins", out var originsProp))
+            {
+                var origins = originsProp.EnumerateArray().Select(x => x.GetString() ?? "").ToList();
+                Assert.Contains(origins, o => o.Contains("localhost"));
+            }
+        }
+    }
+
+    // =========================================================================
+    // 13. Controller-level [RequirePermission] on all write controllers
+    // =========================================================================
+    [Fact]
+    public void Test_13_ControllerLevelRequirePermission_OnAllWriteControllers()
+    {
+        var apiAssembly = typeof(BaseController).Assembly;
+        var controllerTypes = apiAssembly.GetTypes()
+            .Where(t => typeof(BaseController).IsAssignableFrom(t) && !t.IsAbstract)
+            .ToList();
+
+        // AuthController has Login & SeedDefaults; BranchController has switch-branch
+        var exemptControllers = new HashSet<string>
+        {
+            "AuthController",
+            "BranchController"
+        };
+
+        foreach (var controller in controllerTypes)
+        {
+            if (exemptControllers.Contains(controller.Name)) continue;
+
+            var methods = controller.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            var hasWriteEndpoint = methods.Any(m =>
+                m.GetCustomAttributes<HttpPostAttribute>().Any() ||
+                m.GetCustomAttributes<HttpPutAttribute>().Any() ||
+                m.GetCustomAttributes<HttpDeleteAttribute>().Any());
+
+            if (hasWriteEndpoint)
+            {
+                var permAttr = controller.GetCustomAttribute<RequirePermissionAttribute>();
+                Assert.NotNull(permAttr);
+                Assert.False(string.IsNullOrWhiteSpace(permAttr.PermissionCode),
+                    $"Controller {controller.Name} has write endpoints but missing PermissionCode on [RequirePermission].");
+            }
+        }
+    }
+
+    // =========================================================================
+    // 14. Postgres sequences declared for all monotonic transaction ID generators
+    // =========================================================================
+    [Fact]
+    public void Test_14_PostgresSequences_DefinedInSchemaAndDbScript()
+    {
+        var expectedSequences = new[]
+        {
+            "seq_sale_invoice_no",
+            "seq_sale_invoice_item_no",
+            "seq_sale_return_no",
+            "seq_sale_return_item_no",
+            "seq_sale_invoice_payment_no",
+            "seq_purchase_invoice_no",
+            "seq_purchase_invoice_item_no",
+            "seq_ledger_no",
+            "seq_journal_no",
+            "seq_stock_movement_no"
+        };
+
+        var schemaPath = Path.Combine(AppContext.BaseDirectory, "database", "schema.sql");
+        if (File.Exists(schemaPath))
+        {
+            var content = File.ReadAllText(schemaPath);
+            foreach (var seq in expectedSequences)
+            {
+                Assert.Contains($"CREATE SEQUENCE IF NOT EXISTS {seq}", content);
+            }
+        }
+
+        var dbScriptPath = Path.Combine(AppContext.BaseDirectory, "database", "db_script.sql");
+        if (File.Exists(dbScriptPath))
+        {
+            var content = File.ReadAllText(dbScriptPath);
+            foreach (var seq in expectedSequences)
+            {
+                Assert.Contains($"CREATE SEQUENCE IF NOT EXISTS {seq}", content);
+            }
+        }
+    }
+
+    // =========================================================================
+    // 15. ReturnLineReq has ReasonCode and Disposition required (nullable, no default)
+    // =========================================================================
+    [Fact]
+    public void Test_15_ReturnLineReq_RequiresReasonCodeAndDisposition_WithoutSilentDefaults()
+    {
+        var line = new ReturnLineReq();
+        Assert.Null(line.ReasonCode);
+        Assert.Null(line.Disposition);
+
+        var reasonProp = typeof(ReturnLineReq).GetProperty(nameof(ReturnLineReq.ReasonCode));
+        Assert.NotNull(reasonProp);
+        Assert.Equal(typeof(short?), reasonProp.PropertyType);
+
+        var dispProp = typeof(ReturnLineReq).GetProperty(nameof(ReturnLineReq.Disposition));
+        Assert.NotNull(dispProp);
+        Assert.Equal(typeof(short?), dispProp.PropertyType);
+    }
 }

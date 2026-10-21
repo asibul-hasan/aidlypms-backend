@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/prod/generics")]
+[RequirePermission("POS-Shop-Generic-Module")]
 public class GenericController : BaseController
 {
     private readonly IDbConnectionFactory _db;

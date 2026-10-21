@@ -53,10 +53,7 @@ public class SalePostingEngine : ISalePostingEngine
             conn, tran, pharmacyNo, branchNo, "SALE_INVOICE");
 
         var saleInvoiceNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(sale_invoice_no), 0) + 1 FROM sale_invoices;", transaction: tran);
-
-        var maxSaleItemNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(sale_invoice_item_no), 0) FROM sale_invoice_items;", transaction: tran);
+            "SELECT nextval('seq_sale_invoice_no');", transaction: tran);
 
         decimal grossTotal = 0;
         decimal totalVat = 0;
@@ -75,33 +72,18 @@ public class SalePostingEngine : ISalePostingEngine
                 new { line.ProductNo, pharmacyNo, branchNo },
                 transaction: tran);
 
-            if (product == null && line.ProductNo > 1_000_000_000_000)
+            // Item 5: Product resolution strictly by product_no or batch_no (zero client price lookup)
+            if (product == null && line.BatchNo.HasValue && line.BatchNo.Value > 0)
             {
-                product = await conn.QueryFirstOrDefaultAsync<ProdProduct>(@"
-                    SELECT product_no, product_name, cost_per_box, sale_price_per_box,
-                           purchase_price_per_piece, sale_price_per_piece, wholesale_price_per_piece,
-                           quantity_per_box, rak_number, is_prescription_required, is_narcotic
-                    FROM prod_products
-                    WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
-                      AND (sale_price_per_piece = @UnitSalePrice OR purchase_price_per_piece = @UnitCostPrice)
-                    ORDER BY product_no ASC
-                    LIMIT 1;",
-                    new { pharmacyNo, branchNo, line.UnitSalePrice, line.UnitCostPrice },
+                product = await conn.QuerySingleOrDefaultAsync<ProdProduct>(@"
+                    SELECT p.product_no, p.product_name, p.cost_per_box, p.sale_price_per_box,
+                           p.purchase_price_per_piece, p.sale_price_per_piece, p.wholesale_price_per_piece,
+                           p.quantity_per_box, p.rak_number, p.is_prescription_required, p.is_narcotic
+                    FROM prod_product_batches b
+                    JOIN prod_products p ON b.product_no = p.product_no AND b.pharmacy_no = p.pharmacy_no
+                    WHERE b.batch_no = @batchNo AND b.pharmacy_no = @pharmacyNo AND b.branch_no = @branchNo;",
+                    new { batchNo = line.BatchNo.Value, pharmacyNo, branchNo },
                     transaction: tran);
-
-                if (product == null)
-                {
-                    product = await conn.QueryFirstOrDefaultAsync<ProdProduct>(@"
-                        SELECT product_no, product_name, cost_per_box, sale_price_per_box,
-                               purchase_price_per_piece, sale_price_per_piece, wholesale_price_per_piece,
-                               quantity_per_box, rak_number, is_prescription_required, is_narcotic
-                        FROM prod_products
-                        WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo AND is_active = true
-                        ORDER BY product_no ASC
-                        LIMIT 1;",
-                        new { pharmacyNo, branchNo },
-                        transaction: tran);
-                }
 
                 if (product != null)
                 {
@@ -114,14 +96,30 @@ public class SalePostingEngine : ISalePostingEngine
                 throw new InvalidOperationException($"Product #{line.ProductNo} not found in this pharmacy branch.");
             }
 
-            // Item 4: Prescription & Narcotic check
-            if ((product.IsNarcotic || product.IsPrescriptionRequired) &&
-                (invoice.PrescriptionNo == null || invoice.PrescriptionNo <= 0) &&
-                string.IsNullOrWhiteSpace(invoice.PrescriptionImageUrl))
+            // Item 3: Prescription check on POS sale - PrescriptionNo must exist in doc_prescriptions for the same pharmacy.
+            // Reject missing, foreign or fake numbers. No bypass for any role.
+            if (product.IsNarcotic || product.IsPrescriptionRequired)
             {
                 var drugType = product.IsNarcotic ? "Narcotic" : "Prescription-only";
-                throw new InvalidOperationException(
-                    $"{drugType} medicine '{product.ProductName}' requires a valid prescription to dispense.");
+                if (!invoice.PrescriptionNo.HasValue || invoice.PrescriptionNo.Value <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"{drugType} medicine '{product.ProductName}' requires an authentic prescription number.");
+                }
+
+                var prescriptionExists = await conn.ExecuteScalarAsync<bool>(@"
+                    SELECT EXISTS (
+                        SELECT 1 FROM doc_prescriptions
+                        WHERE prescription_no = @PrescriptionNo AND pharmacy_no = @pharmacyNo
+                    );",
+                    new { invoice.PrescriptionNo, pharmacyNo },
+                    transaction: tran);
+
+                if (!prescriptionExists)
+                {
+                    throw new InvalidOperationException(
+                        $"{drugType} medicine '{product.ProductName}' requires an authentic prescription registered with this pharmacy. Prescription #{invoice.PrescriptionNo} does not exist or belongs to another pharmacy.");
+                }
             }
 
             var isWholesaleLine = invoice.SaleMode == 2 || line.SaleMode == 2;
@@ -254,8 +252,8 @@ public class SalePostingEngine : ISalePostingEngine
                 }
             }
 
-            maxSaleItemNo++;
-            var saleItemNo = maxSaleItemNo;
+            var saleItemNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT nextval('seq_sale_invoice_item_no');", transaction: tran);
 
             // Item 3: Cap line discount using cfg_sale_configs and ignore client VAT
             var maxDiscountPct = (saleConfig?.IsMaxDiscountEnabled == true)
@@ -486,8 +484,6 @@ public class SalePostingEngine : ISalePostingEngine
         }
 
         var recordedPayments = new List<SaleInvoicePayment>();
-        var maxPaymentNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(sale_payment_no), 0) FROM sale_invoice_payments;", transaction: tran);
 
         const string insertPaymentSql = @"
             INSERT INTO sale_invoice_payments (
@@ -502,8 +498,8 @@ public class SalePostingEngine : ISalePostingEngine
         {
             if (pay.Amount <= 0) continue;
 
-            maxPaymentNo++;
-            var paymentNo = maxPaymentNo;
+            var paymentNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT nextval('seq_sale_invoice_payment_no');", transaction: tran);
 
             // If account_no is not provided or <= 0, resolve account dynamically
             var accountNo = pay.AccountNo;

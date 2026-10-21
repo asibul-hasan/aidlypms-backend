@@ -52,18 +52,25 @@ builder.Services.AddAuthorization(options =>
         .Build();
 });
 
-// Item 9: CORS allowed origins from configuration only (no AllowAnyOrigin)
-var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>()
-    ?? new[] { "http://localhost:4200", "http://localhost:4202", "http://localhost:4203" };
+// Item 1: CORS allowed origins strictly from configuration / environment
+var envOrigins = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS")
+    ?.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+var configuredOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
+var allowedOrigins = (envOrigins != null && envOrigins.Length > 0)
+    ? envOrigins
+    : (configuredOrigins != null && configuredOrigins.Length > 0 ? configuredOrigins : Array.Empty<string>());
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ConfiguredOrigins", policy =>
     {
-        policy.WithOrigins(allowedOrigins)
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
+        if (allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        }
     });
 });
 
@@ -112,24 +119,17 @@ app.MapGet("/api/health/db", async (IConfiguration config) =>
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand("SELECT version();", conn);
-        var version = await cmd.ExecuteScalarAsync();
+        await using var cmd = new NpgsqlCommand("SELECT 1;", conn);
+        await cmd.ExecuteScalarAsync();
 
-        await using var tableCmd = new NpgsqlCommand(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;", conn);
-        await using var reader = await tableCmd.ExecuteReaderAsync();
-        var tables = new List<string>();
-        while (await reader.ReadAsync())
-        {
-            tables.Add(reader.GetString(0));
-        }
-
-        return Results.Ok(new { status = "Connected", version = version?.ToString(), tableCount = tables.Count, tables });
+        return Results.Ok(new { status = "Connected" });
     }
     catch (Exception)
     {
-        return Results.Problem(detail: "Database connection failed. Please contact administrator.", title: "Database Connection Failed");
+        return Results.Json(new { status = "Unavailable" }, statusCode: 503);
     }
 }).AllowAnonymous();
 
 app.Run();
+
+public partial class Program { }

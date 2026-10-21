@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/inv/transfers")]
+[RequirePermission("PMS-Product-Module")]
 public class StockTransferController : BaseController
 {
     private readonly IDbConnectionFactory _db;

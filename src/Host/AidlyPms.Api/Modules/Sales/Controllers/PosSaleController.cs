@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Sales.Controllers;
 
 [Route("api/v1/pos/sales")]
+[RequirePermission("PMS-Sale-Module")]
 public class PosSaleController : BaseController
 {
     private readonly IDbConnectionFactory _db;

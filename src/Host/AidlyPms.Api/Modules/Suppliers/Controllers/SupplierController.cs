@@ -8,6 +8,7 @@ namespace AidlyPms.Api.Modules.Suppliers.Controllers;
 
 [Route("api/v1/supp/suppliers")]
 [Route("api/v1/pur/suppliers")]
+[RequirePermission("PMS-Vendor-Module")]
 public class SupplierController : BaseController
 {
     private readonly IDbConnectionFactory _db;

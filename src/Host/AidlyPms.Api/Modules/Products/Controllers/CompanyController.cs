@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/prod/companies")]
+[RequirePermission("POS-Shop-Company-Module")]
 public class CompanyController : BaseController
 {
     private readonly IDbConnectionFactory _db;

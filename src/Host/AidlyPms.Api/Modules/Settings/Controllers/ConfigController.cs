@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Settings.Controllers;
 
 [Route("api/v1/cfg")]
+[RequirePermission("Pharmacy-Module")]
 public class ConfigController : BaseController
 {
     private readonly IDbConnectionFactory _db;

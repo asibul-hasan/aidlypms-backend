@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/prod/products")]
+[RequirePermission("PMS-Product-Module")]
 public class ProductController : BaseController
 {
     private readonly IDbConnectionFactory _db;

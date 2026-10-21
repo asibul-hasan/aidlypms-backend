@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Accounting.Controllers;
 
 [Route("api/v1")]
+[RequirePermission("PMS-Reconciliation-Module")]
 public class ReconciliationController : BaseController
 {
     private readonly IDbConnectionFactory _db;

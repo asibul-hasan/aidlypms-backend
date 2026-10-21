@@ -475,10 +475,10 @@ public class ReturnLineReq
     }
 
     [JsonPropertyName("reason_code")]
-    public short ReasonCode { get; set; } = 4; // 1: Defective, 2: Wrong Item, 3: Expired/Damaged, 4: Customer Choice
+    public short? ReasonCode { get; set; } // 1: Defective, 2: Wrong Item, 3: Expired/Damaged, 4: Customer Choice
 
     [JsonPropertyName("disposition")]
-    public short Disposition { get; set; } = 1; // 1: Restock, 2: Quarantine/Damaged
+    public short? Disposition { get; set; } // 1: Restock, 2: Quarantine/Damaged, 3: Waste/Destroy
 }
 
 public class ReturnReq

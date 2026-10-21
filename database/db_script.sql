@@ -1341,6 +1341,29 @@ BEGIN
     END IF;
 END $$;
 
+-- Sequences for Monotonic Concurrency-Safe ID Generation
+CREATE SEQUENCE IF NOT EXISTS seq_sale_invoice_no;
+CREATE SEQUENCE IF NOT EXISTS seq_sale_invoice_item_no;
+CREATE SEQUENCE IF NOT EXISTS seq_sale_return_no;
+CREATE SEQUENCE IF NOT EXISTS seq_sale_return_item_no;
+CREATE SEQUENCE IF NOT EXISTS seq_sale_invoice_payment_no;
+CREATE SEQUENCE IF NOT EXISTS seq_purchase_invoice_no;
+CREATE SEQUENCE IF NOT EXISTS seq_purchase_invoice_item_no;
+CREATE SEQUENCE IF NOT EXISTS seq_ledger_no;
+CREATE SEQUENCE IF NOT EXISTS seq_journal_no;
+CREATE SEQUENCE IF NOT EXISTS seq_stock_movement_no;
+
+SELECT setval('seq_sale_invoice_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_no) FROM sale_invoices), 0) + 1, 1), false);
+SELECT setval('seq_sale_invoice_item_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_item_no) FROM sale_invoice_items), 0) + 1, 1), false);
+SELECT setval('seq_sale_return_no', GREATEST(COALESCE((SELECT MAX(sale_return_no) FROM sale_returns), 0) + 1, 1), false);
+SELECT setval('seq_sale_return_item_no', GREATEST(COALESCE((SELECT MAX(sale_return_item_no) FROM sale_return_items), 0) + 1, 1), false);
+SELECT setval('seq_sale_invoice_payment_no', GREATEST(COALESCE((SELECT MAX(sale_payment_no) FROM sale_invoice_payments), 0) + 1, 1), false);
+SELECT setval('seq_purchase_invoice_no', GREATEST(COALESCE((SELECT MAX(purchase_invoice_no) FROM pur_purchase_invoices), 0) + 1, 1), false);
+SELECT setval('seq_purchase_invoice_item_no', GREATEST(COALESCE((SELECT MAX(purchase_item_no) FROM pur_purchase_invoice_items), 0) + 1, 1), false);
+SELECT setval('seq_ledger_no', GREATEST(COALESCE((SELECT MAX(ledger_no) FROM acc_transaction_ledger), 0) + 1, 1), false);
+SELECT setval('seq_journal_no', GREATEST(COALESCE((SELECT MAX(journal_no) FROM acc_transaction_ledger), 0) + 1, 1), false);
+SELECT setval('seq_stock_movement_no', GREATEST(COALESCE((SELECT MAX(movement_no) FROM inv_stock_movement), 0) + 1, 1), false);
+
 -- ============================================================================
 -- END OF SCHEMA
 -- ============================================================================

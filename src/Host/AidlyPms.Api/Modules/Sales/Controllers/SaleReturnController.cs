@@ -12,6 +12,7 @@ using Npgsql;
 namespace AidlyPms.Api.Modules.Sales.Controllers;
 
 [Route("api/v1")]
+[RequirePermission("PMS-Sale-Module")]
 public class SaleReturnController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -231,10 +232,7 @@ public class SaleReturnController : BaseController
                 conn, tran, CurrentPharmacyNo, CurrentBranchNo, "SALE_RETURN");
 
             var nextReturnNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(sale_return_no), 0) + 1 FROM sale_returns;", transaction: tran);
-
-            var maxReturnItemNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(sale_return_item_no), 0) FROM sale_return_items;", transaction: tran);
+                "SELECT nextval('seq_sale_return_no');", transaction: tran);
 
             decimal totalGross = 0;
             decimal totalNet = 0;
@@ -331,11 +329,27 @@ public class SaleReturnController : BaseController
                 totalVat += lineVat;
                 totalDiscountDeduction += lineDiscount;
 
-                var disposition = reqLine.Disposition > 0 ? reqLine.Disposition : (short)1;
-                var reasonCode = reqLine.ReasonCode > 0 ? reqLine.ReasonCode : (short)4;
+                if (!reqLine.ReasonCode.HasValue || reqLine.ReasonCode.Value <= 0)
+                {
+                    await tran.RollbackAsync();
+                    return FailResponse<SaleReturn>(
+                        $"Return line item #{reqLine.SaleInvoiceItemNo} is missing a required return reason_code.",
+                        statusCode: 400);
+                }
 
-                maxReturnItemNo++;
-                var returnItemNo = maxReturnItemNo;
+                if (!reqLine.Disposition.HasValue || (reqLine.Disposition.Value != 1 && reqLine.Disposition.Value != 2 && reqLine.Disposition.Value != 3))
+                {
+                    await tran.RollbackAsync();
+                    return FailResponse<SaleReturn>(
+                        $"Return line item #{reqLine.SaleInvoiceItemNo} is missing a valid return disposition (1: Restock, 2: Quarantine/Damaged, 3: Waste/Destroy).",
+                        statusCode: 400);
+                }
+
+                var disposition = reqLine.Disposition.Value;
+                var reasonCode = reqLine.ReasonCode.Value;
+
+                var returnItemNo = await conn.ExecuteScalarAsync<long>(
+                    "SELECT nextval('seq_sale_return_item_no');", transaction: tran);
 
                 // Stock Movement: Restock to original batch (Disposition 1)
                 if (disposition == 1 && origItem.BatchNo.HasValue && origItem.BatchNo.Value > 0)
@@ -813,10 +827,7 @@ public class SaleReturnController : BaseController
                 conn, tran, CurrentPharmacyNo, CurrentBranchNo, "SALE_RETURN");
 
             var nextReturnNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(sale_return_no), 0) + 1 FROM sale_returns;", transaction: tran);
-
-            var maxReturnItemNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(sale_return_item_no), 0) FROM sale_return_items;", transaction: tran);
+                "SELECT nextval('seq_sale_return_no');", transaction: tran);
 
             decimal returnGross = 0;
             decimal returnNet = 0;
@@ -892,11 +903,27 @@ public class SaleReturnController : BaseController
                 returnVat += lineVat;
                 returnDiscountDeduction += lineDiscount;
 
-                var disposition = rLine.Disposition > 0 ? rLine.Disposition : (short)1;
-                var reasonCode = rLine.ReasonCode > 0 ? rLine.ReasonCode : (short)4;
+                if (!rLine.ReasonCode.HasValue || rLine.ReasonCode.Value <= 0)
+                {
+                    await tran.RollbackAsync();
+                    return FailResponse<ExchangeResult>(
+                        $"Return line item #{rLine.SaleInvoiceItemNo} is missing a required return reason_code.",
+                        statusCode: 400);
+                }
 
-                maxReturnItemNo++;
-                var returnItemNo = maxReturnItemNo;
+                if (!rLine.Disposition.HasValue || (rLine.Disposition.Value != 1 && rLine.Disposition.Value != 2 && rLine.Disposition.Value != 3))
+                {
+                    await tran.RollbackAsync();
+                    return FailResponse<ExchangeResult>(
+                        $"Return line item #{rLine.SaleInvoiceItemNo} is missing a valid return disposition (1: Restock, 2: Quarantine/Damaged, 3: Waste/Destroy).",
+                        statusCode: 400);
+                }
+
+                var disposition = rLine.Disposition.Value;
+                var reasonCode = rLine.ReasonCode.Value;
+
+                var returnItemNo = await conn.ExecuteScalarAsync<long>(
+                    "SELECT nextval('seq_sale_return_item_no');", transaction: tran);
 
                 if (disposition == 1 && origItem.BatchNo.HasValue && origItem.BatchNo.Value > 0)
                 {

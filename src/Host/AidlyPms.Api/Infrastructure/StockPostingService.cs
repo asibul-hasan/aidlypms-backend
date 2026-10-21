@@ -97,7 +97,7 @@ public class StockPostingService : IStockPostingService
 
         // Generate movement_no
         var movementNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(movement_no), 0) + 1 FROM inv_stock_movement;", transaction: tran);
+            "SELECT nextval('seq_stock_movement_no');", transaction: tran);
 
         const string insertSql = @"
             INSERT INTO inv_stock_movement (
