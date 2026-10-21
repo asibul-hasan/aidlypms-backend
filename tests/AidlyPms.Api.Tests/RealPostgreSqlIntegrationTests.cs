@@ -227,11 +227,11 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                 profit_margin, rak_number, opening_stock_percent, max_sale_discount_percent,
                 is_max_discount_enabled, business_type, return_window_days, updated_at
             ) VALUES (
-                @pharmacyNo, @pharmacyNo, @branchNo, TRUE, FALSE,
+                @pharmacyNo, @pharmacyNo, @branchNo, TRUE, TRUE,
                 TRUE, TRUE, TRUE, TRUE,
                 TRUE, TRUE, 0, 10,
                 FALSE, 1, 7, CURRENT_TIMESTAMP
-            ) ON CONFLICT (pharmacy_no, branch_no) DO NOTHING;
+            ) ON CONFLICT (pharmacy_no, branch_no) DO UPDATE SET out_of_stock_sale = TRUE;
         ", new { pharmacyNo, branchNo, userNo });
     }
 
