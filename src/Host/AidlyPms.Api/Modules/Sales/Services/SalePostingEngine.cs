@@ -224,6 +224,7 @@ public class SalePostingEngine : ISalePostingEngine
                                 line.ProductNo,
                                 defaultBatchNum,
                                 expiry,
+                                qInBox,
                                 CostPerBox = product.CostPerBox > 0 ? product.CostPerBox : 0m,
                                 SalePricePerBox = product.SalePricePerBox > 0 ? product.SalePricePerBox : 0m
                             },
