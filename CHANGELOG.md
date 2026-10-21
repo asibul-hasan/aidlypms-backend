@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.8.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.1...v1.8.2) (2026-10-21)
+
+
+### 🐛 Bug Fixes
+
+* **db-parity:** resolve column mismatches, strict narcotic block, and add real PostgreSQL integration test suite ([63a4d7a](https://github.com/asibul-hasan/aidlypms-backend/commit/63a4d7a218e86e212bd240423efafaa745555784))
+
 ## [1.8.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.0...v1.8.1) (2026-10-21)
 
 
