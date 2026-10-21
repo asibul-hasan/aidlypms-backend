@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.7.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.6.0...v1.7.0) (2026-10-21)
+
+
+### 🚀 Features
+
+* **sales:** replace test runner with real xUnit suite, enforce void reason, add 4-check day-end reconciliation, and dynamic settlement ([1b77436](https://github.com/asibul-hasan/aidlypms-backend/commit/1b77436370ac1c6a278c0ec695d13373939a1929))
+
 ## [1.6.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.5.1...v1.6.0) (2026-10-21)
 
 
