@@ -284,6 +284,33 @@ public class CreateSalePayload
     [JsonPropertyName("invoice")]
     public SaleInvoice Invoice { get; set; } = new();
 
+    [JsonPropertyName("customer_no")]
+    public long? CustomerNo { get; set; }
+
+    [JsonPropertyName("sale_mode")]
+    public short? SaleMode { get; set; }
+
+    [JsonPropertyName("prescription_no")]
+    public long? PrescriptionNo { get; set; }
+
+    [JsonPropertyName("prescription_image_url")]
+    public string? PrescriptionImageUrl { get; set; }
+
+    [JsonPropertyName("discount_type")]
+    public short? DiscountType { get; set; }
+
+    [JsonPropertyName("discount_value")]
+    public decimal? DiscountValue { get; set; }
+
+    [JsonPropertyName("customer_will_pay")]
+    public decimal? CustomerWillPay { get; set; }
+
+    [JsonPropertyName("change_amount")]
+    public decimal? ChangeAmount { get; set; }
+
+    [JsonPropertyName("due_amount")]
+    public decimal? DueAmount { get; set; }
+
     [JsonPropertyName("items")]
     public List<SaleInvoiceItem>? Items { get; set; }
 

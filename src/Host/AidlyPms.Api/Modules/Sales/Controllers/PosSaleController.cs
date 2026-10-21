@@ -190,6 +190,17 @@ public class PosSaleController : BaseController
             return FailResponse<SaleInvoice>("A sale invoice must contain at least one item.");
         }
 
+        var invoice = payload.Invoice ?? new SaleInvoice();
+        if (payload.CustomerNo.HasValue) invoice.CustomerNo = payload.CustomerNo;
+        if (payload.SaleMode.HasValue) invoice.SaleMode = payload.SaleMode.Value;
+        if (payload.PrescriptionNo.HasValue) invoice.PrescriptionNo = payload.PrescriptionNo;
+        if (!string.IsNullOrWhiteSpace(payload.PrescriptionImageUrl)) invoice.PrescriptionImageUrl = payload.PrescriptionImageUrl;
+        if (payload.DiscountType.HasValue) invoice.DiscountType = payload.DiscountType.Value;
+        if (payload.DiscountValue.HasValue) invoice.DiscountValue = payload.DiscountValue.Value;
+        if (payload.CustomerWillPay.HasValue) invoice.CustomerWillPay = payload.CustomerWillPay.Value;
+        if (payload.ChangeAmount.HasValue) invoice.ChangeAmount = payload.ChangeAmount.Value;
+        if (payload.DueAmount.HasValue) invoice.DueAmount = payload.DueAmount.Value;
+
         if (payload.Payments == null || payload.Payments.Count == 0)
         {
             if (payload.Invoice?.Payment != null)
@@ -216,7 +227,7 @@ public class PosSaleController : BaseController
                 PharmacyNo = CurrentPharmacyNo,
                 BranchNo = CurrentBranchNo,
                 UserNo = CurrentUserNo,
-                Invoice = payload.Invoice ?? new SaleInvoice(),
+                Invoice = invoice,
                 Items = payload.Items,
                 Payments = payload.Payments
             };

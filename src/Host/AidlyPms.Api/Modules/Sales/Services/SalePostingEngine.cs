@@ -374,7 +374,7 @@ public class SalePostingEngine : ISalePostingEngine
             saleInvoiceNo,
             pharmacyNo,
             branchNo,
-            CustomerNo = invoice.CustomerNo > 0 ? invoice.CustomerNo : 1,
+            CustomerNo = (invoice.CustomerNo.HasValue && invoice.CustomerNo.Value > 0) ? invoice.CustomerNo.Value : (long?)null,
             invoice.PrescriptionNo,
             invoice.PrescriptionImageUrl,
             salesNumber,
