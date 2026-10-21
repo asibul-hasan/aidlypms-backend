@@ -55,6 +55,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers(options =>
     {
         options.ModelBinderProviders.Insert(0, new FlexibleDateTimeModelBinderProvider());
+        options.Filters.Add<AuditActionFilter>();
     })
     .AddJsonOptions(options =>
     {

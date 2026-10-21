@@ -30,17 +30,20 @@ public class StockPostingService : IStockPostingService
     {
         if (entry.QtyPcs == 0) return;
 
-        // If batch is not specified, resolve the active or latest batch for this product
+        var isSaleOutward = entry.QtyPcs < 0 && (entry.MovementType == 4 || entry.ReferenceDocType == "SALE_INVOICE");
+
+        // If batch is not specified, resolve the active unexpired batch for this product (FEFO)
         if (!entry.BatchNo.HasValue || entry.BatchNo.Value <= 0)
         {
             var fallbackBatchNo = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT batch_no
                 FROM prod_product_batches
                 WHERE product_no = @ProductNo AND pharmacy_no = @PharmacyNo AND branch_no = @BranchNo
+                  AND (@isSaleOutward = FALSE OR expiry_date >= CURRENT_DATE)
                 ORDER BY (total_quantity_pcs > 0) DESC, expiry_date ASC, batch_no ASC
                 LIMIT 1
                 FOR UPDATE;",
-                new { entry.ProductNo, entry.PharmacyNo, entry.BranchNo },
+                new { entry.ProductNo, entry.PharmacyNo, entry.BranchNo, isSaleOutward },
                 transaction: tran);
 
             if (fallbackBatchNo.HasValue && fallbackBatchNo.Value > 0)
@@ -49,11 +52,11 @@ public class StockPostingService : IStockPostingService
             }
         }
 
-        // If batch is specified, update batch stock
+        // If batch is specified, update batch stock and enforce clinical safety
         if (entry.BatchNo.HasValue && entry.BatchNo.Value > 0)
         {
             var batch = await conn.QuerySingleOrDefaultAsync<ProdProductBatch>(@"
-                SELECT batch_no, total_quantity_pcs, quantity_in_box
+                SELECT batch_no, batch_number, expiry_date, total_quantity_pcs, quantity_in_box
                 FROM prod_product_batches
                 WHERE batch_no = @BatchNo AND pharmacy_no = @PharmacyNo AND branch_no = @BranchNo
                 FOR UPDATE;",
@@ -62,6 +65,13 @@ public class StockPostingService : IStockPostingService
 
             if (batch != null)
             {
+                // Clinical Safety Block: Prevent dispensing expired batches on sale
+                if (isSaleOutward && batch.ExpiryDate.Date < DateTime.UtcNow.Date)
+                {
+                    throw new InvalidOperationException(
+                        $"Clinical Safety Block: Batch '{batch.BatchNumber}' expired on {batch.ExpiryDate:yyyy-MM-dd} and cannot be dispensed.");
+                }
+
                 var newBatchQty = batch.TotalQuantityPcs + entry.QtyPcs;
                 var qInBox = batch.QuantityInBox > 0 ? batch.QuantityInBox : 1;
                 var newBoxQty = newBatchQty / qInBox;
