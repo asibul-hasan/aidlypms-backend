@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.10.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.2...v1.10.3) (2026-10-21)
+
+
+### 🐛 Bug Fixes
+
+* **sales:** pass qInBox parameter when auto-creating pre-purchase batch ([68d5577](https://github.com/asibul-hasan/aidlypms-backend/commit/68d5577740742d1ba337df24d68babf5d8d9ca5c))
+
 ## [1.10.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.1...v1.10.2) (2026-10-21)
 
 
