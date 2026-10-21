@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.9.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.4...v1.9.0) (2026-10-21)
+
+
+### 🚀 Features
+
+* **security:** enforce controller permissions and sequence-based monotonic IDs ([173ed3b](https://github.com/asibul-hasan/aidlypms-backend/commit/173ed3b544fe3b4ac5cb6773f4c5662cd08d79f0))
+
 ## [1.8.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.3...v1.8.4) (2026-10-21)
 
 
