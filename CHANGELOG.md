@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.8.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.3...v1.8.4) (2026-10-21)
+
+
+### 🐛 Bug Fixes
+
+* **security:** implement 10-point audit hardening and tenant isolation ([3276844](https://github.com/asibul-hasan/aidlypms-backend/commit/32768448bc7c28564b963d86bd0c5ca7aef52319))
+
 ## [1.8.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.8.2...v1.8.3) (2026-10-21)
 
 
