@@ -276,7 +276,7 @@ public class ReportController : BaseController
                 r.return_invoice_no AS return_number,
                 r.sale_invoice_no,
                 si.sales_number,
-                COALESCE(c.first_name || ' ' || c.last_name, 'Walking Customer') AS customer_name,
+                COALESCE(c.name, 'Walking Customer') AS customer_name,
                 r.return_date,
                 r.total_items,
                 r.final_refund_price,

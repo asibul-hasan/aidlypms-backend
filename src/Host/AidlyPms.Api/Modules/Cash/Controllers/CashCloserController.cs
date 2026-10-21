@@ -202,22 +202,34 @@ public class CashCloserController : BaseController
                     : $"Clearing account (10901) has non-zero unsettled balance of ৳{clearingBalance:N2}.")
         };
 
-        // 4. Stock per Batch Check
-        var negativeBatches = await conn.ExecuteScalarAsync<int>(@"
-            SELECT COUNT(1) FROM prod_product_batches
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND available_quantity_pcs < 0;",
+        // 4. Stock per Batch Check: compares total_quantity_pcs with sum of inv_stock_movement
+        var stockStats = await conn.QuerySingleOrDefaultAsync<(int NegativeBatches, int DiscrepantBatches)>(@"
+            SELECT 
+                COUNT(CASE WHEN b.total_quantity_pcs < 0 THEN 1 END) AS NegativeBatches,
+                COUNT(CASE WHEN b.total_quantity_pcs != COALESCE(m.sum_qty, 0) THEN 1 END) AS DiscrepantBatches
+            FROM prod_product_batches b
+            LEFT JOIN (
+                SELECT batch_no, SUM(qty_pcs) AS sum_qty
+                FROM inv_stock_movement
+                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                GROUP BY batch_no
+            ) m ON b.batch_no = m.batch_no
+            WHERE b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo;",
             new { CurrentPharmacyNo, CurrentBranchNo });
 
-        var stockBatchPassed = negativeBatches == 0;
+        var negativeBatches = stockStats.NegativeBatches;
+        var discrepantBatches = stockStats.DiscrepantBatches;
+        var stockBatchPassed = negativeBatches == 0 && discrepantBatches == 0;
         var stockBatchCheck = new StockBatchCheckResult
         {
             Passed = stockBatchPassed,
             NegativeBatchesCount = negativeBatches,
-            DiscrepantBatchesCount = 0,
+            DiscrepantBatchesCount = discrepantBatches,
             Message = stockBatchPassed
-                ? "Batch stock quantities consistent with zero negative balances."
-                : $"Warning: {negativeBatches} product batch(es) report negative available stock."
+                ? "Batch stock quantities consistent with physical movement ledger."
+                : (negativeBatches > 0
+                    ? $"Warning: {negativeBatches} batch(es) have negative stock."
+                    : $"Warning: {discrepantBatches} batch(es) deviate from movement ledger sum.")
         };
 
         var allPassed = drawerPassed && netSalesPassed && trialBalancePassed && stockBatchPassed;

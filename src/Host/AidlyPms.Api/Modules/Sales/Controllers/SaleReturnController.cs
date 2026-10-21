@@ -290,19 +290,19 @@ public class SaleReturnController : BaseController
                 }
 
                 var product = await conn.QuerySingleOrDefaultAsync<ProdProduct>(@"
-                    SELECT product_no, product_name, requires_prescription, is_narcotic, purchase_price_per_piece
+                    SELECT product_no, product_name, is_prescription_required, is_narcotic, purchase_price_per_piece
                     FROM prod_products
                     WHERE product_no = @ProductNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
                     new { origItem.ProductNo, CurrentPharmacyNo, CurrentBranchNo },
                     transaction: tran);
 
-                // Narcotic / prescription-only validation
-                if (product != null && (product.IsPrescriptionRequired || product.IsNarcotic) && CurrentRoleNo != 9)
+                // Narcotic / prescription-only validation: strictly non-returnable for all roles
+                if (product != null && (product.IsPrescriptionRequired || product.IsNarcotic))
                 {
                     await tran.RollbackAsync();
                     return FailResponse<SaleReturn>(
-                        $"Product '{product.ProductName}' requires prescription/narcotic authorization and cannot be returned without manager privilege.",
-                        statusCode: 403);
+                        $"Product '{product.ProductName}' is prescription-controlled / narcotic and cannot be returned.",
+                        statusCode: 400);
                 }
 
                 // Server-computed pricing: Exact money from DB original line

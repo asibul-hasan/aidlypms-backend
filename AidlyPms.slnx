@@ -3,4 +3,7 @@
   <Folder Name="/src/Host/">
     <Project Path="src/Host/AidlyPms.Api/AidlyPms.Api.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj" />
+  </Folder>
 </Solution>

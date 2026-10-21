@@ -177,7 +177,7 @@ public class SupplierController : BaseController
         using var conn = _db.CreateConnection();
 
         var supplier = await conn.QuerySingleOrDefaultAsync<SuppSupplier>(@"
-            SELECT supplier_no, name, phone, address, current_due_balance, note
+            SELECT supplier_no, name, phone, current_due_balance, note
             FROM supp_suppliers
             WHERE supplier_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
             new { id, CurrentPharmacyNo, CurrentBranchNo });
@@ -191,9 +191,9 @@ public class SupplierController : BaseController
             SELECT 
                 p.inventory_number AS doc_no,
                 'Purchase Invoice' AS doc_type,
-                p.invoice_date AS doc_date,
-                p.total_net_amount AS debit,
-                (p.total_net_amount - p.current_due_amount) AS credit,
+                p.purchase_date AS doc_date,
+                p.final_price AS debit,
+                (p.final_price - p.due_amount) AS credit,
                 CONCAT('Purchase Invoice #', p.supplier_invoice_no) AS note
             FROM pur_purchase_invoices p
             WHERE p.supplier_no = @id AND p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo
