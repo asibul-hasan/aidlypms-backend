@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.5.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.5.0...v1.5.1) (2026-10-21)
+
+
+### 🐛 Bug Fixes
+
+* **pos:** harden sale void with ledger reversal, due/loyalty rollback and shift/return guards ([c172b98](https://github.com/asibul-hasan/aidlypms-backend/commit/c172b983921d3d8568c91e1796d863088f2f490e))
+
 ## [1.5.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.4.0...v1.5.0) (2026-10-21)
 
 
