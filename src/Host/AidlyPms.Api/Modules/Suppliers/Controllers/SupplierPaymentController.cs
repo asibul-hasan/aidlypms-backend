@@ -182,10 +182,10 @@ public class SupplierPaymentController : BaseController
             payload.SupplierName = supplier.Name;
             return OkResponse(payload, $"Supplier payment of ৳{payload.Amount} recorded successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<PurSupplierPayment>($"Payment failed: {ex.Message}");
+            throw;
         }
     }
 }

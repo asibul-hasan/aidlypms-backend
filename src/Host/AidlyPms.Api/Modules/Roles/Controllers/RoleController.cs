@@ -76,6 +76,7 @@ public class RoleController : BaseController
     }
 
     [HttpPost("roles")]
+    [RequirePermission("role.manage")]
     public async Task<ActionResult<ApiResponse<SysRole>>> CreateRole([FromBody] SysRole model)
     {
         if (string.IsNullOrWhiteSpace(model.Alias))
@@ -138,14 +139,15 @@ public class RoleController : BaseController
             tran.Commit();
             return OkResponse(model, $"Role '{model.Alias}' created successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<SysRole>($"Role creation failed: {ex.Message}");
+            throw;
         }
     }
 
     [HttpPut("roles/{id}")]
+    [RequirePermission("role.manage")]
     public async Task<ActionResult<ApiResponse<SysRole>>> UpdateRole(long id, [FromBody] SysRole model)
     {
         using var conn = _db.CreateConnection();
@@ -201,14 +203,15 @@ public class RoleController : BaseController
             existing.Permissions = model.Permissions;
             return OkResponse(existing, $"Role '{existing.Alias}' updated successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<SysRole>($"Role update failed: {ex.Message}");
+            throw;
         }
     }
 
     [HttpDelete("roles/{id}")]
+    [RequirePermission("role.manage")]
     public async Task<ActionResult<ApiResponse<bool>>> DeleteRole(long id)
     {
         using var conn = _db.CreateConnection();

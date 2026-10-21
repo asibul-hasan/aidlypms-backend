@@ -182,13 +182,14 @@ public class PurchaseInvoiceController : BaseController
                 var qtyInBox = line.QtyInBox > 0 ? line.QtyInBox : (product.QuantityPerBox > 0 ? product.QuantityPerBox : 1);
                 var totalQtyPcs = line.TotalQtyPcs > 0 ? line.TotalQtyPcs : (boxQty * qtyInBox);
 
-                var btp = line.Btp > 0 ? line.Btp : (product.CostPerBox > 0 ? product.CostPerBox : 0);
-                var vatPercent = line.VatPercent >= 0 ? line.VatPercent : 0m;
+                // Item 3: DB Authoritative pricing - ignore client Btp, SalePrice, VatPercent, TotalPrice
+                var btp = product.CostPerBox > 0 ? product.CostPerBox : (product.PurchasePricePerPiece * qtyInBox);
+                var vatPercent = 0m;
                 var lineGross = Math.Round(boxQty * btp, 4);
                 var lineVat = Math.Round(lineGross * (vatPercent / 100m), 4);
                 var lineTotal = lineGross + lineVat;
                 var unitCost = totalQtyPcs > 0 ? Math.Round(lineTotal / totalQtyPcs, 4) : 0;
-                var salePrice = line.SalePrice > 0 ? line.SalePrice : product.SalePricePerPiece;
+                var salePrice = product.SalePricePerPiece;
 
                 grossTotal += lineGross;
                 totalVat += lineVat;
@@ -333,14 +334,11 @@ public class PurchaseInvoiceController : BaseController
                 processedItems.Add(line);
             }
 
-            // Calculation mode and discounts
-            var discountType = payload.DiscountType ?? inv.DiscountType;
-            var discountVal = payload.DiscountValue ?? inv.DiscountValue;
-            var discountAmount = discountType == 2
-                ? discountVal
-                : Math.Round(grossTotal * (discountVal / 100m), 4);
+            // Calculation mode and discounts (Item 3: ignore client discount for authoritative purchase costs)
+            var discountType = (short)1;
+            var discountVal = 0m;
 
-            var netAmount = Math.Max(0, grossTotal - discountAmount);
+            var netAmount = grossTotal;
             var finalPrice = Math.Round(netAmount + totalVat, 4);
             var paidAmount = payload.PaidAmount ?? inv.PaidAmount;
             if (paidAmount < 0) paidAmount = 0;
@@ -575,10 +573,10 @@ public class PurchaseInvoiceController : BaseController
 
             return OkResponse(savedInvoice, $"Purchase invoice {inventoryNumber} registered successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<PurPurchaseInvoice>($"Purchase failed: {ex.Message}");
+            throw;
         }
     }
 }

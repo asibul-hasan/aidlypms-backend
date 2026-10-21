@@ -27,6 +27,7 @@ public class ProductController : BaseController
         [FromQuery] int pageIndex = 1,
         [FromQuery] int pageSize = 50)
     {
+        pageSize = Math.Clamp(pageSize, 1, 200);
         await using var conn = await _db.CreateOpenConnectionAsync();
 
         var offset = (pageIndex - 1) * pageSize;
@@ -230,6 +231,7 @@ public class ProductController : BaseController
         [FromQuery] int pageIndex = 1,
         [FromQuery] int pageSize = 100)
     {
+        pageSize = Math.Clamp(pageSize, 1, 200);
         await using var conn = await _db.CreateOpenConnectionAsync();
 
         var pms = new DynamicParameters();
@@ -561,14 +563,15 @@ public class ProductController : BaseController
             model.BranchNo = CurrentBranchNo;
             return OkResponse(model, "Product registered successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<ProdProduct>($"Failed to register product: {ex.Message}");
+            throw;
         }
     }
 
     [HttpPut("{id:long}")]
+    [RequirePermission("price.edit")]
     public async Task<ActionResult<ApiResponse<ProdProduct>>> UpdateProduct(long id, [FromBody] ProdProduct model)
     {
         if (string.IsNullOrWhiteSpace(model.ProductName))
@@ -753,10 +756,10 @@ public class ProductController : BaseController
 
             return OkResponse<object>(new { product_no = id, new_stock_pcs = newTotal }, "Stock adjusted successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<object>($"Stock adjustment failed: {ex.Message}");
+            throw;
         }
     }
 
@@ -1145,10 +1148,10 @@ public class ProductController : BaseController
 
             return OkResponse(result, message);
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<ProductImportResultDto>($"Failed to import products: {ex.Message}");
+            throw;
         }
     }
 }

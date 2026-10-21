@@ -231,10 +231,10 @@ public class IncomeController : BaseController
 
             return OkResponse(model, $"Income receipt {receiptNo} posted successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<AccIncome>($"Posting failed: {ex.Message}");
+            throw;
         }
     }
 

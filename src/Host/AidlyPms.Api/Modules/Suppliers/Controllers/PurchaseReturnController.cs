@@ -351,10 +351,10 @@ public class PurchaseReturnController : BaseController
 
             return OkResponse(payload, $"Supplier return {returnNumber} processed successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<PurPurchaseReturn>($"Return failed: {ex.Message}");
+            throw;
         }
     }
 }

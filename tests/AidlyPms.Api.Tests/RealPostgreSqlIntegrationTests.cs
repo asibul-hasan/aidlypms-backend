@@ -51,13 +51,17 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                 "and MUST NEVER run against production databases.");
         }
 
-        // Safety guard: refuse to run if connection string points to Supabase or production
-        if (rawConnStr.Contains("supabase.com", StringComparison.OrdinalIgnoreCase) ||
-            rawConnStr.Contains("prod", StringComparison.OrdinalIgnoreCase))
+        // Safety allow-list guard: connection string must point strictly to a local host and a database name ending with _test
+        var builder = new NpgsqlConnectionStringBuilder(rawConnStr);
+        var host = builder.Host?.ToLowerInvariant() ?? "";
+        var database = builder.Database?.ToLowerInvariant() ?? "";
+        var isLocal = host == "localhost" || host == "127.0.0.1" || host == "::1";
+        var isTestDb = database.EndsWith("_test", StringComparison.OrdinalIgnoreCase);
+
+        if (!isLocal || !isTestDb || rawConnStr.Contains("supabase", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                "SAFETY BLOCK: TEST_POSTGRES_CONNECTION points to a production or Supabase host. " +
-                "Integration tests must run against a local throwaway test container only.");
+                $"SAFETY BLOCK: TEST_POSTGRES_CONNECTION must point to a local host (localhost, 127.0.0.1, ::1) and a database name ending with '_test'. Found host '{host}' and database '{database}'.");
         }
 
         _connectionString = rawConnStr;

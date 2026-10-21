@@ -123,11 +123,17 @@ public class StockAdjustmentController : BaseController
     }
 
     [HttpPost]
+    [RequirePermission("stock.adjust")]
     public async Task<ActionResult<ApiResponse<InvAdjustment>>> CreateAdjustment([FromBody] CreateAdjustmentPayload payload)
     {
         if (payload == null || payload.Items == null || payload.Items.Count == 0)
         {
             return FailResponse<InvAdjustment>("Bad Request", "At least one adjustment item is required.", 400);
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.Note) && payload.Items.All(i => !i.ReasonCode.HasValue || i.ReasonCode.Value <= 0))
+        {
+            return FailResponse<InvAdjustment>("Bad Request", "A mandatory reason must be provided for stock adjustment (either note or item reason code).", 400);
         }
 
         using var conn = _db.CreateConnection();

@@ -283,10 +283,10 @@ public class DoctorController : BaseController
             tran.Commit();
             return OkResponse(model, $"Prescription {code} generated successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<DocPrescription>($"Prescription creation failed: {ex.Message}");
+            throw;
         }
     }
 

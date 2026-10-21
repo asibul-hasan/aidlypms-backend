@@ -82,8 +82,13 @@ public class PagedResult<T>
 
 public class QueryFilter
 {
+    private int _pageSize = 20;
     public int PageIndex { get; set; } = 1;
-    public int PageSize { get; set; } = 20;
+    public int PageSize
+    {
+        get => Math.Clamp(_pageSize, 1, 200);
+        set => _pageSize = Math.Clamp(value, 1, 200);
+    }
     public string? Search { get; set; }
     public string? SortBy { get; set; }
     public string? SortOrder { get; set; }

@@ -705,10 +705,10 @@ public class SaleReturnController : BaseController
 
             return OkResponse(savedReturn, $"Return {returnNumber} processed successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<SaleReturn>($"Return processing failed: {ex.Message}");
+            throw;
         }
     }
 
@@ -1287,10 +1287,10 @@ public class SaleReturnController : BaseController
 
             return OkResponse(exchangeResult, $"Exchange processed successfully: Return {returnNumber} and Sale {postedSale.SalesNumber}.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<ExchangeResult>($"Exchange processing failed: {ex.Message}");
+            throw;
         }
     }
 }

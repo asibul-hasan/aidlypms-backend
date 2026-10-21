@@ -68,7 +68,8 @@ public class SalePostingEngine : ISalePostingEngine
         {
             var product = await conn.QuerySingleOrDefaultAsync<ProdProduct>(@"
                 SELECT product_no, product_name, cost_per_box, sale_price_per_box,
-                       purchase_price_per_piece, sale_price_per_piece, quantity_per_box, rak_number
+                       purchase_price_per_piece, sale_price_per_piece, wholesale_price_per_piece,
+                       quantity_per_box, rak_number, is_prescription_required, is_narcotic
                 FROM prod_products
                 WHERE product_no = @ProductNo AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
                 new { line.ProductNo, pharmacyNo, branchNo },
@@ -78,7 +79,8 @@ public class SalePostingEngine : ISalePostingEngine
             {
                 product = await conn.QueryFirstOrDefaultAsync<ProdProduct>(@"
                     SELECT product_no, product_name, cost_per_box, sale_price_per_box,
-                           purchase_price_per_piece, sale_price_per_piece, quantity_per_box, rak_number
+                           purchase_price_per_piece, sale_price_per_piece, wholesale_price_per_piece,
+                           quantity_per_box, rak_number, is_prescription_required, is_narcotic
                     FROM prod_products
                     WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
                       AND (sale_price_per_piece = @UnitSalePrice OR purchase_price_per_piece = @UnitCostPrice)
@@ -91,7 +93,8 @@ public class SalePostingEngine : ISalePostingEngine
                 {
                     product = await conn.QueryFirstOrDefaultAsync<ProdProduct>(@"
                         SELECT product_no, product_name, cost_per_box, sale_price_per_box,
-                               purchase_price_per_piece, sale_price_per_piece, quantity_per_box, rak_number
+                               purchase_price_per_piece, sale_price_per_piece, wholesale_price_per_piece,
+                               quantity_per_box, rak_number, is_prescription_required, is_narcotic
                         FROM prod_products
                         WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo AND is_active = true
                         ORDER BY product_no ASC
@@ -111,6 +114,16 @@ public class SalePostingEngine : ISalePostingEngine
                 throw new InvalidOperationException($"Product #{line.ProductNo} not found in this pharmacy branch.");
             }
 
+            // Item 4: Prescription & Narcotic check
+            if ((product.IsNarcotic || product.IsPrescriptionRequired) &&
+                (invoice.PrescriptionNo == null || invoice.PrescriptionNo <= 0) &&
+                string.IsNullOrWhiteSpace(invoice.PrescriptionImageUrl))
+            {
+                var drugType = product.IsNarcotic ? "Narcotic" : "Prescription-only";
+                throw new InvalidOperationException(
+                    $"{drugType} medicine '{product.ProductName}' requires a valid prescription to dispense.");
+            }
+
             var isWholesaleLine = invoice.SaleMode == 2 || line.SaleMode == 2;
             var pcsPerBoxVal = line.PcsPerBox > 0 ? line.PcsPerBox : (product.QuantityPerBox > 0 ? product.QuantityPerBox : 1);
             var qtyPcs = line.SaleQty > 0 ? line.SaleQty : (line.TotalQuantityPcs > 0 ? line.TotalQuantityPcs : 1);
@@ -119,18 +132,26 @@ public class SalePostingEngine : ISalePostingEngine
                 qtyPcs = line.BoxQty * pcsPerBoxVal;
             }
 
-            var unitSalePrice = line.SalePrice > 0 ? line.SalePrice : (line.UnitSalePrice > 0 ? line.UnitSalePrice : product.SalePricePerPiece);
-            var lineGross = line.TotalPrice > 0 ? line.TotalPrice + line.DiscountAmount : Math.Round(qtyPcs * unitSalePrice, 4);
+            // Item 3: DB Authoritative price - client SalePrice, UnitSalePrice, TotalPrice are ignored
+            var unitSalePrice = isWholesaleLine && product.WholesalePricePerPiece > 0
+                ? product.WholesalePricePerPiece
+                : product.SalePricePerPiece;
+            if (unitSalePrice <= 0 && product.SalePricePerBox > 0 && pcsPerBoxVal > 0)
+            {
+                unitSalePrice = Math.Round(product.SalePricePerBox / pcsPerBoxVal, 4);
+            }
+            var lineGross = Math.Round(qtyPcs * unitSalePrice, 4);
 
             // Batch Selection (FEFO)
             long? batchNo = line.BatchNo;
             string batchNumber = line.BatchNumber ?? string.Empty;
             decimal batchCost = product.PurchasePricePerPiece;
+            decimal batchVatPercent = 0m;
 
             if (!batchNo.HasValue || batchNo.Value <= 0)
             {
                 var activeBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
-                    SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs
+                    SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs, vat_percent
                     FROM prod_product_batches
                     WHERE product_no = @ProductNo AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo
                       AND total_quantity_pcs > 0 AND expiry_date >= CURRENT_DATE
@@ -143,6 +164,7 @@ public class SalePostingEngine : ISalePostingEngine
                 {
                     batchNo = activeBatch.BatchNo;
                     batchNumber = activeBatch.BatchNumber;
+                    batchVatPercent = activeBatch.VatPercent;
                     if (activeBatch.QuantityInBox > 0 && activeBatch.CostPerBox > 0)
                     {
                         batchCost = Math.Round(activeBatch.CostPerBox / activeBatch.QuantityInBox, 4);
@@ -157,7 +179,7 @@ public class SalePostingEngine : ISalePostingEngine
                     }
 
                     var anyBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
-                        SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs
+                        SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs, vat_percent
                         FROM prod_product_batches
                         WHERE product_no = @ProductNo AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo
                         ORDER BY (total_quantity_pcs > 0) DESC, expiry_date DESC, batch_no DESC
@@ -170,6 +192,7 @@ public class SalePostingEngine : ISalePostingEngine
                     {
                         batchNo = anyBatch.BatchNo;
                         batchNumber = anyBatch.BatchNumber;
+                        batchVatPercent = anyBatch.VatPercent;
                         if (anyBatch.QuantityInBox > 0 && anyBatch.CostPerBox > 0)
                         {
                             batchCost = Math.Round(anyBatch.CostPerBox / anyBatch.QuantityInBox, 4);
@@ -213,18 +236,46 @@ public class SalePostingEngine : ISalePostingEngine
                     }
                 }
             }
+            else
+            {
+                var specifiedBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
+                    SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs, vat_percent
+                    FROM prod_product_batches
+                    WHERE batch_no = @batchNo AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
+                    new { batchNo, pharmacyNo, branchNo },
+                    transaction: tran);
+                if (specifiedBatch != null)
+                {
+                    batchVatPercent = specifiedBatch.VatPercent;
+                    if (specifiedBatch.QuantityInBox > 0 && specifiedBatch.CostPerBox > 0)
+                    {
+                        batchCost = Math.Round(specifiedBatch.CostPerBox / specifiedBatch.QuantityInBox, 4);
+                    }
+                }
+            }
 
             maxSaleItemNo++;
             var saleItemNo = maxSaleItemNo;
 
-            var lineDiscount = line.DiscountAmount;
+            // Item 3: Cap line discount using cfg_sale_configs and ignore client VAT
+            var maxDiscountPct = (saleConfig?.IsMaxDiscountEnabled == true)
+                ? (saleConfig.MaxSaleDiscountPercent > 0 ? saleConfig.MaxSaleDiscountPercent : 20m)
+                : 100m;
+
+            var requestedDiscount = line.DiscountAmount;
+            var maxAllowedLineDiscount = Math.Round(lineGross * (maxDiscountPct / 100m), 4);
+            var lineDiscount = Math.Min(requestedDiscount, maxAllowedLineDiscount);
             var lineNet = Math.Max(0, lineGross - lineDiscount);
-            var lineVat = line.VatAmount;
-            if (lineVat <= 0 && line.VatPercent > 0)
+
+            // Item 3: Reject a sale below the batch cost
+            var effectiveUnitPrice = qtyPcs > 0 ? (lineNet / qtyPcs) : 0m;
+            if (saleConfig?.AllowLossSale != true && effectiveUnitPrice < batchCost)
             {
-                lineVat = Math.Round(lineNet * (line.VatPercent / 100m), 4);
+                throw new InvalidOperationException(
+                    $"Sale price ৳{effectiveUnitPrice:F2} for '{product.ProductName}' is below batch cost ৳{batchCost:F2}. Loss sales are prohibited.");
             }
 
+            var lineVat = Math.Round(lineNet * (batchVatPercent / 100m), 4);
             var lineTotal = lineNet + lineVat;
             var lineCogs = Math.Round(qtyPcs * batchCost, 4);
 
@@ -247,7 +298,7 @@ public class SalePostingEngine : ISalePostingEngine
                 UnitCostPrice = batchCost,
                 UnitSalePrice = unitSalePrice,
                 DiscountAmount = lineDiscount,
-                VatPercent = line.VatPercent,
+                VatPercent = batchVatPercent,
                 VatAmount = lineVat,
                 NetAmount = lineNet,
                 TotalPrice = lineTotal,
@@ -255,18 +306,30 @@ public class SalePostingEngine : ISalePostingEngine
             });
         }
 
-        // Apply invoice-level discounts
+        // Apply invoice-level discounts (capped by cfg_sale_configs)
+        var maxInvDiscountPct = (saleConfig?.IsMaxDiscountEnabled == true)
+            ? (saleConfig.MaxSaleDiscountPercent > 0 ? saleConfig.MaxSaleDiscountPercent : 20m)
+            : 100m;
+
         decimal discountVal = 0;
         if (invoice.DiscountType == 1 && invoice.DiscountValue > 0)
         {
-            discountVal = Math.Round(grossTotal * (invoice.DiscountValue / 100m), 4);
+            var cappedPct = Math.Min(invoice.DiscountValue, maxInvDiscountPct);
+            discountVal = Math.Round(grossTotal * (cappedPct / 100m), 4);
         }
         else if (invoice.DiscountType == 2 && invoice.DiscountValue > 0)
         {
-            discountVal = invoice.DiscountValue;
+            var maxAllowedFlat = Math.Round(grossTotal * (maxInvDiscountPct / 100m), 4);
+            discountVal = Math.Min(invoice.DiscountValue, maxAllowedFlat);
         }
 
         var netAmount = Math.Max(0, grossTotal - discountVal);
+        if (saleConfig?.AllowLossSale != true && netAmount < totalCogs)
+        {
+            throw new InvalidOperationException(
+                $"Invoice discount brings total ৳{netAmount:F2} below total cost of goods ৳{totalCogs:F2}. Loss sales are prohibited.");
+        }
+
         var finalPrice = Math.Round(netAmount + totalVat - invoice.RoundOffAmount + invoice.CardCommissionAmount, 2);
 
         var customerWillPay = invoice.CustomerWillPay > 0 ? invoice.CustomerWillPay : finalPrice;

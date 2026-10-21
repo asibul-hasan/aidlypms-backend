@@ -153,10 +153,10 @@ public class ReconciliationController : BaseController
 
             return OkResponse(model, $"Fund transfer of ৳{model.Amount} completed successfully ({voucherNo}).");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<AccReconciliation>($"Fund transfer failed: {ex.Message}");
+            throw;
         }
     }
 

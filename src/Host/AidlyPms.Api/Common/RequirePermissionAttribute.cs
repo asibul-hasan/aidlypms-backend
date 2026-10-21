@@ -9,6 +9,7 @@ namespace AidlyPms.Api.Common;
 public class RequirePermissionAttribute : Attribute, IAsyncActionFilter
 {
     private readonly string _permissionCode;
+    public string PermissionCode => _permissionCode;
 
     public RequirePermissionAttribute(string permissionCode)
     {

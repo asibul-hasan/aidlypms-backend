@@ -239,10 +239,10 @@ public class ExpenseController : BaseController
 
             return OkResponse(model, $"Expense voucher {voucherNo} posted successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<AccExpense>($"Posting failed: {ex.Message}");
+            throw;
         }
     }
 
@@ -306,10 +306,10 @@ public class ExpenseController : BaseController
             tran.Commit();
             return OkResponse(true, $"Expense voucher {expense.VoucherNo} deleted and reversed successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<bool>($"Failed to delete expense: {ex.Message}");
+            throw;
         }
     }
 }

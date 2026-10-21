@@ -487,10 +487,10 @@ public class DueCollectionController : BaseController
                 date = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
             }, $"Due payment of ৳{req.Amount} collected successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<object>($"Due collection failed: {ex.Message}");
+            throw;
         }
     }
 }

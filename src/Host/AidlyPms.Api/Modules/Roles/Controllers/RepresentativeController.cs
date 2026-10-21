@@ -84,6 +84,7 @@ public class RepresentativeController : BaseController
 
     [HttpPost("sys/users")]
     [HttpPost("representative")]
+    [RequirePermission("user.manage")]
     public async Task<ActionResult<ApiResponse<SysUser>>> CreateRepresentative([FromBody] SysUser model)
     {
         if (string.IsNullOrWhiteSpace(model.FirstName))
@@ -149,15 +150,16 @@ public class RepresentativeController : BaseController
             tran.Commit();
             return OkResponse(model, $"Representative '{model.FirstName} {model.LastName}' created successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<SysUser>($"Registration failed: {ex.Message}");
+            throw;
         }
     }
 
     [HttpPut("sys/users/{id}")]
     [HttpPut("representative/{id}")]
+    [RequirePermission("user.manage")]
     public async Task<ActionResult<ApiResponse<SysUser>>> UpdateRepresentative(long id, [FromBody] SysUser model)
     {
         using var conn = _db.CreateConnection();
@@ -196,6 +198,7 @@ public class RepresentativeController : BaseController
 
     [HttpDelete("sys/users/{id}")]
     [HttpDelete("representative/{id}")]
+    [RequirePermission("user.manage")]
     public async Task<ActionResult<ApiResponse<bool>>> DeleteRepresentative(long id)
     {
         using var conn = _db.CreateConnection();

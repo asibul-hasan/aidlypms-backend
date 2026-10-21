@@ -238,6 +238,7 @@ public class RequisitionController : BaseController
         [FromQuery] DateTime? toDate = null,
         [FromQuery] string? status = null)
     {
+        pageSize = Math.Clamp(pageSize, 1, 200);
         (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
         await using var conn = await _db.CreateOpenConnectionAsync();
         var offset = (pageIndex - 1) * pageSize;
@@ -578,10 +579,10 @@ public class RequisitionController : BaseController
 
             return OkResponse(result, "Requisition created successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<ProdProductRequisition>($"Failed to create requisition: {ex.Message}");
+            throw;
         }
     }
 
@@ -768,10 +769,10 @@ public class RequisitionController : BaseController
 
             return OkResponse(result, "Requisition updated successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<ProdProductRequisition>($"Failed to update requisition: {ex.Message}");
+            throw;
         }
     }
 

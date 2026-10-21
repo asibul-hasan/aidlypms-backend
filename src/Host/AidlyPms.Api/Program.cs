@@ -44,13 +44,26 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+// Item 1: FallbackPolicy = RequireAuthenticatedUser
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+
+// Item 9: CORS allowed origins from configuration only (no AllowAnyOrigin)
+var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>()
+    ?? new[] { "http://localhost:4200", "http://localhost:4202", "http://localhost:4203" };
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("ConfiguredOrigins", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -72,7 +85,10 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-app.UseCors("AllowAll");
+// Item 8: Global Exception Handler Middleware
+app.UseMiddleware<GlobalExceptionMiddleware>();
+
+app.UseCors("ConfiguredOrigins");
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -85,7 +101,9 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-app.MapGet("/health", () => Results.Ok(new { status = "Healthy", timestamp = DateTime.UtcNow }));
+// Health endpoints kept AllowAnonymous
+app.MapGet("/health", () => Results.Ok(new { status = "Healthy", timestamp = DateTime.UtcNow }))
+   .AllowAnonymous();
 
 app.MapGet("/api/health/db", async (IConfiguration config) =>
 {
@@ -108,42 +126,10 @@ app.MapGet("/api/health/db", async (IConfiguration config) =>
 
         return Results.Ok(new { status = "Connected", version = version?.ToString(), tableCount = tables.Count, tables });
     }
-    catch (Exception ex)
+    catch (Exception)
     {
-        return Results.Problem(detail: ex.Message, title: "Database Connection Failed");
+        return Results.Problem(detail: "Database connection failed. Please contact administrator.", title: "Database Connection Failed");
     }
-});
-
-app.MapPost("/api/admin/run-schema", async (IConfiguration config) =>
-{
-    var connectionString = config.GetConnectionString("DefaultConnection");
-    var sqlPath = @"c:\pridesys\apps\sme\aidlyErp\sme-software-frontend\apps\aidlyPms\database\schema.sql";
-    if (!File.Exists(sqlPath))
-    {
-        return Results.NotFound(new { error = $"File not found at {sqlPath}" });
-    }
-
-    var sql = await File.ReadAllTextAsync(sqlPath);
-    try
-    {
-        await using var conn = new NpgsqlConnection(connectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(sql, conn);
-        cmd.CommandTimeout = 120;
-        await cmd.ExecuteNonQueryAsync();
-
-        // Get table count
-        await using var countCmd = new NpgsqlCommand(
-            "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';", conn);
-        var tableCount = await countCmd.ExecuteScalarAsync();
-
-        return Results.Ok(new { status = "Schema applied successfully", tableCount });
-    }
-    catch (Exception ex)
-    {
-        return Results.Problem(detail: ex.ToString(), title: "Schema Execution Failed");
-    }
-});
+}).AllowAnonymous();
 
 app.Run();
-

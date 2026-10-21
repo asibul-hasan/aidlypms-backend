@@ -206,10 +206,10 @@ public class SubscriptionController : BaseController
 
             return OkResponse(payment, "Subscription renewed successfully! Cloud sync is active.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<SubSubscriptionPayment>($"Subscription renewal failed: {ex.Message}");
+            throw;
         }
     }
 }

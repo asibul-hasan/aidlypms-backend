@@ -22,6 +22,7 @@ public class CustomerController : BaseController
         [FromQuery] int pageIndex = 1,
         [FromQuery] int pageSize = 50)
     {
+        pageSize = Math.Clamp(pageSize, 1, 200);
         await using var conn = await _db.CreateOpenConnectionAsync();
 
         var offset = (pageIndex - 1) * pageSize;

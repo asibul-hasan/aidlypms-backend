@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AidlyPms.Api.Common.Database;
 using Dapper;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -34,22 +35,18 @@ public class AuditActionFilter : IAsyncActionFilter
             return;
         }
 
-        // Capture incoming payload arguments before execution
+        // Capture incoming payload arguments before execution and strip sensitive properties
         string? payloadJson = null;
         try
         {
-            var sanitizedArgs = context.ActionArguments
-                .Where(kvp => !kvp.Key.Contains("password", StringComparison.OrdinalIgnoreCase)
-                           && !kvp.Key.Contains("token", StringComparison.OrdinalIgnoreCase))
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-
-            if (sanitizedArgs.Count > 0)
+            if (context.ActionArguments.Count > 0)
             {
-                payloadJson = JsonSerializer.Serialize(sanitizedArgs, new JsonSerializerOptions
+                var node = JsonSerializer.SerializeToNode(context.ActionArguments, new JsonSerializerOptions
                 {
-                    WriteIndented = false,
                     DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
                 });
+                StripSensitiveProperties(node);
+                payloadJson = node?.ToJsonString();
             }
         }
         catch
@@ -122,6 +119,40 @@ public class AuditActionFilter : IAsyncActionFilter
                     // Audit logging must be non-blocking and fail-safe
                 }
             });
+        }
+    }
+
+    public static void StripSensitiveProperties(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            var keysToRemove = new List<string>();
+            foreach (var kvp in obj)
+            {
+                var key = kvp.Key;
+                if (key.Contains("password", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("token", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("hash", StringComparison.OrdinalIgnoreCase))
+                {
+                    keysToRemove.Add(key);
+                }
+                else
+                {
+                    StripSensitiveProperties(kvp.Value);
+                }
+            }
+
+            foreach (var k in keysToRemove)
+            {
+                obj.Remove(k);
+            }
+        }
+        else if (node is JsonArray arr)
+        {
+            foreach (var item in arr)
+            {
+                StripSensitiveProperties(item);
+            }
         }
     }
 

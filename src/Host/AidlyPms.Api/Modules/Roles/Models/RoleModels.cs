@@ -80,9 +80,11 @@ public class SysUser
     public string? Email { get; set; }
 
     [JsonPropertyName("password")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Password { get; set; }
 
     [JsonPropertyName("password_hash")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? PasswordHash { get; set; }
 
     [JsonPropertyName("gender")]

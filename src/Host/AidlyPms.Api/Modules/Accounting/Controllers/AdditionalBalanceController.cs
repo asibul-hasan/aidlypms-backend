@@ -127,10 +127,10 @@ public class AdditionalBalanceController : BaseController
 
             return OkResponse(model, $"Capital balance of ৳{model.Amount} recorded successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<AccAdditionalBalance>($"Capital injection failed: {ex.Message}");
+            throw;
         }
     }
 

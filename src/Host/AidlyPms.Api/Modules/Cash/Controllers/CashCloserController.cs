@@ -249,6 +249,7 @@ public class CashCloserController : BaseController
     }
 
     [HttpPost("close-shift")]
+    [RequirePermission("cash.close")]
     public async Task<ActionResult<ApiResponse<CashCloser>>> CloseShift([FromBody] CloseShiftPayload payload)
     {
         using var conn = _db.CreateConnection();
@@ -392,10 +393,10 @@ public class CashCloserController : BaseController
 
             return OkResponse(closer, $"Shift #{shiftNo} closed successfully. Discrepancy: ৳{discrepancy:N2}");
         }
-        catch (Exception ex)
+        catch
         {
             tran.Rollback();
-            return FailResponse<CashCloser>($"Shift closing failed: {ex.Message}");
+            throw;
         }
     }
 

@@ -1297,7 +1297,13 @@ INSERT INTO sys_permissions (permission_no, code, module_group, name, descriptio
 (18, 'Permission-Module', 'Administration', 'Permissions ACL', 'Configure system access rights', CURRENT_TIMESTAMP),
 (19, 'Pharmacy-Module', 'Administration', 'Pharmacy Settings', 'Configure store preferences and print settings', CURRENT_TIMESTAMP),
 (20, 'Role-Module', 'Administration', 'Role Management', 'Create and modify employee authorization roles', CURRENT_TIMESTAMP),
-(21, 'sale.return', 'Sales', 'Sales Return & Exchange', 'Process customer sales returns and item exchanges', CURRENT_TIMESTAMP)
+(21, 'sale.return', 'Sales', 'Sales Return & Exchange', 'Process customer sales returns and item exchanges', CURRENT_TIMESTAMP),
+(22, 'void', 'Sales', 'Void Sale Invoice', 'Authorize voiding completed POS sale invoices', CURRENT_TIMESTAMP),
+(23, 'stock.adjust', 'Products', 'Stock Adjustment', 'Authorize recording inventory quantity and cost adjustments', CURRENT_TIMESTAMP),
+(24, 'price.edit', 'Products', 'Price Edit', 'Authorize updating master product purchase and sale prices', CURRENT_TIMESTAMP),
+(25, 'cash.close', 'Accounting', 'Cash Shift Close', 'Authorize closing and reconciling daily cash register shifts', CURRENT_TIMESTAMP),
+(26, 'user.manage', 'Administration', 'User Management', 'Authorize managing employee and staff user accounts', CURRENT_TIMESTAMP),
+(27, 'role.manage', 'Administration', 'Role Management', 'Authorize creating and editing authorization roles and access rights', CURRENT_TIMESTAMP)
 ON CONFLICT (permission_no) DO NOTHING;
 
 -- Default Subscription Plan
@@ -1319,7 +1325,7 @@ ON CONFLICT DO NOTHING;
 -- Assign POS and Customer permissions to PMS Salesman (Role 10)
 INSERT INTO sys_role_permissions (role_no, permission_no, pharmacy_no, branch_no)
 SELECT 10, permission_no, 1, 1 FROM sys_permissions
-WHERE code IN ('PMS-Sale-Module', 'PMS-Customer-Module', 'PMS-Product-Module', 'PMS-Barcode-Module', 'sale.return')
+WHERE code IN ('PMS-Sale-Module', 'PMS-Customer-Module', 'PMS-Product-Module', 'PMS-Barcode-Module', 'sale.return', 'void', 'stock.adjust')
 ON CONFLICT DO NOTHING;
 
 -- Exchange Return Circular FK (Added after both tables exist)

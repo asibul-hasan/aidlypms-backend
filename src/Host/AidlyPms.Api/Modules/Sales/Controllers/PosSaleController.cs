@@ -42,6 +42,7 @@ public class PosSaleController : BaseController
         [FromQuery] int pageIndex = 1,
         [FromQuery] int pageSize = 20)
     {
+        pageSize = Math.Clamp(pageSize, 1, 200);
         (startDate, endDate) = DateHelper.NormalizeDateRange(startDate, endDate);
         await using var conn = await _db.CreateOpenConnectionAsync();
         var offset = (pageIndex - 1) * pageSize;
@@ -224,15 +225,16 @@ public class PosSaleController : BaseController
 
             return OkResponse(result.Invoice, $"Sale {result.SalesNumber} posted successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<SaleInvoice>($"Failed to post sale: {ex.Message}");
+            throw;
         }
     }
 
     [HttpPost("{id:long}/void")]
     [HttpDelete("{id:long}")]
+    [RequirePermission("void")]
     public async Task<ActionResult<ApiResponse<bool>>> VoidSale(
         long id,
         [FromBody] VoidSaleRequest? request = null,
@@ -666,10 +668,10 @@ public class PosSaleController : BaseController
             await tran.CommitAsync();
             return OkResponse(true, $"Invoice {invoice.SalesNumber} voided, stock restored, customer dues/points reversed, and ledger reversed successfully.");
         }
-        catch (Exception ex)
+        catch
         {
             await tran.RollbackAsync();
-            return FailResponse<bool>($"Failed to void invoice: {ex.Message}");
+            throw;
         }
     }
 }
