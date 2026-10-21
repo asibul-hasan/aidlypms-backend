@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.10.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.1...v1.10.2) (2026-10-21)
+
+
+### 🐛 Bug Fixes
+
+* **tests:** enable out-of-stock sales in test seed config for integration tests ([cea34dc](https://github.com/asibul-hasan/aidlypms-backend/commit/cea34dc45419c894ba129be91d86d337d44467f5))
+
+
+### 🧪 Tests
+
+* **roles:** add tests verifying Menu and Role Permission endpoints, security attributes, and schema ([49e9141](https://github.com/asibul-hasan/aidlypms-backend/commit/49e91410f73571868ff803bafe0a3cd2e0c09257))
+
 ## [1.10.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.0...v1.10.1) (2026-10-21)
 
 
