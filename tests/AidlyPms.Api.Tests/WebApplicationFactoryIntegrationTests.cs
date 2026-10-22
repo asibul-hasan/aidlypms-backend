@@ -891,11 +891,11 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         const long testCustNo = 900260;
         await conn.ExecuteAsync(@"
             INSERT INTO cust_customers (
-                customer_no, uuid, pharmacy_no, branch_no, name, phone,
-                has_due, current_due, advance_balance, is_active, created_at, updated_at
+                customer_no, uuid, pharmacy_no, branch_no, name, phone, customer_type, discount_percent,
+                has_due, current_due, advance_balance, is_loyalty_member, loyalty_points, is_active, created_at, updated_at
             ) VALUES (
-                @testCustNo, gen_random_uuid(), @p, @b, 'SoftDelete Customer', '01799999999',
-                TRUE, 500.00, 0.00, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                @testCustNo, gen_random_uuid(), @p, @b, 'SoftDelete Customer', '01799999999', 1, 0,
+                TRUE, 500.00, 0.00, FALSE, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (customer_no) DO UPDATE SET has_due = TRUE, current_due = 500.00, is_active = TRUE;
         ", new { p = TestPharmacyNo, b = TestBranchNo, testCustNo });
 
@@ -924,10 +924,10 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         const long testSuppNo = 900270;
         await conn.ExecuteAsync(@"
             INSERT INTO supp_suppliers (
-                supplier_no, uuid, pharmacy_no, branch_no, name, contact_person, phone,
+                supplier_no, pharmacy_no, branch_no, name, phone,
                 current_due_balance, is_active, created_at, updated_at
             ) VALUES (
-                @testSuppNo, gen_random_uuid(), @p, @b, 'SoftDelete Supplier', 'Sales Rep', '01788888888',
+                @testSuppNo, @p, @b, 'SoftDelete Supplier', '01788888888',
                 1200.00, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (supplier_no) DO UPDATE SET current_due_balance = 1200.00, is_active = TRUE;
         ", new { p = TestPharmacyNo, b = TestBranchNo, testSuppNo });
