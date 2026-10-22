@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.12.7](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.6...v1.12.7) (2026-10-22)
+
+
+### 🐛 Bug Fixes
+
+* **migrations:** add missing Npgsql import to migration runner and sync database schema ([41cc7ee](https://github.com/asibul-hasan/aidlypms-backend/commit/41cc7eee1891e35e4efb817ea7e2856a40c19cf3))
+
 ## [1.12.6](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.5...v1.12.6) (2026-10-22)
 
 
