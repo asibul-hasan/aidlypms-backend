@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.12.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.3...v1.12.4) (2026-10-22)
+
+
+### 🐛 Bug Fixes
+
+* **tests:** align customer and supplier seed schema in soft-delete integration test ([d9d514b](https://github.com/asibul-hasan/aidlypms-backend/commit/d9d514bacf60ec744e434d43ae57dd6e307ff16c))
+
 ## [1.12.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.2...v1.12.3) (2026-10-22)
 
 
