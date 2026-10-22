@@ -112,6 +112,12 @@ public class SubSubscriptionPayment
 
     [JsonPropertyName("download_invoice_url")]
     public string? DownloadInvoiceUrl { get; set; }
+
+    [JsonPropertyName("billing_cycle")]
+    public short? BillingCycle { get; set; }
+
+    [JsonPropertyName("plan_no")]
+    public long? PlanNo { get; set; }
 }
 
 public class RenewalPaymentPayload
@@ -140,6 +146,12 @@ public class GatewayCallbackPayload
     [JsonPropertyName("transaction_reference")]
     public string? TransactionReference { get; set; }
 
+    [JsonPropertyName("amount")]
+    public decimal? Amount { get; set; }
+
     [JsonPropertyName("status")]
     public string Status { get; set; } = "Completed";
+
+    [JsonPropertyName("signature")]
+    public string? Signature { get; set; }
 }

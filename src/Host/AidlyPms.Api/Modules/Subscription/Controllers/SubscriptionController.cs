@@ -3,6 +3,7 @@ using AidlyPms.Api.Common.Database;
 using AidlyPms.Api.Modules.Subscription.Models;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 
 namespace AidlyPms.Api.Modules.Subscription.Controllers;
 
@@ -11,10 +12,12 @@ namespace AidlyPms.Api.Modules.Subscription.Controllers;
 public class SubscriptionController : BaseController
 {
     private readonly IDbConnectionFactory _db;
+    private readonly IConfiguration _config;
 
-    public SubscriptionController(IDbConnectionFactory db)
+    public SubscriptionController(IDbConnectionFactory db, IConfiguration config)
     {
         _db = db;
+        _config = config;
     }
 
     [HttpGet("plans")]
@@ -118,14 +121,16 @@ public class SubscriptionController : BaseController
     public async Task<ActionResult<ApiResponse<SubSubscriptionPayment>>> PayBkash(
         [FromBody] RenewalPaymentPayload payload)
     {
-        return await ProcessPaymentInternalAsync(payload, isAutoConfirm: true);
+        var isAutoConfirm = _config.GetValue<bool>("Subscription:DemoAutoActivate", false);
+        return await ProcessPaymentInternalAsync(payload, isAutoConfirm: isAutoConfirm);
     }
 
     [HttpPost("renew")]
     public async Task<ActionResult<ApiResponse<SubSubscriptionPayment>>> RenewSubscription(
         [FromBody] RenewalPaymentPayload payload)
     {
-        return await ProcessPaymentInternalAsync(payload, isAutoConfirm: false);
+        var isAutoConfirm = _config.GetValue<bool>("Subscription:DemoAutoActivate", false);
+        return await ProcessPaymentInternalAsync(payload, isAutoConfirm: isAutoConfirm);
     }
 
     private async Task<ActionResult<ApiResponse<SubSubscriptionPayment>>> ProcessPaymentInternalAsync(
@@ -193,6 +198,7 @@ public class SubscriptionController : BaseController
                 : payload.TransactionReference;
 
             var paymentStatus = isAutoConfirm ? "Completed" : "Pending";
+            var billingCycleInt = (short)(isYearly ? 2 : 1);
 
             var payment = new SubSubscriptionPayment
             {
@@ -208,7 +214,9 @@ public class SubscriptionController : BaseController
                 FinalAmount = finalAmount,
                 PaymentStatus = paymentStatus,
                 PaymentTimestamp = DateTime.UtcNow,
-                DownloadInvoiceUrl = $"/invoices/sub-{nextPaymentNo}.pdf"
+                DownloadInvoiceUrl = $"/invoices/sub-{nextPaymentNo}.pdf",
+                BillingCycle = billingCycleInt,
+                PlanNo = plan.PlanNo
             };
 
             const string insertPaymentSql = @"
@@ -216,20 +224,19 @@ public class SubscriptionController : BaseController
                     subscription_payment_no, pharmacy_no, branch_no, subscription_no,
                     transaction_reference, payment_gateway, subtotal, discount_code,
                     discount_amount, final_amount, payment_status, payment_timestamp,
-                    download_invoice_url
+                    download_invoice_url, billing_cycle, plan_no
                 ) VALUES (
                     @SubscriptionPaymentNo, @PharmacyNo, @BranchNo, @SubscriptionNo,
                     @TransactionReference, @PaymentGateway, @Subtotal, @DiscountCode,
                     @DiscountAmount, @FinalAmount, @PaymentStatus, @PaymentTimestamp,
-                    @DownloadInvoiceUrl
+                    @DownloadInvoiceUrl, @BillingCycle, @PlanNo
                 );";
 
             await conn.ExecuteAsync(insertPaymentSql, payment, tran);
 
             if (isAutoConfirm)
             {
-                var durationDays = isYearly ? 365 : 30;
-                var billingCycleInt = isYearly ? 2 : 1;
+                var durationDays = billingCycleInt == 2 ? 365 : 30;
                 const string updateSubSql = @"
                     UPDATE sub_pharmacy_subscriptions
                     SET subscription_status = 2,
@@ -256,128 +263,6 @@ public class SubscriptionController : BaseController
                 : "Subscription payment initiated as Pending. Awaiting payment gateway callback or manual confirmation.";
 
             return OkResponse(payment, message);
-        }
-        catch
-        {
-            await tran.RollbackAsync();
-            throw;
-        }
-    }
-
-    [HttpPost("payments/{paymentNo:long}/confirm")]
-    public async Task<ActionResult<ApiResponse<SubSubscriptionPayment>>> ConfirmPayment(long paymentNo)
-    {
-        await using var conn = await _db.CreateOpenConnectionAsync();
-        await using var tran = await conn.BeginTransactionAsync();
-
-        try
-        {
-            var payment = await conn.QuerySingleOrDefaultAsync<SubSubscriptionPayment>(@"
-                SELECT * FROM sub_subscription_payments
-                WHERE subscription_payment_no = @paymentNo AND pharmacy_no = @CurrentPharmacyNo;",
-                new { paymentNo, CurrentPharmacyNo }, tran);
-
-            if (payment == null)
-            {
-                return FailResponse<SubSubscriptionPayment>("Payment record not found.", statusCode: 404);
-            }
-
-            if (string.Equals(payment.PaymentStatus, "Completed", StringComparison.OrdinalIgnoreCase))
-            {
-                return OkResponse(payment, "Payment is already confirmed and completed.");
-            }
-
-            await conn.ExecuteAsync(@"
-                UPDATE sub_subscription_payments
-                SET payment_status = 'Completed'
-                WHERE subscription_payment_no = @paymentNo;",
-                new { paymentNo }, tran);
-
-            // Extend the subscription end date (30 days for monthly, 365 for yearly)
-            var durationDays = payment.Subtotal >= 5000 ? 365 : 30;
-            const string updateSubSql = @"
-                UPDATE sub_pharmacy_subscriptions
-                SET subscription_status = 2,
-                    billing_cycle = CASE WHEN @Days >= 365 THEN 2 ELSE 1 END,
-                    monthly_rate = @MonthlyRate,
-                    subscription_end_date = GREATEST(subscription_end_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
-                    next_payment_date = GREATEST(next_payment_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
-                    updated_at = NOW()
-                WHERE subscription_no = @SubscriptionNo;";
-
-            await conn.ExecuteAsync(updateSubSql, new
-            {
-                Days = durationDays,
-                MonthlyRate = payment.Subtotal,
-                SubscriptionNo = payment.SubscriptionNo
-            }, tran);
-
-            await tran.CommitAsync();
-
-            payment.PaymentStatus = "Completed";
-            return OkResponse(payment, "Payment confirmed successfully. Subscription extended.");
-        }
-        catch
-        {
-            await tran.RollbackAsync();
-            throw;
-        }
-    }
-
-    [HttpPost("callback/{gateway}")]
-    public async Task<ActionResult<ApiResponse<object>>> GatewayCallback(string gateway, [FromBody] GatewayCallbackPayload payload)
-    {
-        await using var conn = await _db.CreateOpenConnectionAsync();
-        await using var tran = await conn.BeginTransactionAsync();
-
-        try
-        {
-            var payment = await conn.QuerySingleOrDefaultAsync<SubSubscriptionPayment>(@"
-                SELECT * FROM sub_subscription_payments
-                WHERE (transaction_reference = @TrxRef OR subscription_payment_no = @PaymentNo)
-                  AND pharmacy_no = @CurrentPharmacyNo;",
-                new { TrxRef = payload.TransactionReference ?? "", PaymentNo = payload.PaymentNo ?? 0, CurrentPharmacyNo }, tran);
-
-            if (payment == null)
-            {
-                return FailResponse<object>("Matching subscription payment record not found.", statusCode: 404);
-            }
-
-            if (string.Equals(payload.Status, "Success", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(payload.Status, "Completed", StringComparison.OrdinalIgnoreCase))
-            {
-                await conn.ExecuteAsync(@"
-                    UPDATE sub_subscription_payments
-                    SET payment_status = 'Completed'
-                    WHERE subscription_payment_no = @PaymentNo;",
-                    new { PaymentNo = payment.SubscriptionPaymentNo }, tran);
-
-                var durationDays = payment.Subtotal >= 5000 ? 365 : 30;
-                await conn.ExecuteAsync(@"
-                    UPDATE sub_pharmacy_subscriptions
-                    SET subscription_status = 2,
-                        billing_cycle = CASE WHEN @Days >= 365 THEN 2 ELSE 1 END,
-                        monthly_rate = @MonthlyRate,
-                        subscription_end_date = GREATEST(subscription_end_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
-                        next_payment_date = GREATEST(next_payment_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
-                        updated_at = NOW()
-                    WHERE subscription_no = @SubscriptionNo;",
-                    new { Days = durationDays, MonthlyRate = payment.Subtotal, SubscriptionNo = payment.SubscriptionNo }, tran);
-
-                await tran.CommitAsync();
-                return OkResponse<object>(new { payment_no = payment.SubscriptionPaymentNo, status = "Completed" }, "Gateway payment confirmed.");
-            }
-            else
-            {
-                await conn.ExecuteAsync(@"
-                    UPDATE sub_subscription_payments
-                    SET payment_status = 'Failed'
-                    WHERE subscription_payment_no = @PaymentNo;",
-                    new { PaymentNo = payment.SubscriptionPaymentNo }, tran);
-
-                await tran.CommitAsync();
-                return OkResponse<object>(new { payment_no = payment.SubscriptionPaymentNo, status = "Failed" }, "Gateway payment marked as failed.");
-            }
         }
         catch
         {

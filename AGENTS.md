@@ -77,3 +77,18 @@ git -C sme-software-frontend push origin main
 - Production CORS origins are supplied strictly via the `ALLOWED_ORIGINS` environment variable (comma or semicolon-separated, e.g. `ALLOWED_ORIGINS=https://app.aidlypms.com,https://admin.aidlypms.com`).
 - Localhost origins are restricted strictly to `appsettings.Development.json`.
 - When no origins are configured via `ALLOWED_ORIGINS` or development configuration, the backend logs a startup warning (`"No CORS AllowedOrigins configured! Cross-origin requests will not be permitted."`) and forbids cross-origin requests.
+
+---
+
+### Rule 7: NBR Statutory Invoice Compliance (Future Ticket)
+- [ ] Statutory NBR-compliant tax invoice formatting:
+  Aidly PMS receipts currently print the pharmacy's Business Identification Number (BIN) and Drug License (DL) for operational and identification purposes. No statutory NBR Mushak-6.3 compliance is claimed in code or documentation.
+  To achieve full statutory NBR-style tax invoice compliance, the following required fields must be added and validated:
+  - Buyer name and address (when required by VAT rules / registered buyer purchases).
+  - Explicit fiscal invoice serial number.
+  - Date and time of supply.
+  - Itemized value (excluding VAT) per line item.
+  - Applicable VAT rate and VAT amount explicitly itemized per line item.
+  - Total VAT and gross payable breakdown.
+  Reference: National Board of Revenue (NBR) Value Added Tax and Supplementary Duty Act & Rules.
+

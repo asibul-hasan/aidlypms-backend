@@ -58,6 +58,17 @@ jobs:
           echo "Pre-populating aidly_test database with schema.sql..."
           psql -h localhost -U postgres -d aidly_test -v ON_ERROR_STOP=1 -f database/schema.sql
 
+      - name: Verify Migrations Parity with Frontend Copy
+        run: |
+          echo "Verifying database/migrations parity against sme-software-frontend..."
+          git clone --depth 1 https://github.com/asibul-hasan/sme-software-frontend.git fe-check
+          if ! diff -ru database/migrations fe-check/apps/aidlyPms/database/migrations; then
+            echo "::error::aidlypms-backend/database/migrations differs from sme-software-frontend/apps/aidlyPms/database/migrations!"
+            exit 1
+          fi
+          echo "Database migrations match frontend copy 100%."
+          rm -rf fe-check
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

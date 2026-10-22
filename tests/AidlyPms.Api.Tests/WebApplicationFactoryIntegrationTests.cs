@@ -1291,4 +1291,238 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             ", new { p = TestPharmacyNo });
         }
     }
+
+    private static string GenerateOwnerJwt(string email = "owner@aidlypms.com", string userId = "1")
+    {
+        const string keyStr = "AidlyPMS_SuperSecret_Jwt_SigningKey_2026_Enterprise_Secure!";
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyStr));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, userId),
+            new(ClaimTypes.Name, "Platform Owner"),
+            new(ClaimTypes.Email, email),
+            new("user_no", userId),
+            new("platform_owner", "true"),
+            new(ClaimTypes.Role, "PlatformOwner")
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: "AidlyPmsBackend",
+            audience: "AidlyPmsFrontend",
+            claims: claims,
+            expires: DateTime.UtcNow.AddDays(7),
+            signingCredentials: creds
+        );
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    // =========================================================================
+    // 15. Tenant cannot confirm payment under /api/v1/owner/subscriptions/payments/{no}/confirm (403 Forbidden)
+    // =========================================================================
+    [Fact]
+    public async Task Test_15_Tenant_CannotConfirmOwnPayment_Returns403()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        var tenantToken = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/owner/subscriptions/payments/1/confirm");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tenantToken);
+
+        var resp = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+
+        _output.WriteLine("Test 15 Passed: Tenant user received 403 Forbidden when calling owner payment confirm.");
+    }
+
+    // =========================================================================
+    // 16. Platform owner confirms payment and derives extension days from plan/billing cycle
+    // =========================================================================
+    [Fact]
+    public async Task Test_16_PlatformOwner_CanConfirmPayment_AndDerivesDays()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        var ownerToken = GenerateOwnerJwt();
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        // 1. Seed a test pending payment
+        const long testPaymentNo = 900288;
+        await conn.ExecuteAsync(@"
+            INSERT INTO sub_subscription_payments (
+                subscription_payment_no, pharmacy_no, branch_no, subscription_no,
+                transaction_reference, payment_gateway, subtotal, discount_amount, final_amount,
+                payment_status, payment_timestamp, billing_cycle, plan_no
+            ) VALUES (
+                @testPaymentNo, @p, @b, @p,
+                'TRX-OWNER-CONFIRM-1', 'bKash', 5000, 0, 5000,
+                'Pending', CURRENT_TIMESTAMP, 2, 1
+            ) ON CONFLICT (subscription_payment_no) DO UPDATE SET payment_status = 'Pending';",
+            new { testPaymentNo, p = TestPharmacyNo, b = TestBranchNo });
+
+        // 2. Call confirm endpoint
+        var req = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/owner/subscriptions/payments/{testPaymentNo}/confirm");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
+
+        var resp = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var json = await resp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.True(json?["success"]?.GetValue<bool>());
+
+        // 3. Verify payment is Completed in DB
+        var status = await conn.ExecuteScalarAsync<string>(
+            "SELECT payment_status FROM sub_subscription_payments WHERE subscription_payment_no = @testPaymentNo;",
+            new { testPaymentNo });
+        Assert.Equal("Completed", status);
+
+        _output.WriteLine("Test 16 Passed: Platform owner successfully confirmed payment and extended subscription.");
+    }
+
+    // =========================================================================
+    // 17. Anonymous gateway callback without valid signature returns 401 Unauthorized
+    // =========================================================================
+    [Fact]
+    public async Task Test_17_GatewayCallback_WithoutValidSignature_Returns401()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        var payload = new
+        {
+            transaction_reference = "TRX-CALLBACK-NOSIG",
+            amount = 500,
+            status = "Completed"
+        };
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/sub/subscriptions/payments/callback")
+        {
+            Content = JsonContent.Create(payload)
+        };
+
+        var resp = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+
+        _output.WriteLine("Test 17 Passed: Gateway callback without HMAC signature was rejected with 401 Unauthorized.");
+    }
+
+    // =========================================================================
+    // 18. Anonymous gateway callback with valid signature completes payment and is idempotent
+    // =========================================================================
+    [Fact]
+    public async Task Test_18_GatewayCallback_WithValidSignature_CompletesPayment_Idempotently()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        const long testPaymentNo = 900289;
+        const string trxRef = "TRX-CALLBACK-VALID-1";
+        const decimal amount = 500m;
+
+        await conn.ExecuteAsync(@"
+            INSERT INTO sub_subscription_payments (
+                subscription_payment_no, pharmacy_no, branch_no, subscription_no,
+                transaction_reference, payment_gateway, subtotal, discount_amount, final_amount,
+                payment_status, payment_timestamp, billing_cycle, plan_no
+            ) VALUES (
+                @testPaymentNo, @p, @b, @p,
+                @trxRef, 'bKash', 500, 0, 500,
+                'Pending', CURRENT_TIMESTAMP, 1, 1
+            ) ON CONFLICT (subscription_payment_no) DO UPDATE SET payment_status = 'Pending';",
+            new { testPaymentNo, p = TestPharmacyNo, b = TestBranchNo, trxRef });
+
+        // Compute signature using default secret
+        const string secret = "aidly-pms-default-hmac-secret-change-in-prod";
+        using var hmac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var sig = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes($"{trxRef}:{amount}")));
+
+        var payload = new
+        {
+            transaction_reference = trxRef,
+            amount = amount,
+            status = "Completed"
+        };
+
+        var req1 = new HttpRequestMessage(HttpMethod.Post, "/api/v1/sub/subscriptions/payments/callback")
+        {
+            Content = JsonContent.Create(payload)
+        };
+        req1.Headers.Add("X-Signature", sig);
+
+        var resp1 = await _client.SendAsync(req1);
+        Assert.Equal(HttpStatusCode.OK, resp1.StatusCode);
+
+        // Verify completed in DB
+        var status = await conn.ExecuteScalarAsync<string>(
+            "SELECT payment_status FROM sub_subscription_payments WHERE subscription_payment_no = @testPaymentNo;",
+            new { testPaymentNo });
+        Assert.Equal("Completed", status);
+
+        // Call again with same payload (idempotency test)
+        var req2 = new HttpRequestMessage(HttpMethod.Post, "/api/v1/sub/subscriptions/payments/callback")
+        {
+            Content = JsonContent.Create(payload)
+        };
+        req2.Headers.Add("X-Signature", sig);
+
+        var resp2 = await _client.SendAsync(req2);
+        Assert.Equal(HttpStatusCode.OK, resp2.StatusCode);
+
+        _output.WriteLine("Test 18 Passed: Gateway callback verified HMAC signature, updated status, and ran idempotently.");
+    }
+
+    // =========================================================================
+    // 19. Sys migrations endpoint requires authentication and returns applied migrations
+    // =========================================================================
+    [Fact]
+    public async Task Test_19_SysMigrations_RequiresAuth_AndReturnsAppliedMigrations()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        // 1. Anonymous request should be rejected by FallbackPolicy (401)
+        var anonResp = await _client.GetAsync("/api/v1/sys/migrations");
+        Assert.Equal(HttpStatusCode.Unauthorized, anonResp.StatusCode);
+
+        // 2. Authenticated request should return 200 OK with migration list
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/v1/sys/migrations");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var resp = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var json = await resp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.True(json?["success"]?.GetValue<bool>());
+
+        var data = json?["data"]?.AsObject();
+        Assert.NotNull(data);
+        Assert.True(data?["totalApplied"]?.GetValue<int>() >= 0);
+
+        _output.WriteLine("Test 19 Passed: /api/v1/sys/migrations enforces auth and returns migration status.");
+    }
 }

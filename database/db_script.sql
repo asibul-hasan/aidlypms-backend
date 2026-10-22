@@ -1192,7 +1192,9 @@ CREATE TABLE IF NOT EXISTS sub_subscription_payments (
     final_amount NUMERIC NOT NULL,
     payment_status VARCHAR(50) NOT NULL,
     payment_timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-    download_invoice_url TEXT
+    download_invoice_url TEXT,
+    billing_cycle SMALLINT,
+    plan_no BIGINT
 );
 
 -- ============================================================================
@@ -1275,6 +1277,9 @@ CREATE INDEX IF NOT EXISTS idx_sys_audit_logs_user ON sys_audit_logs(pharmacy_no
 -- Clinical & Prescriptions
 CREATE INDEX IF NOT EXISTS idx_doc_prescription_items_parent ON doc_prescription_items(prescription_no);
 CREATE INDEX IF NOT EXISTS idx_prod_requisition_items_parent ON prod_product_requisition_items(requisition_no);
+
+-- Subscriptions & Payments
+CREATE INDEX IF NOT EXISTS idx_sub_payments_trx_ref ON sub_subscription_payments(transaction_reference);
 
 -- ============================================================================
 -- 12. SEED DATA (EXPLICIT APPLICATION-MANAGED IDENTIFIERS)
