@@ -158,18 +158,56 @@ public class AuditLogController : BaseController
             var node = JsonNode.Parse(json);
             if (node != null)
             {
-                AuditActionFilter.StripSensitiveProperties(node);
+                RedactSensitiveProperties(node);
                 return node.ToJsonString();
             }
         }
         catch
         {
-            return System.Text.RegularExpressions.Regex.Replace(
-                json,
-                @"""(password|token|hash|secret|pin|cvv)""\s*:\s*""[^""]*""",
-                @"""$1"": ""[REDACTED]""",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // fallback regex
         }
-        return json;
+
+        return System.Text.RegularExpressions.Regex.Replace(
+            json,
+            @"""(password|token|hash|secret|pin|cvv)""\s*:\s*""[^""]*""",
+            @"""$1"": ""[REDACTED]""",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
+    private static void RedactSensitiveProperties(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            var keysToRedact = new List<string>();
+            foreach (var kvp in obj)
+            {
+                var key = kvp.Key;
+                if (key.Contains("password", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("token", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("hash", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("secret", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("pin", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("cvv", StringComparison.OrdinalIgnoreCase))
+                {
+                    keysToRedact.Add(key);
+                }
+                else
+                {
+                    RedactSensitiveProperties(kvp.Value);
+                }
+            }
+
+            foreach (var k in keysToRedact)
+            {
+                obj[k] = "[REDACTED]";
+            }
+        }
+        else if (node is JsonArray arr)
+        {
+            foreach (var item in arr)
+            {
+                RedactSensitiveProperties(item);
+            }
+        }
     }
 }

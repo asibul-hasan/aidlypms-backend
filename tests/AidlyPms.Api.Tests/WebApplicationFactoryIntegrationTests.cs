@@ -830,11 +830,11 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             INSERT INTO prod_product_batches (
                 batch_no, pharmacy_no, branch_no, product_no, batch_number,
                 expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
-                cost_per_box, sale_price_per_box, vat_percent, is_expired
+                cost_per_box, sale_price_per_box, vat_percent, is_expired, created_at
             ) VALUES (
                 900250, @p, @b, @testProdNo, 'BATCH-SD-1',
                 CURRENT_TIMESTAMP + INTERVAL '1 year', 5, 10, 50,
-                100, 150, 0, FALSE
+                100, 150, 0, FALSE, CURRENT_TIMESTAMP
             ) ON CONFLICT (batch_no) DO UPDATE SET total_quantity_pcs = 50;
         ", new { p = TestPharmacyNo, b = TestBranchNo, testProdNo });
 
@@ -998,11 +998,11 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             INSERT INTO prod_product_batches (
                 batch_no, pharmacy_no, branch_no, product_no, batch_number,
                 expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
-                cost_per_box, sale_price_per_box, vat_percent, is_expired
+                cost_per_box, sale_price_per_box, vat_percent, is_expired, created_at
             ) VALUES (
                 900280, @p, @b, @transferProdNo, 'BATCH-XFER-1',
                 CURRENT_TIMESTAMP + INTERVAL '1 year', 10, 10, 100,
-                80, 120, 0, FALSE
+                80, 120, 0, FALSE, CURRENT_TIMESTAMP
             ) ON CONFLICT (batch_no) DO UPDATE SET total_quantity_pcs = 100;
         ", new { p = TestPharmacyNo, b = TestBranchNo, transferProdNo });
 
@@ -1245,11 +1245,11 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             INSERT INTO prod_product_batches (
                 batch_no, pharmacy_no, branch_no, product_no, batch_number,
                 expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
-                cost_per_box, sale_price_per_box, vat_percent, is_expired
+                cost_per_box, sale_price_per_box, vat_percent, is_expired, created_at
             ) VALUES (
                 900299, @p, @b, @unmappedProdNo, 'BATCH-UNMAP-1',
                 CURRENT_TIMESTAMP + INTERVAL '1 year', 10, 1, 10,
-                50, 100, 0, FALSE
+                50, 100, 0, FALSE, CURRENT_TIMESTAMP
             ) ON CONFLICT (batch_no) DO UPDATE SET total_quantity_pcs = 10;
         ", new { unmappedProdNo, p = TestPharmacyNo, b = TestBranchNo });
 
