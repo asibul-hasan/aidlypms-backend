@@ -397,7 +397,7 @@ public class DueCollectionController : BaseController
             }
 
             var nextDueCollNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(due_collection_no), 0) + 1 FROM due_collections;", transaction: tran);
+                "SELECT nextval('seq_due_collection_no');", transaction: tran);
 
             short methodCode = 1; // Default 1: Cash
             if (!string.IsNullOrWhiteSpace(req.Method))

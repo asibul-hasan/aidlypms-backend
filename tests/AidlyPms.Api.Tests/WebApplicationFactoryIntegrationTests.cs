@@ -35,7 +35,9 @@ namespace AidlyPms.Api.Tests;
 public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
-    private readonly string? _connectionString;
+    private readonly string? _baseConnectionString;
+    private PostgresTestSchemaHarness? _harness;
+    private string? _connectionString;
     private WebApplicationFactory<Program>? _factory;
     private HttpClient? _client;
 
@@ -44,47 +46,28 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
     public const long TestUserNo = 9002;
     public const long TestManagerRoleNo = 9;
     public const long TestRestrictedRoleNo = 9999;
+    public const long TestCashierRoleNo = 10;
 
     public WebApplicationFactoryIntegrationTests(ITestOutputHelper output)
     {
         _output = output;
         Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 
-        var rawConnStr = Environment.GetEnvironmentVariable("TEST_POSTGRES_CONNECTION");
-        if (string.IsNullOrWhiteSpace(rawConnStr))
+        _baseConnectionString = Environment.GetEnvironmentVariable("TEST_POSTGRES_CONNECTION");
+        if (string.IsNullOrWhiteSpace(_baseConnectionString))
         {
             _output.WriteLine("TEST_POSTGRES_CONNECTION is not set. WebApplicationFactory tests will run in dry-run mode.");
-            return;
         }
-
-        // Safety allow-list guard
-        var builder = new NpgsqlConnectionStringBuilder(rawConnStr);
-        var host = builder.Host?.ToLowerInvariant() ?? "";
-        var database = builder.Database?.ToLowerInvariant() ?? "";
-        var isLocal = host == "localhost" || host == "127.0.0.1" || host == "::1";
-        var isTestDb = database.EndsWith("_test", StringComparison.OrdinalIgnoreCase);
-
-        if (!isLocal || !isTestDb || rawConnStr.Contains("supabase", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                $"SAFETY BLOCK: TEST_POSTGRES_CONNECTION must point to a local host (localhost, 127.0.0.1, ::1) and a database name ending with '_test'. Found host '{host}' and database '{database}'.");
-        }
-
-        _connectionString = rawConnStr;
     }
 
     public async Task InitializeAsync()
     {
-        if (string.IsNullOrWhiteSpace(_connectionString)) return;
+        if (string.IsNullOrWhiteSpace(_baseConnectionString)) return;
 
-        // Ensure schema is fully initialized before starting WebApplicationFactory
-        await using (var connInit = new NpgsqlConnection(_connectionString))
-        {
-            await connInit.OpenAsync();
-            await RealPostgreSqlIntegrationTests.EnsurePublicSchemaInitializedAsync(connInit);
-        }
+        _harness = await PostgresTestSchemaHarness.CreateAsync(_baseConnectionString);
+        _connectionString = _harness.IsolatedConnectionString;
 
-        // Initialize WebApplicationFactory with test connection string
+        // Initialize WebApplicationFactory with test connection string (isolated schema Search Path)
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
@@ -100,7 +83,7 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
         _client = _factory.CreateClient();
 
-        // Seed test pharmacy and master records
+        // Seed test pharmacy and master records inside isolated schema
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await EnsureSeedAsync(conn);
@@ -108,22 +91,16 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        if (!string.IsNullOrWhiteSpace(_connectionString))
+        _client?.Dispose();
+        if (_factory != null)
         {
-            try
-            {
-                await using var conn = new NpgsqlConnection(_connectionString);
-                await conn.OpenAsync();
-                await CleanupAsync(conn);
-            }
-            catch
-            {
-                // Suppress errors during runner shutdown
-            }
+            await _factory.DisposeAsync();
         }
 
-        _client?.Dispose();
-        _factory?.Dispose();
+        if (_harness != null)
+        {
+            await _harness.DisposeAsync();
+        }
     }
 
     private static string GenerateJwt(long pharmacyNo, long branchNo, long userNo, long roleNo, string roleName)
@@ -156,8 +133,6 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
     private static async Task EnsureSeedAsync(NpgsqlConnection conn)
     {
-        await RealPostgreSqlIntegrationTests.EnsurePublicSchemaInitializedAsync(conn);
-
         await conn.ExecuteAsync(@"
             INSERT INTO sys_pharmacies (
                 pharmacy_no, uuid, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
@@ -768,5 +743,34 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         Assert.Equal(0.00m, clearingBalance);
 
         _output.WriteLine("Test_8 Passed: Exchange Case 2 successfully refunded / gave back ৳30 difference, return recorded, clearing account netted to 0.");
+    }
+
+    [Fact]
+    public async Task Test_9_CashierRole_WithoutExpensePermission_Returns403Forbidden()
+    {
+        if (_client == null)
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        // Cashier role (10) lacks PMS-Expense-Module permission
+        var cashierToken = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestCashierRoleNo, "PMS Salesman");
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/acc/expenses")
+        {
+            Content = JsonContent.Create(new
+            {
+                expense_category_no = 1,
+                amount = 250.00m,
+                expense_date = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                note = "Unauthorized Cashier Expense Attempt"
+            })
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cashierToken);
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        _output.WriteLine("Test 9 Passed: Cashier role without PMS-Expense-Module permission correctly received HTTP 403 Forbidden.");
     }
 }

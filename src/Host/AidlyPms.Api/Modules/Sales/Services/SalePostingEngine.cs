@@ -199,7 +199,7 @@ public class SalePostingEngine : ISalePostingEngine
                     else
                     {
                         var newBatchNo = await conn.ExecuteScalarAsync<long>(
-                            "SELECT COALESCE(MAX(batch_no), 0) + 1 FROM prod_product_batches;", transaction: tran);
+                            "SELECT nextval('seq_prod_batch_no');", transaction: tran);
                         var defaultBatchNum = !string.IsNullOrWhiteSpace(line.BatchNumber) ? line.BatchNumber.Trim() : "PRE-PURCHASE";
                         var expiry = new DateTime(2099, 12, 31);
                         var qInBox = product.QuantityPerBox > 0 ? product.QuantityPerBox : 10;
@@ -462,7 +462,7 @@ public class SalePostingEngine : ISalePostingEngine
         {
             paymentsToRecord.Add(new SaleInvoicePayment
             {
-                AccountNo = 1, // Main Cash Drawer
+                AccountNo = 0, // Resolve dynamically below
                 PaymentMethod = invoice.PaymentMethod > 0 ? invoice.PaymentMethod : (short)1,
                 Amount = expectedPaymentTotal
             });
@@ -515,6 +515,11 @@ public class SalePostingEngine : ISalePostingEngine
                     1 => await conn.ExecuteScalarAsync<long?>(@"
                         SELECT account_no FROM acc_transaction_accounts
                         WHERE account_code = '10101' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
+                        new { pharmacyNo, branchNo }, transaction: tran)
+                        ?? await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE account_category = 1 AND pharmacy_no = @pharmacyNo
+                        ORDER BY (branch_no = @branchNo) DESC, account_no ASC LIMIT 1;",
                         new { pharmacyNo, branchNo }, transaction: tran) ?? 1,
                     2 => await conn.ExecuteScalarAsync<long?>(@"
                         SELECT account_no FROM acc_transaction_accounts

@@ -105,7 +105,7 @@ public class SupplierPaymentController : BaseController
             var paymentNumber = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "SUPP_PAY");
 
             var nextPaymentNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(supplier_payment_no), 0) + 1 FROM pur_supplier_payments;", transaction: tran);
+                "SELECT nextval('seq_supplier_payment_no');", transaction: tran);
 
             payload.SupplierPaymentNo = nextPaymentNo;
             payload.PharmacyNo = CurrentPharmacyNo;

@@ -130,7 +130,7 @@ public class PurchaseReturnController : BaseController
             var returnNumber = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "PUR_RETURN");
 
             var nextReturnNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(purchase_return_no), 0) + 1 FROM pur_purchase_returns;", transaction: tran);
+                "SELECT nextval('seq_purchase_return_no');", transaction: tran);
 
             decimal grossTotal = 0;
             var processedItems = new List<PurPurchaseReturnItem>();
@@ -241,7 +241,7 @@ public class PurchaseReturnController : BaseController
             foreach (var item in processedItems)
             {
                 var nextItemNo = await conn.ExecuteScalarAsync<long>(
-                    "SELECT COALESCE(MAX(purchase_return_item_no), 0) + 1 FROM pur_purchase_return_items;", transaction: tran);
+                    "SELECT nextval('seq_purchase_return_item_no');", transaction: tran);
 
                 await conn.ExecuteAsync(@"
                     INSERT INTO pur_purchase_return_items (

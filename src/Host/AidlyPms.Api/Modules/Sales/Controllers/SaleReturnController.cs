@@ -859,7 +859,7 @@ public class SaleReturnController : BaseController
                         account_no, pharmacy_no, branch_no, account_category, account_code, account_name,
                         account_type, current_balance, is_active, created_at, updated_at
                     ) VALUES (
-                        (SELECT COALESCE(MAX(account_no), 0) + 1 FROM acc_transaction_accounts),
+                        nextval('seq_account_no'),
                         @CurrentPharmacyNo, @CurrentBranchNo, 1, '10901', 'Return Credit Clearing',
                         1, 0, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                     ) RETURNING account_no;",

@@ -123,7 +123,7 @@ public class CustomerController : BaseController
         }
 
         var customerNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(customer_no), 0) + 1 FROM cust_customers;");
+            "SELECT nextval('seq_customer_no');");
 
         const string insertSql = @"
             INSERT INTO cust_customers (

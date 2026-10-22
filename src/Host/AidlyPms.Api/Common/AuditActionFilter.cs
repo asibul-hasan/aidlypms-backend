@@ -98,7 +98,7 @@ public class AuditActionFilter : IAsyncActionFilter
                         INSERT INTO sys_audit_logs (
                             audit_no, pharmacy_no, branch_no, user_no, table_name, record_id, action, old_data, new_data, ip_address, created_at
                         ) VALUES (
-                            (SELECT COALESCE(MAX(audit_no), 0) + 1 FROM sys_audit_logs),
+                            nextval('seq_sys_audit_no'),
                             @PharmacyNo, @BranchNo, @UserNo, @TableName, @RecordId, @Action, NULL, @NewData, @IpAddress, CURRENT_TIMESTAMP
                         );";
 

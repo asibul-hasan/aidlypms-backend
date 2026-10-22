@@ -445,7 +445,7 @@ public class ProductController : BaseController
         try
         {
             var productNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(product_no), 0) + 1 FROM prod_products;", transaction: tran);
+                "SELECT nextval('seq_product_no');", transaction: tran);
 
             var barcode = !string.IsNullOrWhiteSpace(model.BarcodeValue) 
                 ? model.BarcodeValue 
@@ -507,7 +507,7 @@ public class ProductController : BaseController
             if (model.StockQty > 0)
             {
                 var batchNo = await conn.ExecuteScalarAsync<long>(
-                    "SELECT COALESCE(MAX(batch_no), 0) + 1 FROM prod_product_batches;", transaction: tran);
+                    "SELECT nextval('seq_prod_batch_no');", transaction: tran);
 
                 var boxQty = qtyPerBox > 0 ? model.StockQty / qtyPerBox : 0;
                 var expiry = DateTime.UtcNow.AddYears(2).Date;
@@ -703,7 +703,7 @@ public class ProductController : BaseController
                 if (!batchNo.HasValue)
                 {
                     batchNo = await conn.ExecuteScalarAsync<long>(
-                        "SELECT COALESCE(MAX(batch_no), 0) + 1 FROM prod_product_batches;", transaction: tran);
+                        "SELECT nextval('seq_prod_batch_no');", transaction: tran);
 
                     await conn.ExecuteAsync(@"
                         INSERT INTO prod_product_batches (

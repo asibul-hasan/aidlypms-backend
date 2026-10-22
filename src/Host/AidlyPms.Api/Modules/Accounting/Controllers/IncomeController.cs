@@ -169,7 +169,7 @@ public class IncomeController : BaseController
             var receiptNo = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "INCOME");
 
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(income_no), 0) + 1 FROM acc_incomes;", transaction: tran);
+                "SELECT nextval('seq_income_no');", transaction: tran);
 
             model.IncomeNo = nextNo;
             model.PharmacyNo = CurrentPharmacyNo;

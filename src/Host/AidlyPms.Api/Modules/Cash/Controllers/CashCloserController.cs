@@ -270,13 +270,10 @@ public class CashCloserController : BaseController
             var discrepancy = payload.ActualCountedBalance - calculatedClosing;
 
             var nextCloserNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(cash_closer_no), 0) + 1 FROM cash_closers;", transaction: tran);
+                "SELECT nextval('seq_cash_closer_no');", transaction: tran);
 
-            var nextShiftNo = await conn.ExecuteScalarAsync<int>(@"
-                SELECT COALESCE(MAX(shift_no), 0) + 1 FROM cash_closers
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND closing_date = @ClosingDate;",
-                new { CurrentPharmacyNo, CurrentBranchNo, ClosingDate = dhakaDate.ToDateTime(TimeOnly.MinValue) },
-                transaction: tran);
+            var nextShiftNo = await conn.ExecuteScalarAsync<int>(
+                "SELECT nextval('seq_shift_no')::int;", transaction: tran);
 
             var shiftNo = payload.ShiftNo > 0 ? payload.ShiftNo : nextShiftNo;
 

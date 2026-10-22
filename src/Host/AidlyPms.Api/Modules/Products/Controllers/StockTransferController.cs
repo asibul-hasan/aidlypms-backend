@@ -153,7 +153,7 @@ public class StockTransferController : BaseController
         try
         {
             var transferNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(transfer_no), 0) + 1 FROM inv_transfers;", transaction: tran);
+                "SELECT nextval('seq_transfer_no');", transaction: tran);
 
             var transferNumber = await _docNumService.GetNextDocumentNumberAsync(
                 conn, tran, CurrentPharmacyNo, CurrentBranchNo, "TRANSFER");
@@ -185,13 +185,10 @@ public class StockTransferController : BaseController
                 CurrentUserNo
             }, transaction: tran);
 
-            var maxItemNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(transfer_item_no), 0) FROM inv_transfer_items;", transaction: tran);
-
             foreach (var item in payload.Items)
             {
-                maxItemNo++;
-                item.TransferItemNo = maxItemNo;
+                item.TransferItemNo = await conn.ExecuteScalarAsync<long>(
+                    "SELECT nextval('seq_transfer_item_no');", transaction: tran);
                 item.TransferNo = transferNo;
                 item.PharmacyNo = CurrentPharmacyNo;
                 item.BranchNo = CurrentBranchNo;

@@ -177,7 +177,7 @@ public class ExpenseController : BaseController
             var voucherNo = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "EXPENSE");
 
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(expense_no), 0) + 1 FROM acc_expenses;", transaction: tran);
+                "SELECT nextval('seq_expense_no');", transaction: tran);
 
             model.ExpenseNo = nextNo;
             model.PharmacyNo = CurrentPharmacyNo;

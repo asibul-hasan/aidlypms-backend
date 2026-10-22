@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS sys_menus (
     icon VARCHAR(100),
     parent_menu_no BIGINT REFERENCES sys_menus(menu_no) ON DELETE SET NULL,
     order_no INT NOT NULL,
-    status BOOLEAN NOT NULL DEFAULT TRUE,
+    status BOOLEAN NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS sys_roles (
     alias VARCHAR(100) NOT NULL,
     description TEXT,
     is_system BOOLEAN NOT NULL,
-    status BOOLEAN NOT NULL DEFAULT TRUE,
+    status BOOLEAN NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_role_per_branch UNIQUE (pharmacy_no, branch_no, alias)
@@ -1449,6 +1449,23 @@ CREATE SEQUENCE IF NOT EXISTS seq_journal_no;
 CREATE SEQUENCE IF NOT EXISTS seq_stock_movement_no;
 CREATE SEQUENCE IF NOT EXISTS seq_sys_menu_no START WITH 100 INCREMENT BY 1;
 CREATE SEQUENCE IF NOT EXISTS seq_role_menu_perm_no START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE IF NOT EXISTS seq_prod_batch_no;
+CREATE SEQUENCE IF NOT EXISTS seq_sys_audit_no;
+CREATE SEQUENCE IF NOT EXISTS seq_cash_closer_no;
+CREATE SEQUENCE IF NOT EXISTS seq_shift_no;
+CREATE SEQUENCE IF NOT EXISTS seq_due_collection_no;
+CREATE SEQUENCE IF NOT EXISTS seq_supplier_payment_no;
+CREATE SEQUENCE IF NOT EXISTS seq_purchase_return_no;
+CREATE SEQUENCE IF NOT EXISTS seq_purchase_return_item_no;
+CREATE SEQUENCE IF NOT EXISTS seq_customer_no;
+CREATE SEQUENCE IF NOT EXISTS seq_product_no;
+CREATE SEQUENCE IF NOT EXISTS seq_expense_no;
+CREATE SEQUENCE IF NOT EXISTS seq_income_no;
+CREATE SEQUENCE IF NOT EXISTS seq_account_no;
+CREATE SEQUENCE IF NOT EXISTS seq_adjustment_no;
+CREATE SEQUENCE IF NOT EXISTS seq_adjustment_item_no;
+CREATE SEQUENCE IF NOT EXISTS seq_transfer_no;
+CREATE SEQUENCE IF NOT EXISTS seq_transfer_item_no;
 
 SELECT setval('seq_sale_invoice_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_no) FROM sale_invoices), 0) + 1, 1), false);
 SELECT setval('seq_sale_invoice_item_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_item_no) FROM sale_invoice_items), 0) + 1, 1), false);
@@ -1462,6 +1479,23 @@ SELECT setval('seq_journal_no', GREATEST(COALESCE((SELECT MAX(journal_no) FROM a
 SELECT setval('seq_stock_movement_no', GREATEST(COALESCE((SELECT MAX(movement_no) FROM inv_stock_movement), 0) + 1, 1), false);
 SELECT setval('seq_sys_menu_no', GREATEST(COALESCE((SELECT MAX(menu_no) FROM sys_menus), 0) + 1, 100), false);
 SELECT setval('seq_role_menu_perm_no', GREATEST(COALESCE((SELECT MAX(role_menu_perm_no) FROM sys_role_menu_permissions), 0) + 1, 1), false);
+SELECT setval('seq_prod_batch_no', GREATEST(COALESCE((SELECT MAX(batch_no) FROM prod_product_batches), 0) + 1, 1), false);
+SELECT setval('seq_sys_audit_no', GREATEST(COALESCE((SELECT MAX(audit_no) FROM sys_audit_logs), 0) + 1, 1), false);
+SELECT setval('seq_cash_closer_no', GREATEST(COALESCE((SELECT MAX(cash_closer_no) FROM cash_closers), 0) + 1, 1), false);
+SELECT setval('seq_shift_no', GREATEST(COALESCE((SELECT MAX(shift_no) FROM cash_closers), 0) + 1, 1), false);
+SELECT setval('seq_due_collection_no', GREATEST(COALESCE((SELECT MAX(due_collection_no) FROM due_collections), 0) + 1, 1), false);
+SELECT setval('seq_supplier_payment_no', GREATEST(COALESCE((SELECT MAX(supplier_payment_no) FROM pur_supplier_payments), 0) + 1, 1), false);
+SELECT setval('seq_purchase_return_no', GREATEST(COALESCE((SELECT MAX(purchase_return_no) FROM pur_purchase_returns), 0) + 1, 1), false);
+SELECT setval('seq_purchase_return_item_no', GREATEST(COALESCE((SELECT MAX(purchase_return_item_no) FROM pur_purchase_return_items), 0) + 1, 1), false);
+SELECT setval('seq_customer_no', GREATEST(COALESCE((SELECT MAX(customer_no) FROM cust_customers), 0) + 1, 1), false);
+SELECT setval('seq_product_no', GREATEST(COALESCE((SELECT MAX(product_no) FROM prod_products), 0) + 1, 1), false);
+SELECT setval('seq_expense_no', GREATEST(COALESCE((SELECT MAX(expense_no) FROM acc_expenses), 0) + 1, 1), false);
+SELECT setval('seq_income_no', GREATEST(COALESCE((SELECT MAX(income_no) FROM acc_incomes), 0) + 1, 1), false);
+SELECT setval('seq_account_no', GREATEST(COALESCE((SELECT MAX(account_no) FROM acc_transaction_accounts), 0) + 1, 1), false);
+SELECT setval('seq_adjustment_no', GREATEST(COALESCE((SELECT MAX(adjustment_no) FROM inv_adjustments), 0) + 1, 1), false);
+SELECT setval('seq_adjustment_item_no', GREATEST(COALESCE((SELECT MAX(adjustment_item_no) FROM inv_adjustment_items), 0) + 1, 1), false);
+SELECT setval('seq_transfer_no', GREATEST(COALESCE((SELECT MAX(transfer_no) FROM inv_transfers), 0) + 1, 1), false);
+SELECT setval('seq_transfer_item_no', GREATEST(COALESCE((SELECT MAX(transfer_item_no) FROM inv_transfer_items), 0) + 1, 1), false);
 
 -- ============================================================================
 -- END OF SCHEMA

@@ -113,7 +113,7 @@ public class AccountController : BaseController
             return FailResponse<AccTransactionAccount>($"Account '{model.AccountName}' already exists in this pharmacy branch.");
 
         var nextNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(account_no), 0) + 1 FROM acc_transaction_accounts;");
+            "SELECT nextval('seq_account_no');");
 
         model.AccountNo = nextNo;
         model.PharmacyNo = CurrentPharmacyNo;

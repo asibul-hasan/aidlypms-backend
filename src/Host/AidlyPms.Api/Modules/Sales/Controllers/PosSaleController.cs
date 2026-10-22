@@ -684,7 +684,7 @@ public class PosSaleController : BaseController
                     audit_no, pharmacy_no, branch_no, user_no, table_name,
                     record_id, action, old_data, new_data, ip_address, created_at
                 ) VALUES (
-                    (SELECT COALESCE(MAX(audit_no), 0) + 1 FROM sys_audit_logs),
+                    nextval('seq_sys_audit_no'),
                     @CurrentPharmacyNo, @CurrentBranchNo, @validUserNo, 'sale_invoices',
                     @id, 'VOID', @oldDataJson, @newDataJson, @ipAddress, CURRENT_TIMESTAMP
                 );";

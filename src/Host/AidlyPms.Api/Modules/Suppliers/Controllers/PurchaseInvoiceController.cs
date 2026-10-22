@@ -214,7 +214,7 @@ public class PurchaseInvoiceController : BaseController
                 if (batch == null)
                 {
                     batchNo = await conn.ExecuteScalarAsync<long>(
-                        "SELECT COALESCE(MAX(batch_no), 0) + 1 FROM prod_product_batches;", transaction: tran);
+                        "SELECT nextval('seq_prod_batch_no');", transaction: tran);
 
                     await conn.ExecuteAsync(@"
                         INSERT INTO prod_product_batches (

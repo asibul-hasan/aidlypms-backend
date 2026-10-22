@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
 namespace AidlyPms.Api.Modules.Sales.Models;
@@ -251,7 +252,7 @@ public class SaleInvoicePayment
     public long SaleInvoiceNo { get; set; }
 
     [JsonPropertyName("account_no")]
-    public long AccountNo { get; set; } = 1;
+    public long AccountNo { get; set; }
 
     [JsonPropertyName("payment_method")]
     public short PaymentMethod { get; set; } = 1;
@@ -502,9 +503,11 @@ public class ReturnLineReq
     }
 
     [JsonPropertyName("reason_code")]
+    [Required(ErrorMessage = "reason_code is required.")]
     public short? ReasonCode { get; set; } // 1: Defective, 2: Wrong Item, 3: Expired/Damaged, 4: Customer Choice
 
     [JsonPropertyName("disposition")]
+    [Required(ErrorMessage = "disposition is required.")]
     public short? Disposition { get; set; } // 1: Restock, 2: Quarantine/Damaged, 3: Waste/Destroy
 }
 
@@ -576,6 +579,13 @@ public class ExchangeReq
     [JsonPropertyName("additional_payments")]
     public List<SaleInvoicePayment>? AdditionalPayments { get; set; }
 
+    [JsonPropertyName("tender_payments")]
+    public List<SaleInvoicePayment>? TenderPayments
+    {
+        get => AdditionalPayments;
+        set { if (AdditionalPayments == null || AdditionalPayments.Count == 0) AdditionalPayments = value; }
+    }
+
     [JsonPropertyName("idempotency_key")]
     public Guid? IdempotencyKey { get; set; }
 
@@ -602,6 +612,9 @@ public class ExchangeResult
 
     [JsonPropertyName("due_adjusted")]
     public decimal DueAdjusted { get; set; }
+
+    [JsonPropertyName("net_difference")]
+    public decimal NetDifference => AdditionalCollected - CashRefunded;
 }
 
 public class VoidSaleRequest
