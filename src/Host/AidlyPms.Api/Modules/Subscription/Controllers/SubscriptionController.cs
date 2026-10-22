@@ -45,7 +45,8 @@ public class SubscriptionController : BaseController
                 p.plan_name
             FROM sub_pharmacy_subscriptions s
             JOIN sub_subscription_plans p ON s.plan_no = p.plan_no
-            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+            WHERE s.pharmacy_no = @CurrentPharmacyNo
+            ORDER BY (s.branch_no = @CurrentBranchNo) DESC, s.subscription_no DESC
             LIMIT 1;";
 
         var sub = await conn.QuerySingleOrDefaultAsync<SubPharmacySubscription>(querySql, new
@@ -102,22 +103,33 @@ public class SubscriptionController : BaseController
                 discount_amount, final_amount, payment_status, payment_timestamp,
                 download_invoice_url
             FROM sub_subscription_payments
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+            WHERE pharmacy_no = @CurrentPharmacyNo
             ORDER BY payment_timestamp DESC;";
 
         var payments = (await conn.QueryAsync<SubSubscriptionPayment>(sql, new
         {
-            CurrentPharmacyNo,
-            CurrentBranchNo
+            CurrentPharmacyNo
         })).AsList();
 
         return OkResponse(payments);
     }
 
     [HttpPost("pay-bkash")]
+    public async Task<ActionResult<ApiResponse<SubSubscriptionPayment>>> PayBkash(
+        [FromBody] RenewalPaymentPayload payload)
+    {
+        return await ProcessPaymentInternalAsync(payload, isAutoConfirm: true);
+    }
+
     [HttpPost("renew")]
     public async Task<ActionResult<ApiResponse<SubSubscriptionPayment>>> RenewSubscription(
         [FromBody] RenewalPaymentPayload payload)
+    {
+        return await ProcessPaymentInternalAsync(payload, isAutoConfirm: false);
+    }
+
+    private async Task<ActionResult<ApiResponse<SubSubscriptionPayment>>> ProcessPaymentInternalAsync(
+        RenewalPaymentPayload payload, bool isAutoConfirm)
     {
         await using var conn = await _db.CreateOpenConnectionAsync();
         await using var tran = await conn.BeginTransactionAsync();
@@ -151,18 +163,9 @@ public class SubscriptionController : BaseController
             // Retrieve existing subscription for this pharmacy, or auto-provision if missing
             var subscriptionNo = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT subscription_no FROM sub_pharmacy_subscriptions
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                ORDER BY subscription_no DESC LIMIT 1;",
+                WHERE pharmacy_no = @CurrentPharmacyNo
+                ORDER BY (branch_no = @CurrentBranchNo) DESC, subscription_no DESC LIMIT 1;",
                 new { CurrentPharmacyNo, CurrentBranchNo }, tran);
-
-            if (!subscriptionNo.HasValue)
-            {
-                subscriptionNo = await conn.ExecuteScalarAsync<long?>(@"
-                    SELECT subscription_no FROM sub_pharmacy_subscriptions
-                    WHERE pharmacy_no = @CurrentPharmacyNo
-                    ORDER BY subscription_no DESC LIMIT 1;",
-                    new { CurrentPharmacyNo }, tran);
-            }
 
             if (!subscriptionNo.HasValue)
             {
@@ -189,6 +192,8 @@ public class SubscriptionController : BaseController
                 ? $"bKash-TRX-{DateTime.UtcNow:yyyyMMddHHmmss}"
                 : payload.TransactionReference;
 
+            var paymentStatus = isAutoConfirm ? "Completed" : "Pending";
+
             var payment = new SubSubscriptionPayment
             {
                 SubscriptionPaymentNo = nextPaymentNo,
@@ -201,7 +206,7 @@ public class SubscriptionController : BaseController
                 DiscountCode = payload.DiscountCode,
                 DiscountAmount = discount,
                 FinalAmount = finalAmount,
-                PaymentStatus = "Pending",
+                PaymentStatus = paymentStatus,
                 PaymentTimestamp = DateTime.UtcNow,
                 DownloadInvoiceUrl = $"/invoices/sub-{nextPaymentNo}.pdf"
             };
@@ -220,9 +225,37 @@ public class SubscriptionController : BaseController
                 );";
 
             await conn.ExecuteAsync(insertPaymentSql, payment, tran);
+
+            if (isAutoConfirm)
+            {
+                var durationDays = isYearly ? 365 : 30;
+                var billingCycleInt = isYearly ? 2 : 1;
+                const string updateSubSql = @"
+                    UPDATE sub_pharmacy_subscriptions
+                    SET subscription_status = 2,
+                        billing_cycle = @billingCycleInt,
+                        monthly_rate = @monthlyRate,
+                        subscription_end_date = GREATEST(subscription_end_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
+                        next_payment_date = GREATEST(next_payment_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
+                        updated_at = NOW()
+                    WHERE subscription_no = @subscriptionNo;";
+
+                await conn.ExecuteAsync(updateSubSql, new
+                {
+                    billingCycleInt,
+                    monthlyRate = subtotal,
+                    Days = durationDays,
+                    subscriptionNo = subscriptionNo.Value
+                }, tran);
+            }
+
             await tran.CommitAsync();
 
-            return OkResponse(payment, "Subscription payment initiated as Pending. Awaiting payment gateway callback or manual confirmation.");
+            var message = isAutoConfirm
+                ? "bKash payment verified and subscription activated successfully."
+                : "Subscription payment initiated as Pending. Awaiting payment gateway callback or manual confirmation.";
+
+            return OkResponse(payment, message);
         }
         catch
         {
@@ -265,16 +298,18 @@ public class SubscriptionController : BaseController
             const string updateSubSql = @"
                 UPDATE sub_pharmacy_subscriptions
                 SET subscription_status = 2,
+                    billing_cycle = CASE WHEN @Days >= 365 THEN 2 ELSE 1 END,
+                    monthly_rate = @MonthlyRate,
                     subscription_end_date = GREATEST(subscription_end_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
                     next_payment_date = GREATEST(next_payment_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
                     updated_at = NOW()
-                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;";
+                WHERE subscription_no = @SubscriptionNo;";
 
             await conn.ExecuteAsync(updateSubSql, new
             {
                 Days = durationDays,
-                CurrentPharmacyNo,
-                CurrentBranchNo
+                MonthlyRate = payment.Subtotal,
+                SubscriptionNo = payment.SubscriptionNo
             }, tran);
 
             await tran.CommitAsync();
@@ -321,11 +356,13 @@ public class SubscriptionController : BaseController
                 await conn.ExecuteAsync(@"
                     UPDATE sub_pharmacy_subscriptions
                     SET subscription_status = 2,
+                        billing_cycle = CASE WHEN @Days >= 365 THEN 2 ELSE 1 END,
+                        monthly_rate = @MonthlyRate,
                         subscription_end_date = GREATEST(subscription_end_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
                         next_payment_date = GREATEST(next_payment_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
                         updated_at = NOW()
-                    WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { Days = durationDays, CurrentPharmacyNo, CurrentBranchNo }, tran);
+                    WHERE subscription_no = @SubscriptionNo;",
+                    new { Days = durationDays, MonthlyRate = payment.Subtotal, SubscriptionNo = payment.SubscriptionNo }, tran);
 
                 await tran.CommitAsync();
                 return OkResponse<object>(new { payment_no = payment.SubscriptionPaymentNo, status = "Completed" }, "Gateway payment confirmed.");
