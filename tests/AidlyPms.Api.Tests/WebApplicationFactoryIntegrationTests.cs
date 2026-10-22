@@ -146,6 +146,12 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
                 @b, gen_random_uuid(), @p, 'HTTP Test Main Branch', '01711111111', 'http9002@example.com', 'Banani, Dhaka', 'Dhaka', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (branch_no) DO NOTHING;
 
+            INSERT INTO sys_branches (
+                branch_no, uuid, pharmacy_no, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
+            ) VALUES (
+                @b + 1, gen_random_uuid(), @p, 'HTTP Test Secondary Branch', '01711111112', 'dest9003@example.com', 'Gulshan, Dhaka', 'Dhaka', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (branch_no) DO NOTHING;
+
             -- Manager Role (9)
             INSERT INTO sys_roles (
                 role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
@@ -192,9 +198,14 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             WHERE code IN ('PMS-Sale-Module', 'sale.return')
             ON CONFLICT DO NOTHING;
 
-            -- Give manager role (9) all permissions
+            -- Give manager role (9) all permissions for both branches
             INSERT INTO sys_role_permissions (role_no, permission_no, pharmacy_no, branch_no)
             SELECT 9, permission_no, @p, @b
+            FROM sys_permissions
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO sys_role_permissions (role_no, permission_no, pharmacy_no, branch_no)
+            SELECT 9, permission_no, @p, @b + 1
             FROM sys_permissions
             ON CONFLICT DO NOTHING;
 
@@ -238,10 +249,16 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             DELETE FROM sale_invoice_items WHERE pharmacy_no = @p;
             DELETE FROM sale_invoices WHERE pharmacy_no = @p;
             DELETE FROM inv_stock_movement WHERE pharmacy_no = @p;
+            DELETE FROM inv_transfer_items WHERE pharmacy_no = @p;
+            DELETE FROM inv_transfers WHERE pharmacy_no = @p;
             DELETE FROM prod_product_batches WHERE pharmacy_no = @p;
             DELETE FROM prod_products WHERE pharmacy_no = @p;
             DELETE FROM doc_prescriptions WHERE pharmacy_no = @p;
             DELETE FROM cust_customers WHERE pharmacy_no = @p;
+            DELETE FROM supp_suppliers WHERE pharmacy_no = @p;
+            DELETE FROM sub_subscription_payments WHERE pharmacy_no = @p;
+            DELETE FROM sub_pharmacy_subscriptions WHERE pharmacy_no = @p;
+            DELETE FROM sys_audit_logs WHERE pharmacy_no = @p;
             DELETE FROM acc_transaction_ledger WHERE pharmacy_no = @p;
             DELETE FROM acc_transaction_accounts WHERE pharmacy_no = @p;
             DELETE FROM cfg_sale_configs WHERE pharmacy_no = @p;
@@ -251,7 +268,7 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             DELETE FROM sys_users WHERE pharmacy_no = @p;
             DELETE FROM sys_role_permissions WHERE pharmacy_no = @p;
             DELETE FROM sys_roles WHERE pharmacy_no = @p;
-            DELETE FROM sys_branches WHERE branch_no = @b;
+            DELETE FROM sys_branches WHERE pharmacy_no = @p;
             DELETE FROM sys_pharmacies WHERE pharmacy_no = @p;
         ", new { p = TestPharmacyNo, b = TestBranchNo, u = TestUserNo, restrictedRole = TestRestrictedRoleNo });
     }
@@ -772,5 +789,497 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         _output.WriteLine("Test 9 Passed: Cashier role without PMS-Expense-Module permission correctly received HTTP 403 Forbidden.");
+    }
+
+    // =========================================================================
+    // 10. Soft-delete requires reason, blocks in-use records, and excludes deleted
+    // =========================================================================
+    [Fact]
+    public async Task Test_10_SoftDelete_RequiresReason_And_BlocksInUse_And_HidesInactive()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        // 1. Setup active Product with stock
+        const long testProdNo = 900250;
+        await conn.ExecuteAsync(@"
+            INSERT INTO prod_products (
+                product_no, uuid, pharmacy_no, branch_no, company_no, generic_no,
+                product_name, strength, volume, medicine_type, unit_type,
+                quantity_per_box, cost_per_box, sale_price_per_box,
+                avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                is_prescription_required, is_narcotic, is_antibiotic, is_active,
+                created_at, updated_at
+            ) VALUES (
+                @testProdNo, gen_random_uuid(), @p, @b, @p, @p,
+                'SoftDelete Test Medicine', '500mg', '10ml', 'Tablet', 'Pcs',
+                10, 100, 150, 10, 10, 15, FALSE, FALSE, FALSE, TRUE,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (product_no) DO UPDATE SET is_active = TRUE, deleted_at = NULL, deleted_by = NULL, deletion_reason = NULL;
+
+            INSERT INTO prod_product_batches (
+                batch_no, pharmacy_no, branch_no, product_no, batch_number,
+                expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
+                cost_per_box, sale_price_per_box, vat_percent, is_expired
+            ) VALUES (
+                900250, @p, @b, @testProdNo, 'BATCH-SD-1',
+                CURRENT_TIMESTAMP + INTERVAL '1 year', 5, 10, 50,
+                100, 150, 0, FALSE
+            ) ON CONFLICT (batch_no) DO UPDATE SET total_quantity_pcs = 50;
+        ", new { p = TestPharmacyNo, b = TestBranchNo, testProdNo });
+
+        // A. Delete product without reason -> 400 Bad Request
+        var noReasonReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/prod/products/{testProdNo}")
+        {
+            Content = JsonContent.Create(new { reason = "" })
+        };
+        noReasonReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var noReasonResp = await _client.SendAsync(noReasonReq);
+        Assert.Equal(HttpStatusCode.BadRequest, noReasonResp.StatusCode);
+
+        // B. Delete product with stock > 0 -> 400 Bad Request
+        var inUseReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/prod/products/{testProdNo}")
+        {
+            Content = JsonContent.Create(new { reason = "Discontinued item" })
+        };
+        inUseReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var inUseResp = await _client.SendAsync(inUseReq);
+        Assert.Equal(HttpStatusCode.BadRequest, inUseResp.StatusCode);
+        var inUseJson = await inUseResp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.Contains("remaining stock", inUseJson?["message"]?.ToString() ?? "");
+
+        // Zero out stock
+        await conn.ExecuteAsync("UPDATE prod_product_batches SET total_quantity_pcs = 0 WHERE product_no = @testProdNo;", new { testProdNo });
+
+        // C. Delete product without stock -> 200 OK
+        var validDelReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/prod/products/{testProdNo}")
+        {
+            Content = JsonContent.Create(new { reason = "Discontinued item" })
+        };
+        validDelReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var validDelResp = await _client.SendAsync(validDelReq);
+        Assert.Equal(HttpStatusCode.OK, validDelResp.StatusCode);
+
+        // Check DB soft-delete audit fields
+        var isProdActive = await conn.ExecuteScalarAsync<bool>(
+            "SELECT is_active FROM prod_products WHERE product_no = @testProdNo;", new { testProdNo });
+        var deletionReason = await conn.ExecuteScalarAsync<string>(
+            "SELECT deletion_reason FROM prod_products WHERE product_no = @testProdNo;", new { testProdNo });
+        Assert.False(isProdActive);
+        Assert.Equal("Discontinued item", deletionReason);
+
+        // D. GET /api/v1/prod/products does not list soft-deleted product
+        var listReq = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/prod/products?search=SoftDelete");
+        listReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var listResp = await _client.SendAsync(listReq);
+        Assert.Equal(HttpStatusCode.OK, listResp.StatusCode);
+        var listJson = await listResp.Content.ReadFromJsonAsync<JsonObject>();
+        var items = listJson?["data"]?["items"]?.AsArray();
+        Assert.DoesNotContain(items ?? new JsonArray(), item => item?["product_no"]?.GetValue<long>() == testProdNo);
+
+        // 2. Setup active Customer with outstanding due
+        const long testCustNo = 900260;
+        await conn.ExecuteAsync(@"
+            INSERT INTO cust_customers (
+                customer_no, uuid, pharmacy_no, branch_no, name, phone,
+                has_due, current_due, advance_balance, is_active, created_at, updated_at
+            ) VALUES (
+                @testCustNo, gen_random_uuid(), @p, @b, 'SoftDelete Customer', '01799999999',
+                TRUE, 500.00, 0.00, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (customer_no) DO UPDATE SET has_due = TRUE, current_due = 500.00, is_active = TRUE;
+        ", new { p = TestPharmacyNo, b = TestBranchNo, testCustNo });
+
+        // Delete customer with due -> 400 Bad Request
+        var custDueReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/cust/customers/{testCustNo}")
+        {
+            Content = JsonContent.Create(new { reason = "Customer moved" })
+        };
+        custDueReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var custDueResp = await _client.SendAsync(custDueReq);
+        Assert.Equal(HttpStatusCode.BadRequest, custDueResp.StatusCode);
+
+        // Clear customer due
+        await conn.ExecuteAsync("UPDATE cust_customers SET has_due = FALSE, current_due = 0 WHERE customer_no = @testCustNo;", new { testCustNo });
+
+        // Delete customer without due -> 200 OK
+        var custValidReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/cust/customers/{testCustNo}")
+        {
+            Content = JsonContent.Create(new { reason = "Customer moved away" })
+        };
+        custValidReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var custValidResp = await _client.SendAsync(custValidReq);
+        Assert.Equal(HttpStatusCode.OK, custValidResp.StatusCode);
+
+        // 3. Setup active Supplier with due balance
+        const long testSuppNo = 900270;
+        await conn.ExecuteAsync(@"
+            INSERT INTO supp_suppliers (
+                supplier_no, uuid, pharmacy_no, branch_no, name, contact_person, phone,
+                current_due_balance, is_active, created_at, updated_at
+            ) VALUES (
+                @testSuppNo, gen_random_uuid(), @p, @b, 'SoftDelete Supplier', 'Sales Rep', '01788888888',
+                1200.00, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (supplier_no) DO UPDATE SET current_due_balance = 1200.00, is_active = TRUE;
+        ", new { p = TestPharmacyNo, b = TestBranchNo, testSuppNo });
+
+        // Delete supplier with due -> 400 Bad Request
+        var suppDueReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/supp/suppliers/{testSuppNo}")
+        {
+            Content = JsonContent.Create(new { reason = "Vendor termination" })
+        };
+        suppDueReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var suppDueResp = await _client.SendAsync(suppDueReq);
+        Assert.Equal(HttpStatusCode.BadRequest, suppDueResp.StatusCode);
+
+        // Clear supplier due
+        await conn.ExecuteAsync("UPDATE supp_suppliers SET current_due_balance = 0 WHERE supplier_no = @testSuppNo;", new { testSuppNo });
+
+        // Delete supplier using aliased route /api/v1/pur/suppliers/{id}
+        var purSuppReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/pur/suppliers/{testSuppNo}")
+        {
+            Content = JsonContent.Create(new { reason = "Vendor closed" })
+        };
+        purSuppReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var purSuppResp = await _client.SendAsync(purSuppReq);
+        Assert.Equal(HttpStatusCode.OK, purSuppResp.StatusCode);
+
+        _output.WriteLine("Test 10 Passed: Soft-delete requires reason, blocks in-use records, and hides inactive records.");
+    }
+
+    // =========================================================================
+    // 11. Stock Transfer Receive requires caller branch to equal ToBranchNo (403 otherwise)
+    // =========================================================================
+    [Fact]
+    public async Task Test_11_StockTransfer_Receive_FromDifferentBranch_Returns403Forbidden()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        var sourceBranchToken = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+        var destBranchNo = TestBranchNo + 1;
+        var destBranchToken = GenerateJwt(TestPharmacyNo, destBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        // Ensure product and batch exist at source branch
+        const long transferProdNo = 900280;
+        await conn.ExecuteAsync(@"
+            INSERT INTO prod_products (
+                product_no, uuid, pharmacy_no, branch_no, company_no, generic_no,
+                product_name, strength, volume, medicine_type, unit_type,
+                quantity_per_box, cost_per_box, sale_price_per_box,
+                avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                is_prescription_required, is_narcotic, is_antibiotic, is_active,
+                created_at, updated_at
+            ) VALUES (
+                @transferProdNo, gen_random_uuid(), @p, @b, @p, @p,
+                'Transfer Test Product', '250mg', '5ml', 'Capsule', 'Pcs',
+                10, 80, 120, 8, 8, 12, FALSE, FALSE, FALSE, TRUE,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (product_no) DO NOTHING;
+
+            INSERT INTO prod_product_batches (
+                batch_no, pharmacy_no, branch_no, product_no, batch_number,
+                expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
+                cost_per_box, sale_price_per_box, vat_percent, is_expired
+            ) VALUES (
+                900280, @p, @b, @transferProdNo, 'BATCH-XFER-1',
+                CURRENT_TIMESTAMP + INTERVAL '1 year', 10, 10, 100,
+                80, 120, 0, FALSE
+            ) ON CONFLICT (batch_no) DO UPDATE SET total_quantity_pcs = 100;
+        ", new { p = TestPharmacyNo, b = TestBranchNo, transferProdNo });
+
+        // 1. Source branch initiates transfer to destBranchNo
+        var createPayload = new
+        {
+            to_branch_no = destBranchNo,
+            note = "Inter-branch stock transfer test",
+            items = new[]
+            {
+                new
+                {
+                    product_no = transferProdNo,
+                    batch_no = (long?)900280,
+                    batch_number = "BATCH-XFER-1",
+                    qty_pcs = 20,
+                    unit_cost = 8.00m,
+                    total_cost = 160.00m,
+                    expiry_date = DateTime.UtcNow.AddYears(1)
+                }
+            }
+        };
+
+        var initReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/inv/transfers")
+        {
+            Content = JsonContent.Create(createPayload)
+        };
+        initReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sourceBranchToken);
+        var initResp = await _client.SendAsync(initReq);
+        Assert.Equal(HttpStatusCode.OK, initResp.StatusCode);
+
+        var initJson = await initResp.Content.ReadFromJsonAsync<JsonObject>();
+        var transferNo = initJson?["data"]?["transfer_no"]?.GetValue<long>() ?? 0;
+        Assert.True(transferNo > 0);
+
+        // 2. Caller from source branch (Branch 9002) tries to receive transfer destined for Branch 9003 -> 403 Forbidden
+        var unauthorizedRcvReq = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/inv/transfers/{transferNo}/receive");
+        unauthorizedRcvReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sourceBranchToken);
+        var unauthorizedRcvResp = await _client.SendAsync(unauthorizedRcvReq);
+        Assert.Equal(HttpStatusCode.Forbidden, unauthorizedRcvResp.StatusCode);
+
+        // 3. Caller from destination branch (Branch 9003) receives transfer -> 200 OK
+        var authorizedRcvReq = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/inv/transfers/{transferNo}/receive");
+        authorizedRcvReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", destBranchToken);
+        var authorizedRcvResp = await _client.SendAsync(authorizedRcvReq);
+        Assert.Equal(HttpStatusCode.OK, authorizedRcvResp.StatusCode);
+
+        // Assert DB status is received (2)
+        var status = await conn.ExecuteScalarAsync<short>(
+            "SELECT transfer_status FROM inv_transfers WHERE transfer_no = @transferNo;", new { transferNo });
+        Assert.Equal((short)2, status);
+
+        _output.WriteLine("Test 11 Passed: Stock transfer receive correctly restricted to destination branch (403 on mismatch, 200 on match).");
+    }
+
+    // =========================================================================
+    // 12. Subscription Expiry beyond grace period returns 402 Payment Required
+    // =========================================================================
+    [Fact]
+    public async Task Test_12_SubscriptionExpiry_PastGracePeriod_Returns402PaymentRequired()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        try
+        {
+            // Insert an expired subscription past its grace period
+            const long subNo = 900290;
+            await conn.ExecuteAsync(@"
+                INSERT INTO sub_pharmacy_subscriptions (
+                    subscription_no, pharmacy_no, branch_no, plan_no,
+                    billing_cycle, subscription_status, trial_end_date,
+                    subscription_start_date, subscription_end_date,
+                    next_payment_date, monthly_rate, grace_period_days, updated_at
+                ) VALUES (
+                    @subNo, @p, @b, 1,
+                    1, 1, CURRENT_DATE - INTERVAL '60 days',
+                    CURRENT_DATE - INTERVAL '45 days', CURRENT_DATE - INTERVAL '15 days',
+                    CURRENT_DATE - INTERVAL '15 days', 500, 7, CURRENT_TIMESTAMP
+                ) ON CONFLICT (subscription_no) DO UPDATE
+                SET subscription_end_date = CURRENT_DATE - INTERVAL '15 days',
+                    grace_period_days = 7,
+                    subscription_status = 1;
+            ", new { subNo, p = TestPharmacyNo, b = TestBranchNo });
+
+            // 1. Business endpoint (e.g. Products list) must return 402 Payment Required
+            var prodReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/prod/products");
+            prodReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var prodResp = await _client.SendAsync(prodReq);
+            Assert.Equal((HttpStatusCode)402, prodResp.StatusCode);
+
+            // 2. Subscription management endpoints (/api/v1/sub/*) must remain accessible (not blocked by 402)
+            var subPlanReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/sub/plans");
+            subPlanReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var subPlanResp = await _client.SendAsync(subPlanReq);
+            Assert.Equal(HttpStatusCode.OK, subPlanResp.StatusCode);
+
+            // 3. Initiate renewal payment -> status Pending
+            var renewReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/sub/renew")
+            {
+                Content = JsonContent.Create(new
+                {
+                    plan_no = 1,
+                    billing_cycle = "Monthly",
+                    payment_gateway = "bKash"
+                })
+            };
+            renewReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var renewResp = await _client.SendAsync(renewReq);
+            Assert.Equal(HttpStatusCode.OK, renewResp.StatusCode);
+
+            var renewJson = await renewResp.Content.ReadFromJsonAsync<JsonObject>();
+            var paymentNo = renewJson?["data"]?["subscription_payment_no"]?.GetValue<long>() ?? 0;
+            Assert.True(paymentNo > 0);
+            Assert.Equal("Pending", renewJson?["data"]?["payment_status"]?.ToString());
+
+            // 4. Confirm payment -> extends subscription end date and activates
+            var confirmReq = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/sub/payments/{paymentNo}/confirm");
+            confirmReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var confirmResp = await _client.SendAsync(confirmReq);
+            Assert.Equal(HttpStatusCode.OK, confirmResp.StatusCode);
+
+            // 5. Business endpoint now succeeds with 200 OK
+            var unblockedProdReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/prod/products");
+            unblockedProdReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var unblockedProdResp = await _client.SendAsync(unblockedProdReq);
+            Assert.Equal(HttpStatusCode.OK, unblockedProdResp.StatusCode);
+
+            _output.WriteLine("Test 12 Passed: Expired subscription blocks business endpoints with 402, allows renewal and unblocks upon confirmation.");
+        }
+        finally
+        {
+            await conn.ExecuteAsync("DELETE FROM sub_subscription_payments WHERE pharmacy_no = @p;", new { p = TestPharmacyNo });
+            await conn.ExecuteAsync("DELETE FROM sub_pharmacy_subscriptions WHERE pharmacy_no = @p;", new { p = TestPharmacyNo });
+        }
+    }
+
+    // =========================================================================
+    // 13. Audit Log endpoint sanitizes sensitive values and requires permission
+    // =========================================================================
+    [Fact]
+    public async Task Test_13_AuditLogs_Endpoint_SanitizesSensitiveData_And_RequiresPermission()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        var managerToken = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+        var restrictedToken = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestRestrictedRoleNo, "Restricted");
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        // 1. Role lacking Pharmacy-Module receives 403 Forbidden
+        var forbiddenReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/audit/logs");
+        forbiddenReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", restrictedToken);
+        var forbiddenResp = await _client.SendAsync(forbiddenReq);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenResp.StatusCode);
+
+        // 2. Insert test audit log row with sensitive credentials
+        const long testAuditNo = 900295;
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_audit_logs (
+                audit_no, pharmacy_no, branch_no, user_no, table_name, record_id, action,
+                old_data, new_data, ip_address, created_at
+            ) VALUES (
+                @testAuditNo, @p, @b, @u, 'sys_users', @u, 'UPDATE',
+                '{""user_name"": ""admin"", ""password"": ""SecretPass99!"", ""token"": ""SensitiveBearerJwt123""}',
+                '{""user_name"": ""admin"", ""password"": ""NewSecretPass100!"", ""token"": ""NewSensitiveBearerJwt456"", ""pin"": ""9876""}',
+                '127.0.0.1', CURRENT_TIMESTAMP
+            ) ON CONFLICT (audit_no) DO UPDATE
+            SET old_data = '{""user_name"": ""admin"", ""password"": ""SecretPass99!"", ""token"": ""SensitiveBearerJwt123""}',
+                new_data = '{""user_name"": ""admin"", ""password"": ""NewSecretPass100!"", ""token"": ""NewSensitiveBearerJwt456"", ""pin"": ""9876""}';
+        ", new { testAuditNo, p = TestPharmacyNo, b = TestBranchNo, u = TestUserNo });
+
+        // 3. Manager requests audit logs -> 200 OK
+        var auditReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/audit/logs?tableName=sys_users");
+        auditReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+        var auditResp = await _client.SendAsync(auditReq);
+        Assert.Equal(HttpStatusCode.OK, auditResp.StatusCode);
+
+        var auditJson = await auditResp.Content.ReadAsStringAsync();
+
+        // 4. Assert sensitive strings are never returned
+        Assert.DoesNotContain("SecretPass99!", auditJson);
+        Assert.DoesNotContain("SensitiveBearerJwt123", auditJson);
+        Assert.DoesNotContain("NewSecretPass100!", auditJson);
+        Assert.DoesNotContain("NewSensitiveBearerJwt456", auditJson);
+        Assert.DoesNotContain("9876", auditJson);
+        Assert.Contains("[REDACTED]", auditJson);
+
+        _output.WriteLine("Test 13 Passed: Audit log endpoint enforces permission and redacts sensitive passwords/tokens.");
+    }
+
+    // =========================================================================
+    // 14. Unmapped Chart of Accounts throws clear error without fallback
+    // =========================================================================
+    [Fact]
+    public async Task Test_14_FallbackAccounts_Removed_ThrowsWhenUnmapped()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        // 1. Setup a product
+        const long unmappedProdNo = 900299;
+        await conn.ExecuteAsync(@"
+            INSERT INTO prod_products (
+                product_no, uuid, pharmacy_no, branch_no, company_no, generic_no,
+                product_name, strength, volume, medicine_type, unit_type,
+                quantity_per_box, cost_per_box, sale_price_per_box,
+                avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                is_prescription_required, is_narcotic, is_antibiotic, is_active,
+                created_at, updated_at
+            ) VALUES (
+                @unmappedProdNo, gen_random_uuid(), @p, @b, @p, @p,
+                'Unmapped Account Prod', '10mg', '1ml', 'Tablet', 'Pcs',
+                1, 50, 100, 50, 50, 100, FALSE, FALSE, FALSE, TRUE,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (product_no) DO NOTHING;
+
+            INSERT INTO prod_product_batches (
+                batch_no, pharmacy_no, branch_no, product_no, batch_number,
+                expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
+                cost_per_box, sale_price_per_box, vat_percent, is_expired
+            ) VALUES (
+                900299, @p, @b, @unmappedProdNo, 'BATCH-UNMAP-1',
+                CURRENT_TIMESTAMP + INTERVAL '1 year', 10, 1, 10,
+                50, 100, 0, FALSE
+            ) ON CONFLICT (batch_no) DO UPDATE SET total_quantity_pcs = 10;
+        ", new { unmappedProdNo, p = TestPharmacyNo, b = TestBranchNo });
+
+        // Temporarily disable sales revenue account (40101) to simulate unmapped account
+        await conn.ExecuteAsync(@"
+            UPDATE acc_transaction_accounts
+            SET is_active = FALSE, account_code = '40101_DISABLED'
+            WHERE pharmacy_no = @p AND account_code = '40101';
+        ", new { p = TestPharmacyNo });
+
+        try
+        {
+            var salePayload = new
+            {
+                items = new[] { new { product_no = unmappedProdNo, sale_qty = 1 } },
+                payments = new[] { new { payment_method = 1, amount = 100.00m, account_no = TestPharmacyNo * 100 + 1 } }
+            };
+
+            var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/pos/sales")
+            {
+                Content = JsonContent.Create(salePayload)
+            };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var resp = await _client.SendAsync(req);
+
+            // Server-side fails (500) rather than silently writing to a fallback account
+            Assert.Equal(HttpStatusCode.InternalServerError, resp.StatusCode);
+
+            _output.WriteLine("Test 14 Passed: Missing revenue account threw clear error without hardcoded fallback.");
+        }
+        finally
+        {
+            // Restore account 40101
+            await conn.ExecuteAsync(@"
+                UPDATE acc_transaction_accounts
+                SET is_active = TRUE, account_code = '40101'
+                WHERE pharmacy_no = @p AND account_code = '40101_DISABLED';
+            ", new { p = TestPharmacyNo });
+        }
     }
 }

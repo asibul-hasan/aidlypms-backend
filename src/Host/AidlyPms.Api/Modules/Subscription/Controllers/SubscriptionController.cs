@@ -145,7 +145,7 @@ public class SubscriptionController : BaseController
             var finalAmount = subtotal - discount;
 
             var nextPaymentNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(subscription_payment_no), 0) + 1 FROM sub_subscription_payments;",
+                "SELECT nextval('seq_subscription_payment_no');",
                 transaction: tran);
 
             var trxRef = string.IsNullOrWhiteSpace(payload.TransactionReference)
@@ -164,7 +164,7 @@ public class SubscriptionController : BaseController
                 DiscountCode = payload.DiscountCode,
                 DiscountAmount = discount,
                 FinalAmount = finalAmount,
-                PaymentStatus = "Completed",
+                PaymentStatus = "Pending",
                 PaymentTimestamp = DateTime.UtcNow,
                 DownloadInvoiceUrl = $"/invoices/sub-{nextPaymentNo}.pdf"
             };
@@ -183,13 +183,51 @@ public class SubscriptionController : BaseController
                 );";
 
             await conn.ExecuteAsync(insertPaymentSql, payment, tran);
+            await tran.CommitAsync();
 
-            // Extend the subscription end date
-            var durationDays = isYearly ? 365 : 30;
+            return OkResponse(payment, "Subscription payment initiated as Pending. Awaiting payment gateway callback or manual confirmation.");
+        }
+        catch
+        {
+            await tran.RollbackAsync();
+            throw;
+        }
+    }
+
+    [HttpPost("payments/{paymentNo:long}/confirm")]
+    public async Task<ActionResult<ApiResponse<SubSubscriptionPayment>>> ConfirmPayment(long paymentNo)
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        await using var tran = await conn.BeginTransactionAsync();
+
+        try
+        {
+            var payment = await conn.QuerySingleOrDefaultAsync<SubSubscriptionPayment>(@"
+                SELECT * FROM sub_subscription_payments
+                WHERE subscription_payment_no = @paymentNo AND pharmacy_no = @CurrentPharmacyNo;",
+                new { paymentNo, CurrentPharmacyNo }, tran);
+
+            if (payment == null)
+            {
+                return FailResponse<SubSubscriptionPayment>("Payment record not found.", statusCode: 404);
+            }
+
+            if (string.Equals(payment.PaymentStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+            {
+                return OkResponse(payment, "Payment is already confirmed and completed.");
+            }
+
+            await conn.ExecuteAsync(@"
+                UPDATE sub_subscription_payments
+                SET payment_status = 'Completed'
+                WHERE subscription_payment_no = @paymentNo;",
+                new { paymentNo }, tran);
+
+            // Extend the subscription end date (30 days for monthly, 365 for yearly)
+            var durationDays = payment.Subtotal >= 5000 ? 365 : 30;
             const string updateSubSql = @"
                 UPDATE sub_pharmacy_subscriptions
                 SET subscription_status = 2,
-                    billing_cycle = @Cycle,
                     subscription_end_date = GREATEST(subscription_end_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
                     next_payment_date = GREATEST(next_payment_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
                     updated_at = NOW()
@@ -197,7 +235,6 @@ public class SubscriptionController : BaseController
 
             await conn.ExecuteAsync(updateSubSql, new
             {
-                Cycle = isYearly ? (short)2 : (short)1,
                 Days = durationDays,
                 CurrentPharmacyNo,
                 CurrentBranchNo
@@ -205,7 +242,68 @@ public class SubscriptionController : BaseController
 
             await tran.CommitAsync();
 
-            return OkResponse(payment, "Subscription renewed successfully! Cloud sync is active.");
+            payment.PaymentStatus = "Completed";
+            return OkResponse(payment, "Payment confirmed successfully. Subscription extended.");
+        }
+        catch
+        {
+            await tran.RollbackAsync();
+            throw;
+        }
+    }
+
+    [HttpPost("callback/{gateway}")]
+    public async Task<ActionResult<ApiResponse<object>>> GatewayCallback(string gateway, [FromBody] GatewayCallbackPayload payload)
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        await using var tran = await conn.BeginTransactionAsync();
+
+        try
+        {
+            var payment = await conn.QuerySingleOrDefaultAsync<SubSubscriptionPayment>(@"
+                SELECT * FROM sub_subscription_payments
+                WHERE (transaction_reference = @TrxRef OR subscription_payment_no = @PaymentNo)
+                  AND pharmacy_no = @CurrentPharmacyNo;",
+                new { TrxRef = payload.TransactionReference ?? "", PaymentNo = payload.PaymentNo ?? 0, CurrentPharmacyNo }, tran);
+
+            if (payment == null)
+            {
+                return FailResponse<object>("Matching subscription payment record not found.", statusCode: 404);
+            }
+
+            if (string.Equals(payload.Status, "Success", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(payload.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+            {
+                await conn.ExecuteAsync(@"
+                    UPDATE sub_subscription_payments
+                    SET payment_status = 'Completed'
+                    WHERE subscription_payment_no = @PaymentNo;",
+                    new { PaymentNo = payment.SubscriptionPaymentNo }, tran);
+
+                var durationDays = payment.Subtotal >= 5000 ? 365 : 30;
+                await conn.ExecuteAsync(@"
+                    UPDATE sub_pharmacy_subscriptions
+                    SET subscription_status = 2,
+                        subscription_end_date = GREATEST(subscription_end_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
+                        next_payment_date = GREATEST(next_payment_date, CURRENT_DATE) + (@Days || ' days')::INTERVAL,
+                        updated_at = NOW()
+                    WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+                    new { Days = durationDays, CurrentPharmacyNo, CurrentBranchNo }, tran);
+
+                await tran.CommitAsync();
+                return OkResponse<object>(new { payment_no = payment.SubscriptionPaymentNo, status = "Completed" }, "Gateway payment confirmed.");
+            }
+            else
+            {
+                await conn.ExecuteAsync(@"
+                    UPDATE sub_subscription_payments
+                    SET payment_status = 'Failed'
+                    WHERE subscription_payment_no = @PaymentNo;",
+                    new { PaymentNo = payment.SubscriptionPaymentNo }, tran);
+
+                await tran.CommitAsync();
+                return OkResponse<object>(new { payment_no = payment.SubscriptionPaymentNo, status = "Failed" }, "Gateway payment marked as failed.");
+            }
         }
         catch
         {

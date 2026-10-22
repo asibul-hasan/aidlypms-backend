@@ -38,6 +38,7 @@ public class ProductController : BaseController
             FROM prod_products p
             LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             WHERE p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo
+              AND p.is_active = TRUE
               AND (@search IS NULL OR p.product_name ILIKE '%' || @search || '%' OR p.barcode_value ILIKE '%' || @search || '%' OR g.name ILIKE '%' || @search || '%')
               AND (@companyNo IS NULL OR p.company_no = @companyNo)
               AND (@genericNo IS NULL OR p.generic_no = @genericNo);";
@@ -74,6 +75,7 @@ public class ProductController : BaseController
             LEFT JOIN prod_companies c ON p.company_no = c.company_no
             LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             WHERE p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo
+              AND p.is_active = TRUE
               AND (@search IS NULL OR p.product_name ILIKE '%' || @search || '%' OR p.barcode_value ILIKE '%' || @search || '%' OR g.name ILIKE '%' || @search || '%')
               AND (@companyNo IS NULL OR p.company_no = @companyNo)
               AND (@genericNo IS NULL OR p.generic_no = @genericNo)
@@ -656,6 +658,53 @@ public class ProductController : BaseController
         }
 
         return OkResponse(model, "Product updated successfully.");
+    }
+
+    [HttpDelete("{id:long}")]
+    [RequirePermission("PMS-Product-Module")]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteProduct(long id, [FromBody] SoftDeleteRequest? request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.Reason))
+        {
+            return FailResponse<object>("A valid reason is required for deletion.", statusCode: 400);
+        }
+
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        var product = await conn.QuerySingleOrDefaultAsync<ProdProduct>(@"
+            SELECT product_no, product_name, is_active
+            FROM prod_products
+            WHERE product_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (product == null || !product.IsActive)
+        {
+            return FailResponse<object>("Product not found or already deleted.", statusCode: 404);
+        }
+
+        var stockQty = await conn.ExecuteScalarAsync<int>(@"
+            SELECT COALESCE(SUM(total_quantity_pcs), 0)
+            FROM prod_product_batches
+            WHERE product_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND total_quantity_pcs > 0;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (stockQty > 0)
+        {
+            return FailResponse<object>("Cannot delete product with remaining stock.", statusCode: 400);
+        }
+
+        await conn.ExecuteAsync(@"
+            UPDATE prod_products
+            SET is_active = FALSE,
+                deleted_at = CURRENT_TIMESTAMP,
+                deleted_by = @CurrentUserNo,
+                deletion_reason = @Reason,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE product_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo, CurrentUserNo, Reason = request.Reason.Trim() });
+
+        return OkResponse<object>(new { product_no = id }, "Product deleted successfully.");
     }
 
     [HttpPost("{id:long}/adjust-stock")]

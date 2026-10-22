@@ -274,6 +274,9 @@ CREATE TABLE IF NOT EXISTS prod_companies (
     branch_no BIGINT NOT NULL REFERENCES sys_branches(branch_no) ON DELETE RESTRICT,
     name VARCHAR(200) NOT NULL,
     is_active BOOLEAN NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by BIGINT,
+    deletion_reason TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_pharmacy_branch_mfr UNIQUE (pharmacy_no, branch_no, name)
@@ -286,6 +289,9 @@ CREATE TABLE IF NOT EXISTS prod_generics (
     branch_no BIGINT NOT NULL REFERENCES sys_branches(branch_no) ON DELETE RESTRICT,
     name VARCHAR(200) NOT NULL,
     is_active BOOLEAN NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by BIGINT,
+    deletion_reason TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_generic_branch_name UNIQUE (pharmacy_no, branch_no, name)
@@ -322,6 +328,9 @@ CREATE TABLE IF NOT EXISTS prod_products (
     dar_number VARCHAR(50),
     drug_schedule VARCHAR(50),
     is_active BOOLEAN NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by BIGINT,
+    deletion_reason TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_product_branch_name UNIQUE (pharmacy_no, branch_no, product_name)
@@ -490,6 +499,9 @@ CREATE TABLE IF NOT EXISTS supp_suppliers (
     note TEXT,
     current_due_balance NUMERIC NOT NULL,
     is_active BOOLEAN NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by BIGINT,
+    deletion_reason TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_supp_phone UNIQUE (pharmacy_no, branch_no, phone)
@@ -633,6 +645,9 @@ CREATE TABLE IF NOT EXISTS cust_customers (
     is_loyalty_member BOOLEAN NOT NULL,
     loyalty_points NUMERIC NOT NULL,
     is_active BOOLEAN NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by BIGINT,
+    deletion_reason TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_cust_phone UNIQUE (pharmacy_no, branch_no, phone)
@@ -1158,6 +1173,7 @@ CREATE TABLE IF NOT EXISTS sub_pharmacy_subscriptions (
     subscription_end_date DATE NOT NULL,
     next_payment_date DATE NOT NULL,
     monthly_rate NUMERIC NOT NULL,
+    grace_period_days INT,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_subscription_branch UNIQUE (pharmacy_no, branch_no)
 );
@@ -1466,6 +1482,8 @@ CREATE SEQUENCE IF NOT EXISTS seq_adjustment_no;
 CREATE SEQUENCE IF NOT EXISTS seq_adjustment_item_no;
 CREATE SEQUENCE IF NOT EXISTS seq_transfer_no;
 CREATE SEQUENCE IF NOT EXISTS seq_transfer_item_no;
+CREATE SEQUENCE IF NOT EXISTS seq_subscription_payment_no;
+CREATE SEQUENCE IF NOT EXISTS seq_subscription_no;
 
 SELECT setval('seq_sale_invoice_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_no) FROM sale_invoices), 0) + 1, 1), false);
 SELECT setval('seq_sale_invoice_item_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_item_no) FROM sale_invoice_items), 0) + 1, 1), false);
@@ -1496,6 +1514,8 @@ SELECT setval('seq_adjustment_no', GREATEST(COALESCE((SELECT MAX(adjustment_no) 
 SELECT setval('seq_adjustment_item_no', GREATEST(COALESCE((SELECT MAX(adjustment_item_no) FROM inv_adjustment_items), 0) + 1, 1), false);
 SELECT setval('seq_transfer_no', GREATEST(COALESCE((SELECT MAX(transfer_no) FROM inv_transfers), 0) + 1, 1), false);
 SELECT setval('seq_transfer_item_no', GREATEST(COALESCE((SELECT MAX(transfer_item_no) FROM inv_transfer_items), 0) + 1, 1), false);
+SELECT setval('seq_subscription_payment_no', GREATEST(COALESCE((SELECT MAX(subscription_payment_no) FROM sub_subscription_payments), 0) + 1, 1), false);
+SELECT setval('seq_subscription_no', GREATEST(COALESCE((SELECT MAX(subscription_no) FROM sub_pharmacy_subscriptions), 0) + 1, 1), false);
 
 -- ============================================================================
 -- END OF SCHEMA

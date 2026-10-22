@@ -58,6 +58,9 @@ public class SubPharmacySubscription
     [JsonPropertyName("monthly_rate")]
     public decimal MonthlyRate { get; set; }
 
+    [JsonPropertyName("grace_period_days")]
+    public int? GracePeriodDays { get; set; }
+
     [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; }
 
@@ -127,4 +130,16 @@ public class RenewalPaymentPayload
 
     [JsonPropertyName("discount_code")]
     public string? DiscountCode { get; set; }
+}
+
+public class GatewayCallbackPayload
+{
+    [JsonPropertyName("payment_no")]
+    public long? PaymentNo { get; set; }
+
+    [JsonPropertyName("transaction_reference")]
+    public string? TransactionReference { get; set; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "Completed";
 }

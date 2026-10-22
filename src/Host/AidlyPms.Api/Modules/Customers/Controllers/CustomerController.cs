@@ -32,6 +32,7 @@ public class CustomerController : BaseController
             SELECT COUNT(*)
             FROM cust_customers
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND is_active = TRUE
               AND (@search IS NULL OR name ILIKE '%' || @search || '%' OR phone ILIKE '%' || @search || '%');";
 
         var total = await conn.ExecuteScalarAsync<int>(countSql, new { CurrentPharmacyNo, CurrentBranchNo, search });
@@ -44,6 +45,7 @@ public class CustomerController : BaseController
                 loyalty_points, is_active, created_at, updated_at
             FROM cust_customers
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND is_active = TRUE
               AND (@search IS NULL OR name ILIKE '%' || @search || '%' OR phone ILIKE '%' || @search || '%')
             ORDER BY name ASC
             OFFSET @offset LIMIT @pageSize;";
@@ -214,6 +216,46 @@ public class CustomerController : BaseController
         }
 
         return OkResponse(updated, "Customer updated successfully.");
+    }
+
+    [HttpDelete("{id:long}")]
+    [RequirePermission("PMS-Customer-Module")]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteCustomer(long id, [FromBody] SoftDeleteRequest? request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.Reason))
+        {
+            return FailResponse<object>("A valid reason is required for deletion.", statusCode: 400);
+        }
+
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        var customer = await conn.QuerySingleOrDefaultAsync<CustCustomer>(@"
+            SELECT customer_no, name, has_due, current_due, advance_balance, is_active
+            FROM cust_customers
+            WHERE customer_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (customer == null || !customer.IsActive)
+        {
+            return FailResponse<object>("Customer not found or already deleted.", statusCode: 404);
+        }
+
+        if (customer.HasDue || customer.CurrentDue > 0 || customer.AdvanceBalance > 0)
+        {
+            return FailResponse<object>("Cannot delete customer with outstanding due or advance balance.", statusCode: 400);
+        }
+
+        await conn.ExecuteAsync(@"
+            UPDATE cust_customers
+            SET is_active = FALSE,
+                deleted_at = CURRENT_TIMESTAMP,
+                deleted_by = @CurrentUserNo,
+                deletion_reason = @Reason,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE customer_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo, CurrentUserNo, Reason = request.Reason.Trim() });
+
+        return OkResponse<object>(new { customer_no = id }, "Customer deleted successfully.");
     }
 
     [HttpGet("{id:long}/ledger")]

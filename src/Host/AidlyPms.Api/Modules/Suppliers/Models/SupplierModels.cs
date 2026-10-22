@@ -28,6 +28,15 @@ public class SuppSupplier
     [JsonPropertyName("is_active")]
     public bool IsActive { get; set; } = true;
 
+    [JsonPropertyName("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
+
+    [JsonPropertyName("deleted_by")]
+    public long? DeletedBy { get; set; }
+
+    [JsonPropertyName("deletion_reason")]
+    public string? DeletionReason { get; set; }
+
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

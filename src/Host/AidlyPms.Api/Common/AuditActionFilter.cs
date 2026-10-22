@@ -132,7 +132,10 @@ public class AuditActionFilter : IAsyncActionFilter
                 var key = kvp.Key;
                 if (key.Contains("password", StringComparison.OrdinalIgnoreCase) ||
                     key.Contains("token", StringComparison.OrdinalIgnoreCase) ||
-                    key.Contains("hash", StringComparison.OrdinalIgnoreCase))
+                    key.Contains("hash", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("secret", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("pin", StringComparison.OrdinalIgnoreCase) ||
+                    key.Contains("cvv", StringComparison.OrdinalIgnoreCase))
                 {
                     keysToRemove.Add(key);
                 }
@@ -164,6 +167,9 @@ public class AuditActionFilter : IAsyncActionFilter
         "purchase" => "pur_purchase_invoices",
         "stockadjustment" => "inv_stock_adjustments",
         "stocktransfer" => "inv_stock_transfers",
+        "company" => "prod_companies",
+        "generic" => "prod_generics",
+        "purchasereturn" => "pur_purchase_returns",
         "customer" => "cust_customers",
         "supplier" => "supp_suppliers",
         "expense" => "acc_expenses",

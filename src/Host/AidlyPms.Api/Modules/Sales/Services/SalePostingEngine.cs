@@ -510,7 +510,7 @@ public class SalePostingEngine : ISalePostingEngine
             var accountNo = pay.AccountNo;
             if (accountNo <= 0)
             {
-                accountNo = pay.PaymentMethod switch
+                var resolvedAccountNo = pay.PaymentMethod switch
                 {
                     1 => await conn.ExecuteScalarAsync<long?>(@"
                         SELECT account_no FROM acc_transaction_accounts
@@ -520,30 +520,40 @@ public class SalePostingEngine : ISalePostingEngine
                         SELECT account_no FROM acc_transaction_accounts
                         WHERE account_category = 1 AND pharmacy_no = @pharmacyNo
                         ORDER BY (branch_no = @branchNo) DESC, account_no ASC LIMIT 1;",
-                        new { pharmacyNo, branchNo }, transaction: tran) ?? 1,
+                        new { pharmacyNo, branchNo }, transaction: tran),
                     2 => await conn.ExecuteScalarAsync<long?>(@"
                         SELECT account_no FROM acc_transaction_accounts
                         WHERE account_code = '10201' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran) ?? 2,
+                        new { pharmacyNo, branchNo }, transaction: tran),
                     3 => await conn.ExecuteScalarAsync<long?>(@"
                         SELECT account_no FROM acc_transaction_accounts
                         WHERE account_code = '10202' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran) ?? 13,
+                        new { pharmacyNo, branchNo }, transaction: tran),
                     4 => await conn.ExecuteScalarAsync<long?>(@"
                         SELECT account_no FROM acc_transaction_accounts
                         WHERE account_code = '10203' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran) ?? 14,
+                        new { pharmacyNo, branchNo }, transaction: tran),
                     6 => await conn.ExecuteScalarAsync<long?>(@"
                         SELECT account_no FROM acc_transaction_accounts
                         WHERE account_code = '10205' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran) ?? 15,
+                        new { pharmacyNo, branchNo }, transaction: tran),
                     9 => await conn.ExecuteScalarAsync<long?>(@"
                         SELECT account_no FROM acc_transaction_accounts
                         WHERE (account_code = '10901' OR account_name = 'Return Credit Clearing')
                           AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran) ?? 20,
-                    _ => 1
+                        new { pharmacyNo, branchNo }, transaction: tran),
+                    _ => await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE account_code = '10101' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
+                        new { pharmacyNo, branchNo }, transaction: tran)
                 };
+
+                if (!resolvedAccountNo.HasValue)
+                {
+                    throw new InvalidOperationException($"Could not resolve ledger account for payment method {pay.PaymentMethod} in pharmacy {pharmacyNo} branch {branchNo}. Please ensure the chart of accounts is configured.");
+                }
+
+                accountNo = resolvedAccountNo.Value;
             }
 
             pay.AccountNo = accountNo;
@@ -650,11 +660,16 @@ public class SalePostingEngine : ISalePostingEngine
             var arAccount = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT account_no FROM acc_transaction_accounts
                 WHERE account_code = '10301' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                new { pharmacyNo, branchNo }, transaction: tran) ?? 6;
+                new { pharmacyNo, branchNo }, transaction: tran);
+
+            if (!arAccount.HasValue)
+            {
+                throw new InvalidOperationException($"Customer AR account '10301' is not configured for pharmacy {pharmacyNo} branch {branchNo}.");
+            }
 
             journalEntry.Legs.Add(new LedgerLeg
             {
-                AccountNo = arAccount,
+                AccountNo = arAccount.Value,
                 DebitAmount = dueAmount,
                 CreditAmount = 0,
                 Narration = $"Customer AR due on sale {salesNumber}"
@@ -667,11 +682,16 @@ public class SalePostingEngine : ISalePostingEngine
             var commAcc = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT account_no FROM acc_transaction_accounts
                 WHERE account_code = '50301' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                new { pharmacyNo, branchNo }, transaction: tran) ?? 17;
+                new { pharmacyNo, branchNo }, transaction: tran);
+
+            if (!commAcc.HasValue)
+            {
+                throw new InvalidOperationException($"Card commission account '50301' is not configured for pharmacy {pharmacyNo} branch {branchNo}.");
+            }
 
             journalEntry.Legs.Add(new LedgerLeg
             {
-                AccountNo = commAcc,
+                AccountNo = commAcc.Value,
                 DebitAmount = invoice.CardCommissionAmount,
                 CreditAmount = 0,
                 Narration = $"Card processing surcharge fee for {salesNumber}"
@@ -682,11 +702,16 @@ public class SalePostingEngine : ISalePostingEngine
         var revAcc = await conn.ExecuteScalarAsync<long?>(@"
             SELECT account_no FROM acc_transaction_accounts
             WHERE account_code = '40101' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-            new { pharmacyNo, branchNo }, transaction: tran) ?? 5;
+            new { pharmacyNo, branchNo }, transaction: tran);
+
+        if (!revAcc.HasValue)
+        {
+            throw new InvalidOperationException($"Sales revenue account '40101' is not configured for pharmacy {pharmacyNo} branch {branchNo}.");
+        }
 
         journalEntry.Legs.Add(new LedgerLeg
         {
-            AccountNo = revAcc,
+            AccountNo = revAcc.Value,
             DebitAmount = 0,
             CreditAmount = netAmount,
             Narration = $"Sales revenue from invoice {salesNumber}"
@@ -698,11 +723,16 @@ public class SalePostingEngine : ISalePostingEngine
             var vatAcc = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT account_no FROM acc_transaction_accounts
                 WHERE account_code = '20201' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                new { pharmacyNo, branchNo }, transaction: tran) ?? 7;
+                new { pharmacyNo, branchNo }, transaction: tran);
+
+            if (!vatAcc.HasValue)
+            {
+                throw new InvalidOperationException($"Output VAT account '20201' is not configured for pharmacy {pharmacyNo} branch {branchNo}.");
+            }
 
             journalEntry.Legs.Add(new LedgerLeg
             {
-                AccountNo = vatAcc,
+                AccountNo = vatAcc.Value,
                 DebitAmount = 0,
                 CreditAmount = totalVat,
                 Narration = $"Output VAT on sale {salesNumber}"
@@ -715,11 +745,16 @@ public class SalePostingEngine : ISalePostingEngine
             var roundGainAcc = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT account_no FROM acc_transaction_accounts
                 WHERE account_code = '40202' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                new { pharmacyNo, branchNo }, transaction: tran) ?? 16;
+                new { pharmacyNo, branchNo }, transaction: tran);
+
+            if (!roundGainAcc.HasValue)
+            {
+                throw new InvalidOperationException($"Round-off gain account '40202' is not configured for pharmacy {pharmacyNo} branch {branchNo}.");
+            }
 
             journalEntry.Legs.Add(new LedgerLeg
             {
-                AccountNo = roundGainAcc,
+                AccountNo = roundGainAcc.Value,
                 DebitAmount = 0,
                 CreditAmount = invoice.RoundOffAmount,
                 Narration = "Rounding gain adjustment"
@@ -742,7 +777,12 @@ public class SalePostingEngine : ISalePostingEngine
                     WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
                       AND (account_name ILIKE '%Cost of Goods%' OR account_name ILIKE '%COGS%')
                     LIMIT 1;",
-                    new { pharmacyNo, branchNo }, transaction: tran) ?? 11;
+                    new { pharmacyNo, branchNo }, transaction: tran);
+            }
+
+            if (!cogsAcc.HasValue)
+            {
+                throw new InvalidOperationException($"Cost of Goods Sold (COGS) account '50101' is not configured for pharmacy {pharmacyNo} branch {branchNo}.");
             }
 
             var invAssetAcc = await conn.ExecuteScalarAsync<long?>(@"
@@ -759,7 +799,12 @@ public class SalePostingEngine : ISalePostingEngine
                     WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
                       AND (account_name ILIKE '%Inventory%' OR account_code LIKE '10%')
                     LIMIT 1;",
-                    new { pharmacyNo, branchNo }, transaction: tran) ?? 4;
+                    new { pharmacyNo, branchNo }, transaction: tran);
+            }
+
+            if (!invAssetAcc.HasValue)
+            {
+                throw new InvalidOperationException($"Inventory Asset account '10401'/'10201' is not configured for pharmacy {pharmacyNo} branch {branchNo}.");
             }
 
             journalEntry.Legs.Add(new LedgerLeg

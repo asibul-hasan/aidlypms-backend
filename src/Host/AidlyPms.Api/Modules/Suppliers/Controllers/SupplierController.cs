@@ -28,11 +28,11 @@ public class SupplierController : BaseController
         using var conn = _db.CreateConnection();
         var sql = @"
             SELECT * FROM supp_suppliers
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo";
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND is_active = TRUE";
 
         var countSql = @"
             SELECT COUNT(1) FROM supp_suppliers
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo";
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND is_active = TRUE";
 
         var p = new DynamicParameters();
         p.Add("CurrentPharmacyNo", CurrentPharmacyNo);
@@ -170,6 +170,46 @@ public class SupplierController : BaseController
             existing);
 
         return OkResponse(existing, $"Supplier '{existing.Name}' updated successfully.");
+    }
+
+    [HttpDelete("{id:long}")]
+    [RequirePermission("PMS-Vendor-Module")]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteSupplier(long id, [FromBody] SoftDeleteRequest? request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.Reason))
+        {
+            return FailResponse<object>("A valid reason is required for deletion.", statusCode: 400);
+        }
+
+        using var conn = _db.CreateConnection();
+
+        var supplier = await conn.QuerySingleOrDefaultAsync<SuppSupplier>(@"
+            SELECT supplier_no, name, current_due_balance, is_active
+            FROM supp_suppliers
+            WHERE supplier_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (supplier == null || !supplier.IsActive)
+        {
+            return FailResponse<object>("Supplier not found or already deleted.", statusCode: 404);
+        }
+
+        if (supplier.CurrentDueBalance > 0)
+        {
+            return FailResponse<object>("Cannot delete supplier with outstanding due balance.", statusCode: 400);
+        }
+
+        await conn.ExecuteAsync(@"
+            UPDATE supp_suppliers
+            SET is_active = FALSE,
+                deleted_at = CURRENT_TIMESTAMP,
+                deleted_by = @CurrentUserNo,
+                deletion_reason = @Reason,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE supplier_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo, CurrentUserNo, Reason = request.Reason.Trim() });
+
+        return OkResponse<object>(new { supplier_no = id }, "Supplier deleted successfully.");
     }
 
     [HttpGet("{id:long}/ledger")]

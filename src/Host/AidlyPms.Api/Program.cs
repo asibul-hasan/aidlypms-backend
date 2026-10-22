@@ -92,6 +92,11 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+if (allowedOrigins.Length == 0)
+{
+    app.Logger.LogWarning("No CORS AllowedOrigins configured! Cross-origin requests will not be permitted.");
+}
+
 // Item 8: Global Exception Handler Middleware
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
@@ -105,6 +110,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<SubscriptionExpiryMiddleware>();
 
 app.MapControllers();
 

@@ -25,6 +25,7 @@ public class CompanyController : BaseController
             SELECT company_no, pharmacy_no, branch_no, name, is_active, created_at, updated_at
             FROM prod_companies
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND is_active = TRUE
               AND (@search IS NULL OR name ILIKE '%' || @search || '%')
             ORDER BY name ASC;";
 
@@ -92,5 +93,51 @@ public class CompanyController : BaseController
         }
 
         return OkResponse(updated, "Pharmaceutical company updated successfully.");
+    }
+
+    [HttpDelete("{id:long}")]
+    [RequirePermission("POS-Shop-Company-Module")]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteCompany(long id, [FromBody] SoftDeleteRequest? request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.Reason))
+        {
+            return FailResponse<object>("A valid reason is required for deletion.", statusCode: 400);
+        }
+
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        var company = await conn.QuerySingleOrDefaultAsync<ProdCompany>(@"
+            SELECT company_no, name, is_active
+            FROM prod_companies
+            WHERE company_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (company == null || !company.IsActive)
+        {
+            return FailResponse<object>("Company not found or already deleted.", statusCode: 404);
+        }
+
+        var activeProductsCount = await conn.ExecuteScalarAsync<int>(@"
+            SELECT COUNT(1) FROM prod_products
+            WHERE company_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND is_active = TRUE;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo });
+
+        if (activeProductsCount > 0)
+        {
+            return FailResponse<object>("Cannot delete company associated with active products.", statusCode: 400);
+        }
+
+        await conn.ExecuteAsync(@"
+            UPDATE prod_companies
+            SET is_active = FALSE,
+                deleted_at = CURRENT_TIMESTAMP,
+                deleted_by = @CurrentUserNo,
+                deletion_reason = @Reason,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE company_no = @id AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { id, CurrentPharmacyNo, CurrentBranchNo, CurrentUserNo, Reason = request.Reason.Trim() });
+
+        return OkResponse<object>(new { company_no = id }, "Company deleted successfully.");
     }
 }

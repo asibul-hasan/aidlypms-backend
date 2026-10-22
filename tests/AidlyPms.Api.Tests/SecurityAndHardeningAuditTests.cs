@@ -536,7 +536,11 @@ public class SecurityAndHardeningAuditTests
             "seq_purchase_invoice_item_no",
             "seq_ledger_no",
             "seq_journal_no",
-            "seq_stock_movement_no"
+            "seq_stock_movement_no",
+            "seq_expense_no",
+            "seq_income_no",
+            "seq_subscription_payment_no",
+            "seq_subscription_no"
         };
 
         var schemaPath = Path.Combine(AppContext.BaseDirectory, "database", "schema.sql");

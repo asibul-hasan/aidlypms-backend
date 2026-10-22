@@ -11,14 +11,14 @@ public class PostgresTestSchemaHarness : IAsyncDisposable
     public string IsolatedConnectionString { get; }
     public string SchemaName { get; }
 
-    private readonly (long SaleInvoices, long ProdProducts, long SysAuditLogs) _beforeCounts;
+    private readonly HashSet<string> _beforePublicTables;
 
-    private PostgresTestSchemaHarness(string baseConnStr, string isolatedConnStr, string schemaName, (long, long, long) beforeCounts)
+    private PostgresTestSchemaHarness(string baseConnStr, string isolatedConnStr, string schemaName, HashSet<string> beforePublicTables)
     {
         BaseConnectionString = baseConnStr;
         IsolatedConnectionString = isolatedConnStr;
         SchemaName = schemaName;
-        _beforeCounts = beforeCounts;
+        _beforePublicTables = beforePublicTables;
     }
 
     public static async Task<PostgresTestSchemaHarness> CreateAsync(string? rawConnStr = null)
@@ -56,8 +56,9 @@ public class PostgresTestSchemaHarness : IAsyncDisposable
         // Drop leftover schemas aidly_test_% older than 1 hour at start
         await DropLeftoverSchemasAsync(conn);
 
-        // Pre-run Canary measurement
-        var beforeCounts = await MeasurePublicCanaryCountsAsync(conn);
+        // Pre-run Canary measurement: capture public table set and verify no test pharmacy rows
+        var beforePublicTables = await GetPublicTablesAsync(conn);
+        await AssertNoTestPharmacyRowsInPublicAsync(conn);
 
         // Create isolated schema
         await conn.ExecuteAsync($"CREATE SCHEMA {schemaName};");
@@ -90,7 +91,7 @@ public class PostgresTestSchemaHarness : IAsyncDisposable
             }
         }
 
-        return new PostgresTestSchemaHarness(connStr, isolatedConnStr, schemaName, beforeCounts);
+        return new PostgresTestSchemaHarness(connStr, isolatedConnStr, schemaName, beforePublicTables);
     }
 
     public static void ValidateSchemaName(string name)
@@ -164,27 +165,47 @@ public class PostgresTestSchemaHarness : IAsyncDisposable
         }
     }
 
-    private static async Task<(long SaleInvoices, long ProdProducts, long SysAuditLogs)> MeasurePublicCanaryCountsAsync(NpgsqlConnection conn)
+    public static async Task<HashSet<string>> GetPublicTablesAsync(NpgsqlConnection conn)
     {
         try
         {
-            var tables = (await conn.QueryAsync<string>(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';")).ToHashSet();
-
-            if (!tables.Contains("sale_invoices") || !tables.Contains("prod_products") || !tables.Contains("sys_audit_logs"))
-            {
-                return (0, 0, 0);
-            }
-
-            var saleInvoices = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM public.sale_invoices;");
-            var prodProducts = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM public.prod_products;");
-            var sysAuditLogs = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM public.sys_audit_logs;");
-
-            return (saleInvoices, prodProducts, sysAuditLogs);
+            var tables = await conn.QueryAsync<string>(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';");
+            return tables.ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
         catch
         {
-            return (0, 0, 0);
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public static async Task AssertNoTestPharmacyRowsInPublicAsync(NpgsqlConnection conn)
+    {
+        try
+        {
+            var tablesWithPharmacyNo = (await conn.QueryAsync<string>(@"
+                SELECT table_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND column_name = 'pharmacy_no';")).ToList();
+
+            foreach (var table in tablesWithPharmacyNo)
+            {
+                var count = await conn.ExecuteScalarAsync<long>(
+                    $"SELECT COUNT(*) FROM public.\"{table}\" WHERE pharmacy_no >= 9000;");
+                if (count > 0)
+                {
+                    throw new InvalidOperationException(
+                        $"CANARY VIOLATION: Found {count} test rows (pharmacy_no >= 9000) leaked into public.\"{table}\"!");
+                }
+            }
+        }
+        catch (Exception ex) when (ex.Message.Contains("CANARY VIOLATION"))
+        {
+            throw;
+        }
+        catch
+        {
+            // Suppress schema query lookup errors if public catalog is empty
         }
     }
 
@@ -198,14 +219,17 @@ public class PostgresTestSchemaHarness : IAsyncDisposable
             ValidateDropSchemaName(SchemaName);
             await conn.ExecuteAsync($"DROP SCHEMA IF EXISTS {SchemaName} CASCADE;");
 
-            var afterCounts = await MeasurePublicCanaryCountsAsync(conn);
-            if (afterCounts != _beforeCounts)
+            var afterTables = await GetPublicTablesAsync(conn);
+            if (!afterTables.SetEquals(_beforePublicTables))
             {
+                var added = afterTables.Except(_beforePublicTables).ToList();
+                var removed = _beforePublicTables.Except(afterTables).ToList();
                 throw new InvalidOperationException(
-                    $"CANARY VIOLATION: Public tables were modified during test execution! " +
-                    $"Before: SaleInvoices={_beforeCounts.SaleInvoices}, ProdProducts={_beforeCounts.ProdProducts}, SysAuditLogs={_beforeCounts.SysAuditLogs}. " +
-                    $"After: SaleInvoices={afterCounts.SaleInvoices}, ProdProducts={afterCounts.ProdProducts}, SysAuditLogs={afterCounts.SysAuditLogs}.");
+                    $"CANARY VIOLATION: Public tables set was altered during test execution! " +
+                    $"Added: [{string.Join(", ", added)}], Removed: [{string.Join(", ", removed)}].");
             }
+
+            await AssertNoTestPharmacyRowsInPublicAsync(conn);
         }
         catch (Exception ex) when (!ex.Message.Contains("CANARY VIOLATION"))
         {

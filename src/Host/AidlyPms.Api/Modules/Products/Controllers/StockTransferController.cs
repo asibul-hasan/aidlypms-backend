@@ -265,6 +265,10 @@ public class StockTransferController : BaseController
                 new { id, CurrentPharmacyNo }, transaction: tran);
 
             if (transfer == null) return NotFoundResponse<object>("Transfer record not found.");
+            if (transfer.ToBranchNo != CurrentBranchNo)
+            {
+                return FailResponse<object>("Access Denied", "Only the destination branch can receive this transfer.", 403);
+            }
             if (transfer.TransferStatus == 2) return FailResponse<object>("Bad Request", "Transfer already received.", 400);
 
             var items = (await conn.QueryAsync<InvTransferItem>(@"

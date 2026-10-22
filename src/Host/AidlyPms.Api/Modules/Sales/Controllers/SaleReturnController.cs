@@ -580,7 +580,12 @@ public class SaleReturnController : BaseController
                     WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                       AND (account_name ILIKE '%Sales%' OR account_code LIKE '40%')
                     LIMIT 1;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+            }
+
+            if (!retAcc.HasValue && totalNet > 0)
+            {
+                throw new InvalidOperationException($"Sales return / revenue account is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
             }
 
             if (totalNet > 0)
@@ -610,7 +615,12 @@ public class SaleReturnController : BaseController
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (account_name ILIKE '%VAT%' OR account_code LIKE '20%')
                         LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 7;
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+                }
+
+                if (!vatAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Output VAT account '20201' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
                 }
 
                 journalEntry.Legs.Add(new LedgerLeg
@@ -638,7 +648,12 @@ public class SaleReturnController : BaseController
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (account_name ILIKE '%Receivable%' OR account_name ILIKE '%Customer%')
                         LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 6;
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+                }
+
+                if (!arAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Customer AR account '10301' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
                 }
 
                 journalEntry.Legs.Add(new LedgerLeg
@@ -675,7 +690,12 @@ public class SaleReturnController : BaseController
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (account_name ILIKE '%Cash%' OR account_code LIKE '101%')
                         LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+                }
+
+                if (!refundAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Refund disbursement account '{refundAccountCode}' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
                 }
 
                 journalEntry.Legs.Add(new LedgerLeg
@@ -703,7 +723,12 @@ public class SaleReturnController : BaseController
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (account_name ILIKE '%Store Credit%' OR account_code LIKE '20%')
                         LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+                }
+
+                if (!creditAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Store Credit liability account '20301' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
                 }
 
                 journalEntry.Legs.Add(new LedgerLeg
@@ -732,7 +757,12 @@ public class SaleReturnController : BaseController
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (account_name ILIKE '%Inventory%' OR account_code LIKE '10%')
                         LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 4;
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+                }
+
+                if (!invAssetAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Inventory Asset account '10401'/'10201' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
                 }
 
                 var cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
@@ -748,7 +778,12 @@ public class SaleReturnController : BaseController
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (account_name ILIKE '%Cost of Goods%' OR account_name ILIKE '%COGS%')
                         LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 11;
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+                }
+
+                if (!cogsAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Cost of Goods Sold (COGS) account '50101' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
                 }
 
                 journalEntry.Legs.Add(new LedgerLeg
@@ -1142,7 +1177,12 @@ public class SaleReturnController : BaseController
                     WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                       AND (account_name ILIKE '%Sales%' OR account_code LIKE '40%')
                     LIMIT 1;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+            }
+
+            if (!retAllowanceAcc.HasValue)
+            {
+                throw new InvalidOperationException($"Sales return / revenue account is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
             }
 
             if (returnNet > 0)
@@ -1171,7 +1211,12 @@ public class SaleReturnController : BaseController
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (account_name ILIKE '%VAT%' OR account_code LIKE '20%')
                         LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 7;
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+                }
+
+                if (!vatAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Output VAT account '20201' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
                 }
 
                 returnJournal.Legs.Add(new LedgerLeg
@@ -1208,7 +1253,12 @@ public class SaleReturnController : BaseController
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (account_name ILIKE '%Inventory%' OR account_code LIKE '10%')
                         LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 4;
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+                }
+
+                if (!invAssetAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Inventory Asset account '10401'/'10201' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
                 }
 
                 var cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
@@ -1224,7 +1274,12 @@ public class SaleReturnController : BaseController
                         WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
                           AND (account_name ILIKE '%Cost of Goods%' OR account_name ILIKE '%COGS%')
                         LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 11;
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+                }
+
+                if (!cogsAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Cost of Goods Sold (COGS) account '50101' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
                 }
 
                 returnJournal.Legs.Add(new LedgerLeg
@@ -1349,7 +1404,12 @@ public class SaleReturnController : BaseController
                     ?? await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
                     WHERE account_code = '10101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!settlementAccNo.HasValue)
+                {
+                    throw new InvalidOperationException($"Settlement refund account '{settlementAccountCode}' or cash '10101' could not be resolved for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
+                }
 
                 // Disburse excess cash back or store credit to clear 10901 to exactly zero
                 var settlementJournal = new CompoundJournalEntry
@@ -1374,7 +1434,7 @@ public class SaleReturnController : BaseController
                         // Cr Settlement Account (Cash Drawer / Bank / MFS refund to customer)
                         new LedgerLeg
                         {
-                            AccountNo = settlementAccNo,
+                            AccountNo = settlementAccNo.Value,
                             DebitAmount = 0,
                             CreditAmount = excessRefundToCustomer,
                             Narration = $"Payment difference refund to customer on exchange {returnNumber}"
