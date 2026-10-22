@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.11.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.4...v1.11.0) (2026-10-22)
+
+
+### 🚀 Features
+
+* **test:** add isolated schema harness, zero defaults, sequences and WAF tests ([d1b6a9e](https://github.com/asibul-hasan/aidlypms-backend/commit/d1b6a9e4220c2f3ce170c0782522819643691ce8))
+
+
+### 🐛 Bug Fixes
+
+* **sales:** balance POS journal on partial payment and resolve ledger accounts dynamically per pharmacy ([0752797](https://github.com/asibul-hasan/aidlypms-backend/commit/0752797ca64124b74d99646dd0e655a9b94ab89a))
+
 ## [1.10.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.3...v1.10.4) (2026-10-22)
 
 
