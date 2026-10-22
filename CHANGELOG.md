@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.12.5](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.4...v1.12.5) (2026-10-22)
+
+
+### 🐛 Bug Fixes
+
+* **prod:** auto-run migrations on startup and harden product registration ([f9eb26c](https://github.com/asibul-hasan/aidlypms-backend/commit/f9eb26cbb338e872fda103a97e9eaf6f006f7108))
+
 ## [1.12.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.3...v1.12.4) (2026-10-22)
 
 
