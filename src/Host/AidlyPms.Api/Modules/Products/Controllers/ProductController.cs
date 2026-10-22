@@ -4,6 +4,7 @@ using AidlyPms.Api.Infrastructure;
 using AidlyPms.Api.Modules.Products.Models;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
+using Npgsql;
 
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
@@ -440,12 +441,36 @@ public class ProductController : BaseController
         var salePerPiece = qtyPerBox > 0 && model.SalePricePerBox > 0 
             ? Math.Round(model.SalePricePerBox / qtyPerBox, 4) 
             : model.SalePricePerPiece;
+        var wholesaleBox = model.WholesalePricePerBox > 0 ? model.WholesalePricePerBox : model.SalePricePerBox;
+        var wholesalePiece = model.WholesalePricePerPiece > 0 ? model.WholesalePricePerPiece : salePerPiece;
 
         await using var conn = await _db.CreateOpenConnectionAsync();
         await using var tran = await conn.BeginTransactionAsync();
 
         try
         {
+            // Validate company exists for current pharmacy
+            var companyExists = await conn.ExecuteScalarAsync<bool>(
+                "SELECT EXISTS(SELECT 1 FROM prod_companies WHERE company_no = @CompanyNo AND pharmacy_no = @CurrentPharmacyNo);",
+                new { model.CompanyNo, CurrentPharmacyNo }, transaction: tran);
+            if (!companyExists)
+            {
+                return FailResponse<ProdProduct>("Selected pharmaceutical company does not exist in your pharmacy.", statusCode: 400);
+            }
+
+            // Clean generic_no (must be null if <= 0)
+            long? cleanGenericNo = (model.GenericNo.HasValue && model.GenericNo.Value > 0) ? model.GenericNo.Value : null;
+            if (cleanGenericNo.HasValue)
+            {
+                var genericExists = await conn.ExecuteScalarAsync<bool>(
+                    "SELECT EXISTS(SELECT 1 FROM prod_generics WHERE generic_no = @cleanGenericNo);",
+                    new { cleanGenericNo }, transaction: tran);
+                if (!genericExists)
+                {
+                    cleanGenericNo = null; // fallback gracefully if generic formulation was deleted
+                }
+            }
+
             var productNo = await conn.ExecuteScalarAsync<long>(
                 "SELECT nextval('seq_product_no');", transaction: tran);
 
@@ -464,11 +489,11 @@ public class ProductController : BaseController
                     is_prescription_required, is_narcotic, min_stock_qty_pcs,
                     rak_number, dar_number, drug_schedule, is_active, created_at, updated_at
                 ) VALUES (
-                    @productNo, gen_random_uuid(), @CurrentPharmacyNo, @CurrentBranchNo, @CompanyNo, @GenericNo,
+                    @productNo, gen_random_uuid(), @CurrentPharmacyNo, @CurrentBranchNo, @CompanyNo, @cleanGenericNo,
                     @ProductName, @Strength, @Volume, @MedicineType, @UnitType,
                     @qtyPerBox, @CostPerBox, @SalePricePerBox,
                     @purchasePerPiece, @purchasePerPiece, @salePerPiece,
-                    @WholesalePricePerBox, @WholesalePricePerPiece,
+                    @wholesaleBox, @wholesalePiece,
                     @CountryOfOrigin, @barcode, @IsMedicine,
                     @IsPrescriptionRequired, @IsNarcotic, @MinStockQtyPcs,
                     @RakNumber, @DarNumber, @DrugSchedule, @IsActive, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -480,7 +505,7 @@ public class ProductController : BaseController
                 CurrentPharmacyNo,
                 CurrentBranchNo,
                 model.CompanyNo,
-                model.GenericNo,
+                cleanGenericNo,
                 model.ProductName,
                 model.Strength,
                 model.Volume,
@@ -491,8 +516,8 @@ public class ProductController : BaseController
                 model.SalePricePerBox,
                 purchasePerPiece,
                 salePerPiece,
-                model.WholesalePricePerBox,
-                model.WholesalePricePerPiece,
+                wholesaleBox,
+                wholesalePiece,
                 model.CountryOfOrigin,
                 barcode,
                 model.IsMedicine,
@@ -565,6 +590,19 @@ public class ProductController : BaseController
             model.PharmacyNo = CurrentPharmacyNo;
             model.BranchNo = CurrentBranchNo;
             return OkResponse(model, "Product registered successfully.");
+        }
+        catch (PostgresException pgEx)
+        {
+            await tran.RollbackAsync();
+            if (pgEx.SqlState == "23505")
+            {
+                return FailResponse<ProdProduct>($"A medicine with the name '{model.ProductName}' already exists in this branch.", statusCode: 400);
+            }
+            if (pgEx.SqlState == "23503")
+            {
+                return FailResponse<ProdProduct>("Invalid manufacturer company or generic formulation reference.", statusCode: 400);
+            }
+            throw;
         }
         catch
         {

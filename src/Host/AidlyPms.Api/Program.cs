@@ -136,6 +136,9 @@ app.MapGet("/api/health/db", async (IConfiguration config) =>
     }
 }).AllowAnonymous();
 
+// Run pending database migrations automatically on startup
+await DatabaseMigrationRunner.ApplyMigrationsAsync(app.Services, app.Logger);
+
 app.Run();
 
 public partial class Program { }
