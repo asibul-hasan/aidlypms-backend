@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.12.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.11.0...v1.12.0) (2026-10-22)
+
+
+### 🚀 Features
+
+* complete items 0-7: cleanups, soft-delete, audit logs, subscription expiry, and integration tests ([a7d1762](https://github.com/asibul-hasan/aidlypms-backend/commit/a7d17624b06ec94deb49d042bbe9a64b89ac0d1d))
+
 ## [1.11.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.4...v1.11.0) (2026-10-22)
 
 
