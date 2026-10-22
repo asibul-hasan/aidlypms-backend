@@ -64,7 +64,7 @@ public class SubscriptionController : BaseController
                     subscription_start_date, subscription_end_date,
                     next_payment_date, monthly_rate, updated_at
                 ) VALUES (
-                    1, @CurrentPharmacyNo, @CurrentBranchNo, 1,
+                    nextval('seq_subscription_no'), @CurrentPharmacyNo, @CurrentBranchNo, 1,
                     1, 2, CURRENT_DATE + INTERVAL '14 days',
                     CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
                     CURRENT_DATE + INTERVAL '30 days', 500, NOW()
@@ -148,6 +148,43 @@ public class SubscriptionController : BaseController
                 "SELECT nextval('seq_subscription_payment_no');",
                 transaction: tran);
 
+            // Retrieve existing subscription for this pharmacy, or auto-provision if missing
+            var subscriptionNo = await conn.ExecuteScalarAsync<long?>(@"
+                SELECT subscription_no FROM sub_pharmacy_subscriptions
+                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                ORDER BY subscription_no DESC LIMIT 1;",
+                new { CurrentPharmacyNo, CurrentBranchNo }, tran);
+
+            if (!subscriptionNo.HasValue)
+            {
+                subscriptionNo = await conn.ExecuteScalarAsync<long?>(@"
+                    SELECT subscription_no FROM sub_pharmacy_subscriptions
+                    WHERE pharmacy_no = @CurrentPharmacyNo
+                    ORDER BY subscription_no DESC LIMIT 1;",
+                    new { CurrentPharmacyNo }, tran);
+            }
+
+            if (!subscriptionNo.HasValue)
+            {
+                var newSubNo = await conn.ExecuteScalarAsync<long>(
+                    "SELECT nextval('seq_subscription_no');", transaction: tran);
+
+                await conn.ExecuteAsync(@"
+                    INSERT INTO sub_pharmacy_subscriptions (
+                        subscription_no, pharmacy_no, branch_no, plan_no,
+                        billing_cycle, subscription_status, trial_end_date,
+                        subscription_start_date, subscription_end_date,
+                        next_payment_date, monthly_rate, updated_at
+                    ) VALUES (
+                        @newSubNo, @CurrentPharmacyNo, @CurrentBranchNo, @PlanNo,
+                        1, 1, CURRENT_DATE + INTERVAL '14 days',
+                        CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
+                        CURRENT_DATE + INTERVAL '30 days', 500, NOW()
+                    );", new { newSubNo, CurrentPharmacyNo, CurrentBranchNo, PlanNo = plan.PlanNo }, tran);
+
+                subscriptionNo = newSubNo;
+            }
+
             var trxRef = string.IsNullOrWhiteSpace(payload.TransactionReference)
                 ? $"bKash-TRX-{DateTime.UtcNow:yyyyMMddHHmmss}"
                 : payload.TransactionReference;
@@ -157,7 +194,7 @@ public class SubscriptionController : BaseController
                 SubscriptionPaymentNo = nextPaymentNo,
                 PharmacyNo = CurrentPharmacyNo,
                 BranchNo = CurrentBranchNo,
-                SubscriptionNo = 1,
+                SubscriptionNo = subscriptionNo.Value,
                 TransactionReference = trxRef,
                 PaymentGateway = payload.PaymentGateway ?? "bKash",
                 Subtotal = subtotal,

@@ -583,13 +583,13 @@ public class SaleReturnController : BaseController
                     new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
             }
 
-            if (!retAcc.HasValue && totalNet > 0)
-            {
-                throw new InvalidOperationException($"Sales return / revenue account is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
-            }
-
             if (totalNet > 0)
             {
+                if (!retAcc.HasValue)
+                {
+                    throw new InvalidOperationException($"Sales return / revenue account is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
+                }
+
                 journalEntry.Legs.Add(new LedgerLeg
                 {
                     AccountNo = retAcc.Value,

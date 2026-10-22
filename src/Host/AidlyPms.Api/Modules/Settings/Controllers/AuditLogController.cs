@@ -130,7 +130,7 @@ public class AuditLogController : BaseController
                 a.audit_no, a.pharmacy_no, a.branch_no, a.user_no,
                 a.table_name, a.record_id, a.action, a.old_data,
                 a.new_data, a.ip_address, a.created_at,
-                u.full_name AS user_name
+                TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS user_name
             FROM sys_audit_logs a
             LEFT JOIN sys_users u ON a.user_no = u.user_no
             {whereClause}

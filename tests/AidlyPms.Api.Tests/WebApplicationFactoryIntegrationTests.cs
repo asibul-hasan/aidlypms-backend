@@ -815,12 +815,15 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
                 product_name, strength, volume, medicine_type, unit_type,
                 quantity_per_box, cost_per_box, sale_price_per_box,
                 avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
-                is_prescription_required, is_narcotic, is_antibiotic, is_active,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active,
                 created_at, updated_at
             ) VALUES (
                 @testProdNo, gen_random_uuid(), @p, @b, @p, @p,
-                'SoftDelete Test Medicine', '500mg', '10ml', 'Tablet', 'Pcs',
-                10, 100, 150, 10, 10, 15, FALSE, FALSE, FALSE, TRUE,
+                'SoftDelete Test Medicine', '500mg', '10ml', 1, 1,
+                10, 100, 150, 10, 10, 15,
+                150, 15,
+                TRUE, FALSE, FALSE, 10, TRUE,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (product_no) DO UPDATE SET is_active = TRUE, deleted_at = NULL, deleted_by = NULL, deletion_reason = NULL;
 
@@ -980,12 +983,15 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
                 product_name, strength, volume, medicine_type, unit_type,
                 quantity_per_box, cost_per_box, sale_price_per_box,
                 avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
-                is_prescription_required, is_narcotic, is_antibiotic, is_active,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active,
                 created_at, updated_at
             ) VALUES (
                 @transferProdNo, gen_random_uuid(), @p, @b, @p, @p,
-                'Transfer Test Product', '250mg', '5ml', 'Capsule', 'Pcs',
-                10, 80, 120, 8, 8, 12, FALSE, FALSE, FALSE, TRUE,
+                'Transfer Test Product', '250mg', '5ml', 1, 1,
+                10, 80, 120, 8, 8, 12,
+                120, 12,
+                TRUE, FALSE, FALSE, 10, TRUE,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (product_no) DO NOTHING;
 
@@ -1224,12 +1230,15 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
                 product_name, strength, volume, medicine_type, unit_type,
                 quantity_per_box, cost_per_box, sale_price_per_box,
                 avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
-                is_prescription_required, is_narcotic, is_antibiotic, is_active,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active,
                 created_at, updated_at
             ) VALUES (
                 @unmappedProdNo, gen_random_uuid(), @p, @b, @p, @p,
-                'Unmapped Account Prod', '10mg', '1ml', 'Tablet', 'Pcs',
-                1, 50, 100, 50, 50, 100, FALSE, FALSE, FALSE, TRUE,
+                'Unmapped Account Prod', '10mg', '1ml', 1, 1,
+                1, 50, 100, 50, 50, 100,
+                100, 100,
+                TRUE, FALSE, FALSE, 10, TRUE,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (product_no) DO NOTHING;
 
