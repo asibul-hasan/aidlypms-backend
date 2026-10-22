@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.10.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.3...v1.10.4) (2026-10-22)
+
+
+### 🐛 Bug Fixes
+
+* **sales:** support top-level customer_no in CreateSalePayload and allow null customer_no for walk-in sales ([e6a321c](https://github.com/asibul-hasan/aidlypms-backend/commit/e6a321c2bf6e1936cf0aa3a3967fd775c753097e))
+
 ## [1.10.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.10.2...v1.10.3) (2026-10-21)
 
 
