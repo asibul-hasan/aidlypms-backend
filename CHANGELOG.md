@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.12.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.2...v1.12.3) (2026-10-22)
+
+
+### 🐛 Bug Fixes
+
+* **tests:** supply created_at and updated_at for prod_product_batches in tests and opening stock batch insert ([fb6e6a9](https://github.com/asibul-hasan/aidlypms-backend/commit/fb6e6a9254862a87e653641b74aac8ff4f646bdc))
+
 ## [1.12.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.1...v1.12.2) (2026-10-22)
 
 
