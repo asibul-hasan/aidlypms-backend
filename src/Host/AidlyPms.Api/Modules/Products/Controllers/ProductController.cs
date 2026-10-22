@@ -1166,11 +1166,13 @@ public class ProductController : BaseController
                         INSERT INTO prod_product_batches (
                             batch_no, pharmacy_no, branch_no, product_no, batch_number,
                             expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
-                            cost_per_box, sale_price_per_box, vat_percent, is_expired
+                            cost_per_box, sale_price_per_box, vat_percent, is_expired,
+                            created_at, updated_at
                         ) VALUES (
                             @batchNo, @CurrentPharmacyNo, @CurrentBranchNo, @productNo, @batchNumber,
                             @expDate, @boxQty, @qtyPerBox, @totalQtyPcs,
-                            @costPerBox, @salePriceBox, 0, FALSE
+                            @costPerBox, @salePriceBox, 0, FALSE,
+                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                         );";
 
                     await conn.ExecuteAsync(insertBatchSql, new
