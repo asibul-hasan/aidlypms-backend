@@ -331,7 +331,11 @@ public class SalePostingEngine : ISalePostingEngine
 
         var finalPrice = Math.Round(netAmount + totalVat - invoice.RoundOffAmount + invoice.CardCommissionAmount, 2);
 
-        var customerWillPay = invoice.CustomerWillPay > 0 ? invoice.CustomerWillPay : finalPrice;
+        var totalPaid = rawPayments.Sum(p => p.Amount > 0 ? p.Amount : p.PaidAmount);
+        var customerWillPay = invoice.CustomerWillPay > 0
+            ? invoice.CustomerWillPay
+            : (totalPaid > 0 ? totalPaid : finalPrice);
+
         var changeAmount = invoice.ChangeAmount;
         if (customerWillPay > finalPrice && changeAmount <= 0)
         {
@@ -717,22 +721,45 @@ public class SalePostingEngine : ISalePostingEngine
             });
         }
 
-        // 7. FEFO COGS & Inventory Relief (Dr 50101 COGS, Cr 10401 Inventory Asset)
+        // 7. FEFO COGS & Inventory Relief (Dr 50101 COGS, Cr 10401/10201 Inventory Asset)
         if (totalCogs > 0)
         {
             var cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT account_no FROM acc_transaction_accounts
-                WHERE account_code = '50101' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                new { pharmacyNo, branchNo }, transaction: tran) ?? 11;
+                WHERE account_code = '50101' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+                LIMIT 1;",
+                new { pharmacyNo, branchNo }, transaction: tran);
+
+            if (!cogsAcc.HasValue)
+            {
+                cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
+                    SELECT account_no FROM acc_transaction_accounts
+                    WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+                      AND (account_name ILIKE '%Cost of Goods%' OR account_name ILIKE '%COGS%')
+                    LIMIT 1;",
+                    new { pharmacyNo, branchNo }, transaction: tran) ?? 11;
+            }
 
             var invAssetAcc = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT account_no FROM acc_transaction_accounts
-                WHERE account_code = '10401' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                new { pharmacyNo, branchNo }, transaction: tran) ?? 4;
+                WHERE account_code IN ('10401', '10201') AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+                ORDER BY (account_code = '10401') DESC
+                LIMIT 1;",
+                new { pharmacyNo, branchNo }, transaction: tran);
+
+            if (!invAssetAcc.HasValue)
+            {
+                invAssetAcc = await conn.ExecuteScalarAsync<long?>(@"
+                    SELECT account_no FROM acc_transaction_accounts
+                    WHERE pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+                      AND (account_name ILIKE '%Inventory%' OR account_code LIKE '10%')
+                    LIMIT 1;",
+                    new { pharmacyNo, branchNo }, transaction: tran) ?? 4;
+            }
 
             journalEntry.Legs.Add(new LedgerLeg
             {
-                AccountNo = cogsAcc,
+                AccountNo = cogsAcc.Value,
                 DebitAmount = totalCogs,
                 CreditAmount = 0,
                 Narration = $"Cost of goods sold for {salesNumber}"
@@ -740,7 +767,7 @@ public class SalePostingEngine : ISalePostingEngine
 
             journalEntry.Legs.Add(new LedgerLeg
             {
-                AccountNo = invAssetAcc,
+                AccountNo = invAssetAcc.Value,
                 DebitAmount = 0,
                 CreditAmount = totalCogs,
                 Narration = $"Inventory relief for {salesNumber}"

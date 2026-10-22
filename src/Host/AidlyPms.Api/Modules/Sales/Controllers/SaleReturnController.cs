@@ -565,17 +565,29 @@ public class SaleReturnController : BaseController
                 Legs = new List<LedgerLeg>()
             };
 
-            // Dr 40102 Sales Returns & Allowances
+            // Dr 40102 Sales Returns & Allowances (or 40101 Sales Revenue)
             var retAcc = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT account_no FROM acc_transaction_accounts
-                WHERE account_code = '40102' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                WHERE account_code IN ('40102', '40101') AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                ORDER BY (account_code = '40102') DESC
+                LIMIT 1;",
+                new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+            if (!retAcc.HasValue)
+            {
+                retAcc = await conn.ExecuteScalarAsync<long?>(@"
+                    SELECT account_no FROM acc_transaction_accounts
+                    WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                      AND (account_name ILIKE '%Sales%' OR account_code LIKE '40%')
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+            }
 
             if (totalNet > 0)
             {
                 journalEntry.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = retAcc,
+                    AccountNo = retAcc.Value,
                     DebitAmount = totalNet,
                     CreditAmount = 0,
                     Narration = $"Sales return allowance for {returnNumber}"
@@ -587,12 +599,23 @@ public class SaleReturnController : BaseController
             {
                 var vatAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '20201' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 7;
+                    WHERE account_code = '20201' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!vatAcc.HasValue)
+                {
+                    vatAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%VAT%' OR account_code LIKE '20%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 7;
+                }
 
                 journalEntry.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = vatAcc,
+                    AccountNo = vatAcc.Value,
                     DebitAmount = totalVat,
                     CreditAmount = 0,
                     Narration = $"Output VAT reversal on return {returnNumber}"
@@ -604,12 +627,23 @@ public class SaleReturnController : BaseController
             {
                 var arAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '10301' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 6;
+                    WHERE account_code = '10301' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!arAcc.HasValue)
+                {
+                    arAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%Receivable%' OR account_name ILIKE '%Customer%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 6;
+                }
 
                 journalEntry.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = arAcc,
+                    AccountNo = arAcc.Value,
                     DebitAmount = 0,
                     CreditAmount = dueAdjustment,
                     Narration = $"Customer AR credit relief on return {returnNumber}"
@@ -630,12 +664,23 @@ public class SaleReturnController : BaseController
 
                 var refundAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = @refundAccountCode AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { refundAccountCode, CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                    WHERE account_code = @refundAccountCode AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    LIMIT 1;",
+                    new { refundAccountCode, CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!refundAcc.HasValue)
+                {
+                    refundAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%Cash%' OR account_code LIKE '101%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                }
 
                 journalEntry.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = refundAcc,
+                    AccountNo = refundAcc.Value,
                     DebitAmount = 0,
                     CreditAmount = cashPaidRefund,
                     Narration = $"Refund disbursed via channel {refundMethod} for {returnNumber}"
@@ -647,34 +692,68 @@ public class SaleReturnController : BaseController
             {
                 var creditAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '20301' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                    WHERE account_code = '20301' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!creditAcc.HasValue)
+                {
+                    creditAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%Store Credit%' OR account_code LIKE '20%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                }
 
                 journalEntry.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = creditAcc,
+                    AccountNo = creditAcc.Value,
                     DebitAmount = 0,
                     CreditAmount = storeCreditExcess,
                     Narration = $"Store credit issued to customer on return {returnNumber}"
                 });
             }
 
-            // Restock COGS Relief: Dr 10401 Inventory Asset, Cr 50101 COGS
+            // Restock COGS Relief: Dr 10401/10201 Inventory Asset, Cr 50101 COGS
             if (totalCogsReversal > 0)
             {
                 var invAssetAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '10401' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 4;
+                    WHERE account_code IN ('10401', '10201') AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    ORDER BY (account_code = '10401') DESC
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!invAssetAcc.HasValue)
+                {
+                    invAssetAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%Inventory%' OR account_code LIKE '10%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 4;
+                }
 
                 var cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '50101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 11;
+                    WHERE account_code = '50101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!cogsAcc.HasValue)
+                {
+                    cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%Cost of Goods%' OR account_name ILIKE '%COGS%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 11;
+                }
 
                 journalEntry.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = invAssetAcc,
+                    AccountNo = invAssetAcc.Value,
                     DebitAmount = totalCogsReversal,
                     CreditAmount = 0,
                     Narration = $"Inventory asset restocked on {returnNumber}"
@@ -682,7 +761,7 @@ public class SaleReturnController : BaseController
 
                 journalEntry.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = cogsAcc,
+                    AccountNo = cogsAcc.Value,
                     DebitAmount = 0,
                     CreditAmount = totalCogsReversal,
                     Narration = $"COGS reversal on return {returnNumber}"
@@ -1051,14 +1130,26 @@ public class SaleReturnController : BaseController
 
             var retAllowanceAcc = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT account_no FROM acc_transaction_accounts
-                WHERE account_code = '40102' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+                WHERE account_code IN ('40102', '40101') AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                ORDER BY (account_code = '40102') DESC
+                LIMIT 1;",
+                new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+            if (!retAllowanceAcc.HasValue)
+            {
+                retAllowanceAcc = await conn.ExecuteScalarAsync<long?>(@"
+                    SELECT account_no FROM acc_transaction_accounts
+                    WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                      AND (account_name ILIKE '%Sales%' OR account_code LIKE '40%')
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 1;
+            }
 
             if (returnNet > 0)
             {
                 returnJournal.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = retAllowanceAcc,
+                    AccountNo = retAllowanceAcc.Value,
                     DebitAmount = returnNet,
                     CreditAmount = 0,
                     Narration = $"Sales return allowance for exchange {returnNumber}"
@@ -1069,12 +1160,23 @@ public class SaleReturnController : BaseController
             {
                 var vatAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '20201' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 7;
+                    WHERE account_code = '20201' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!vatAcc.HasValue)
+                {
+                    vatAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%VAT%' OR account_code LIKE '20%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 7;
+                }
 
                 returnJournal.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = vatAcc,
+                    AccountNo = vatAcc.Value,
                     DebitAmount = returnVat,
                     CreditAmount = 0,
                     Narration = $"Output VAT reversal for exchange {returnNumber}"
@@ -1094,17 +1196,40 @@ public class SaleReturnController : BaseController
             {
                 var invAssetAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '10401' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 4;
+                    WHERE account_code IN ('10401', '10201') AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    ORDER BY (account_code = '10401') DESC
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!invAssetAcc.HasValue)
+                {
+                    invAssetAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%Inventory%' OR account_code LIKE '10%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 4;
+                }
 
                 var cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '50101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 11;
+                    WHERE account_code = '50101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!cogsAcc.HasValue)
+                {
+                    cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%Cost of Goods%' OR account_name ILIKE '%COGS%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 11;
+                }
 
                 returnJournal.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = invAssetAcc,
+                    AccountNo = invAssetAcc.Value,
                     DebitAmount = returnCogsReversal,
                     CreditAmount = 0,
                     Narration = $"Inventory restocked for exchange {returnNumber}"
@@ -1112,7 +1237,7 @@ public class SaleReturnController : BaseController
 
                 returnJournal.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = cogsAcc,
+                    AccountNo = cogsAcc.Value,
                     DebitAmount = 0,
                     CreditAmount = returnCogsReversal,
                     Narration = $"COGS reversal for exchange {returnNumber}"

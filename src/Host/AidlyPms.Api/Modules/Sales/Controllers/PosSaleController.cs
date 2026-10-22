@@ -571,25 +571,48 @@ public class PosSaleController : BaseController
                 });
             }
 
-            // 8f. FEFO COGS & Inventory Relief Reversal: Dr 10401 Inventory Asset, Cr 50101 COGS
+            // 8f. FEFO COGS & Inventory Relief Reversal: Dr 10401/10201 Inventory Asset, Cr 50101 COGS
             if (totalCogs > 0)
             {
                 var invAssetAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '10401' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 4;
+                    WHERE account_code IN ('10401', '10201') AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    ORDER BY (account_code = '10401') DESC
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!invAssetAcc.HasValue)
+                {
+                    invAssetAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%Inventory%' OR account_code LIKE '10%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 4;
+                }
 
                 var cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '50101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 11;
+                    WHERE account_code = '50101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
 
-                var origInvLeg = origLedgerEntries.FirstOrDefault(ol => ol.AccountNo == invAssetAcc);
-                var origCogsLeg = origLedgerEntries.FirstOrDefault(ol => ol.AccountNo == cogsAcc);
+                if (!cogsAcc.HasValue)
+                {
+                    cogsAcc = await conn.ExecuteScalarAsync<long?>(@"
+                        SELECT account_no FROM acc_transaction_accounts
+                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                          AND (account_name ILIKE '%Cost of Goods%' OR account_name ILIKE '%COGS%')
+                        LIMIT 1;",
+                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran) ?? 11;
+                }
+
+                var origInvLeg = origLedgerEntries.FirstOrDefault(ol => ol.AccountNo == invAssetAcc.Value);
+                var origCogsLeg = origLedgerEntries.FirstOrDefault(ol => ol.AccountNo == cogsAcc.Value);
 
                 reversingJournal.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = invAssetAcc,
+                    AccountNo = invAssetAcc.Value,
                     DebitAmount = totalCogs,
                     CreditAmount = 0,
                     ReversalOfLedgerNo = origInvLeg.LedgerNo > 0 ? origInvLeg.LedgerNo : null,
@@ -598,7 +621,7 @@ public class PosSaleController : BaseController
 
                 reversingJournal.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = cogsAcc,
+                    AccountNo = cogsAcc.Value,
                     DebitAmount = 0,
                     CreditAmount = totalCogs,
                     ReversalOfLedgerNo = origCogsLeg.LedgerNo > 0 ? origCogsLeg.LedgerNo : null,
