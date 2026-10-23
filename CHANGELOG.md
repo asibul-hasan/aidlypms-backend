@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.12.8](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.7...v1.12.8) (2026-10-23)
+
+
+### 🐛 Bug Fixes
+
+* **pos:** support return_req and property aliases in exchange request ([ad660fd](https://github.com/asibul-hasan/aidlypms-backend/commit/ad660fdad991d5bb32f5e03bddbab3a37a27fa28))
+
 ## [1.12.7](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.6...v1.12.7) (2026-10-22)
 
 
