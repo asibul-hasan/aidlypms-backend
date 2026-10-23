@@ -224,7 +224,7 @@ public class PurchaseInvoiceController : BaseController
                             created_at, updated_at
                         ) VALUES (
                             @BatchNo, @PharmacyNo, @BranchNo, @ProductNo, @BatchNumber,
-                            @ExpiryDate, @BoxQuantity, @QuantityInBox, @TotalQuantityPcs,
+                            @ExpiryDate, 0, @QuantityInBox, 0,
                             @CostPerBox, @SalePricePerBox, @VatPercent, FALSE,
                             NOW(), NOW()
                         );",
@@ -236,9 +236,7 @@ public class PurchaseInvoiceController : BaseController
                             line.ProductNo,
                             BatchNumber = batchNum,
                             ExpiryDate = expiryDate,
-                            BoxQuantity = boxQty,
                             QuantityInBox = qtyInBox,
-                            TotalQuantityPcs = totalQtyPcs,
                             CostPerBox = btp,
                             SalePricePerBox = salePrice * qtyInBox,
                             VatPercent = vatPercent
@@ -250,16 +248,13 @@ public class PurchaseInvoiceController : BaseController
                     batchNo = batch.BatchNo;
                     await conn.ExecuteAsync(@"
                         UPDATE prod_product_batches
-                        SET total_quantity_pcs = total_quantity_pcs + @QtyPcs,
-                            box_quantity = (total_quantity_pcs + @QtyPcs) / GREATEST(quantity_in_box, 1),
-                            cost_per_box = @CostPerBox,
+                        SET cost_per_box = @CostPerBox,
                             sale_price_per_box = @SalePricePerBox,
                             expiry_date = @ExpiryDate,
                             updated_at = NOW()
                         WHERE batch_no = @BatchNo;",
                         new
                         {
-                            QtyPcs = totalQtyPcs,
                             CostPerBox = btp,
                             SalePricePerBox = salePrice * qtyInBox,
                             ExpiryDate = expiryDate,

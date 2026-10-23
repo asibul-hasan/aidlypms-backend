@@ -168,13 +168,6 @@ public class PurchaseReturnController : BaseController
                     if (batch != null)
                     {
                         batchNo = batch.BatchNo;
-                        await conn.ExecuteAsync(@"
-                            UPDATE prod_product_batches
-                            SET total_quantity_pcs = GREATEST(0, total_quantity_pcs - @Qty),
-                                box_quantity = GREATEST(0, (total_quantity_pcs - @Qty) / GREATEST(quantity_in_box, 1))
-                            WHERE batch_no = @BatchNo;",
-                            new { Qty = qty, batch.BatchNo },
-                            transaction: tran);
                     }
                 }
 

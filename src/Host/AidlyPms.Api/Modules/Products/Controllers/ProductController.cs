@@ -536,7 +536,6 @@ public class ProductController : BaseController
                 var batchNo = await conn.ExecuteScalarAsync<long>(
                     "SELECT nextval('seq_prod_batch_no');", transaction: tran);
 
-                var boxQty = qtyPerBox > 0 ? model.StockQty / qtyPerBox : 0;
                 var expiry = DateTime.UtcNow.AddYears(2).Date;
 
                 const string insertBatch = @"
@@ -547,7 +546,7 @@ public class ProductController : BaseController
                         created_at, updated_at
                     ) VALUES (
                         @batchNo, @CurrentPharmacyNo, @CurrentBranchNo, @productNo, 'INIT-BATCH',
-                        @expiry, @boxQty, @qtyPerBox, @StockQty,
+                        @expiry, 0, @qtyPerBox, 0,
                         @CostPerBox, @SalePricePerBox, 0, false,
                         NOW(), NOW()
                     );";
@@ -559,9 +558,7 @@ public class ProductController : BaseController
                     CurrentBranchNo,
                     productNo,
                     expiry,
-                    boxQty,
                     qtyPerBox,
-                    model.StockQty,
                     model.CostPerBox,
                     model.SalePricePerBox
                 }, transaction: tran);
