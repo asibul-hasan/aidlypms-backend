@@ -558,14 +558,48 @@ public class ExchangeCartLineReq
     [JsonPropertyName("qty_pcs")]
     public int QtyPcs { get; set; } = 1;
 
+    [JsonPropertyName("quantity")]
+    public int? Quantity
+    {
+        get => QtyPcs;
+        set { if (value.HasValue) QtyPcs = value.Value; }
+    }
+
+    [JsonPropertyName("sale_qty")]
+    public int? SaleQty
+    {
+        get => QtyPcs;
+        set { if (value.HasValue) QtyPcs = value.Value; }
+    }
+
     [JsonPropertyName("sale_mode")]
     public short SaleMode { get; set; } = 1;
+
+    [JsonPropertyName("unit_type")]
+    public short? UnitType
+    {
+        get => SaleMode;
+        set { if (value.HasValue) SaleMode = value.Value; }
+    }
 }
 
 public class ExchangeReq
 {
+    private ReturnReq _return = new();
+
     [JsonPropertyName("return")]
-    public ReturnReq Return { get; set; } = new();
+    public ReturnReq Return
+    {
+        get => _return;
+        set => _return = value ?? new();
+    }
+
+    [JsonPropertyName("return_req")]
+    public ReturnReq? ReturnReqAlias
+    {
+        get => _return;
+        set { if (value != null) _return = value; }
+    }
 
     [JsonPropertyName("new_items")]
     public List<ExchangeCartLineReq> NewItems { get; set; } = new();
@@ -615,6 +649,30 @@ public class ExchangeResult
 
     [JsonPropertyName("net_difference")]
     public decimal NetDifference => AdditionalCollected - CashRefunded;
+
+    [JsonPropertyName("return_no")]
+    public long ReturnNo => Return?.SaleReturnNo ?? 0;
+
+    [JsonPropertyName("return_number")]
+    public string ReturnNumber => Return?.ReturnInvoiceNo ?? string.Empty;
+
+    [JsonPropertyName("refund_total")]
+    public decimal RefundTotal => ReturnCreditAmount;
+
+    [JsonPropertyName("new_invoice_no")]
+    public long? NewInvoiceNo => Sale?.SaleInvoiceNo;
+
+    [JsonPropertyName("new_sales_number")]
+    public string? NewSalesNumber => Sale?.SalesNumber;
+
+    [JsonPropertyName("new_invoice_total")]
+    public decimal NewInvoiceTotal => Sale?.PayableAmount ?? 0;
+
+    [JsonPropertyName("settlement_difference")]
+    public decimal SettlementDifference => NetDifference;
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
 }
 
 public class VoidSaleRequest

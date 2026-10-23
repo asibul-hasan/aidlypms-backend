@@ -1487,6 +1487,7 @@ public class SaleReturnController : BaseController
                 Items = processedReturnItems
             };
 
+            var successMessage = $"Exchange processed successfully: Return {returnNumber} and Sale {postedSale.SalesNumber}.";
             var exchangeResult = new ExchangeResult
             {
                 Return = finalReturn,
@@ -1494,10 +1495,11 @@ public class SaleReturnController : BaseController
                 ReturnCreditAmount = totalReturnCredit,
                 AdditionalCollected = additionalCollectedFromCustomer,
                 CashRefunded = excessRefundToCustomer,
-                DueAdjusted = 0
+                DueAdjusted = 0,
+                Message = successMessage
             };
 
-            return OkResponse(exchangeResult, $"Exchange processed successfully: Return {returnNumber} and Sale {postedSale.SalesNumber}.");
+            return OkResponse(exchangeResult, successMessage);
         }
         catch
         {
