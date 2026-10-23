@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.12.9](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.8...v1.12.9) (2026-10-23)
+
+
+### 🐛 Bug Fixes
+
+* **inventory:** prevent opening stock and purchase batch double-counting ([dd39aff](https://github.com/asibul-hasan/aidlypms-backend/commit/dd39aff937fb1a0ac3a922447862264ed0d0dfa5))
+
 ## [1.12.8](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.7...v1.12.8) (2026-10-23)
 
 
