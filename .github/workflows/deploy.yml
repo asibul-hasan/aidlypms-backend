@@ -79,9 +79,23 @@ jobs:
           TEST_POSTGRES_CONNECTION: "Host=localhost;Port=5432;Database=aidly_test;Username=postgres;Password=testpassword"
         run: |
           set +e
-          dotnet test tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj --logger "console;verbosity=normal" > test_output.txt 2>&1
+          dotnet test tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj --logger "console;verbosity=normal" --logger "trx;LogFileName=test_results.trx" > test_output.txt 2>&1
           TEST_EXIT_CODE=$?
           if [ $TEST_EXIT_CODE -ne 0 ]; then
+            python3 -c '
+          import xml.etree.ElementTree as ET, glob
+          for f in glob.glob("**/test_results.trx", recursive=True):
+              root = ET.parse(f).getroot()
+              for r in root.findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}UnitTestResult[@outcome=\"Failed\"]"):
+                  test_name = r.attrib.get("testName")
+                  print(f"::error title=Test Failed::{test_name}")
+                  for err in r.findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}Message"):
+                      print(f"::error title={test_name} Message::{err.text}")
+                  for trace in r.findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}StackTrace"):
+                      lines = (trace.text or "").strip().split("\n")
+                      for l in lines[:5]:
+                          print(f"::error title={test_name} Trace::{l.strip()}")
+          '
             echo "## Test Failure Output" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             tail -n 120 test_output.txt >> $GITHUB_STEP_SUMMARY
