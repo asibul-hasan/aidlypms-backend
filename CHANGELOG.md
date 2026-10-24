@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.3...v1.13.4) (2026-10-24)
+
+
+### 🤖 Continuous Integration
+
+* add trx test failure diagnostics parser in deploy workflow ([2eb0a44](https://github.com/asibul-hasan/aidlypms-backend/commit/2eb0a44c942f82f9669b67fdd4683a87575b90f2))
+
 ## [1.13.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.2...v1.13.3) (2026-10-24)
 
 
