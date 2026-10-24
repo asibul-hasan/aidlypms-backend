@@ -24,11 +24,12 @@ public class BatchController : BaseController
             SELECT 
                 b.batch_no, b.pharmacy_no, b.branch_no, b.product_no, b.batch_number,
                 b.expiry_date, b.box_quantity, b.quantity_in_box, b.total_quantity_pcs,
-                b.cost_per_box, b.sale_price_per_box, b.vat_percent, b.is_expired,
+                b.cost_per_box, b.sale_price_per_box, b.vat_percent, b.is_expired, b.is_placeholder,
                 p.product_name
             FROM prod_product_batches b
             JOIN prod_products p ON b.product_no = p.product_no
             WHERE b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo
+              AND b.is_placeholder = FALSE
               AND b.total_quantity_pcs > 0
               AND b.expiry_date >= CURRENT_DATE
               AND (@productNo IS NULL OR b.product_no = @productNo)
@@ -46,11 +47,12 @@ public class BatchController : BaseController
             SELECT 
                 b.batch_no, b.pharmacy_no, b.branch_no, b.product_no, b.batch_number,
                 b.expiry_date, b.box_quantity, b.quantity_in_box, b.total_quantity_pcs,
-                b.cost_per_box, b.sale_price_per_box, b.vat_percent, b.is_expired,
+                b.cost_per_box, b.sale_price_per_box, b.vat_percent, b.is_expired, b.is_placeholder,
                 p.product_name
             FROM prod_product_batches b
             JOIN prod_products p ON b.product_no = p.product_no
             WHERE b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo
+              AND b.is_placeholder = FALSE
               AND b.expiry_date < CURRENT_DATE
             ORDER BY b.expiry_date ASC;";
 
@@ -78,16 +80,42 @@ public class BatchController : BaseController
             SELECT 
                 b.batch_no, b.pharmacy_no, b.branch_no, b.product_no, b.batch_number,
                 b.expiry_date, b.box_quantity, b.quantity_in_box, b.total_quantity_pcs,
-                b.cost_per_box, b.sale_price_per_box, b.vat_percent, b.is_expired,
+                b.cost_per_box, b.sale_price_per_box, b.vat_percent, b.is_expired, b.is_placeholder,
                 p.product_name
             FROM prod_product_batches b
             JOIN prod_products p ON b.product_no = p.product_no
             WHERE b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo
+              AND b.is_placeholder = FALSE
               AND b.expiry_date >= CURRENT_DATE
               AND b.expiry_date <= (CURRENT_DATE + @effectiveDays * INTERVAL '1 day')
             ORDER BY b.expiry_date ASC;";
 
         var list = (await conn.QueryAsync<ProdProductBatch>(sql, new { CurrentPharmacyNo, CurrentBranchNo, effectiveDays })).AsList();
+        return OkResponse(list);
+    }
+
+    [HttpGet("unreceived-sales")]
+    public async Task<ActionResult<ApiResponse<List<UnreceivedSaleItem>>>> GetUnreceivedSales()
+    {
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        const string sql = @"
+            SELECT 
+                b.batch_no,
+                b.product_no,
+                p.product_name,
+                ABS(b.total_quantity_pcs) AS quantity_sold,
+                COALESCE(
+                    (SELECT MIN(created_at) FROM inv_stock_movement WHERE batch_no = b.batch_no),
+                    b.created_at
+                ) AS first_date
+            FROM prod_product_batches b
+            JOIN prod_products p ON b.product_no = p.product_no
+            WHERE b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo
+              AND b.is_placeholder = TRUE
+              AND b.total_quantity_pcs < 0
+            ORDER BY first_date ASC;";
+
+        var list = (await conn.QueryAsync<UnreceivedSaleItem>(sql, new { CurrentPharmacyNo, CurrentBranchNo })).AsList();
         return OkResponse(list);
     }
 

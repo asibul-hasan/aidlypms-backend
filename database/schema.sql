@@ -352,6 +352,7 @@ CREATE TABLE IF NOT EXISTS prod_product_batches (
     vat_percent NUMERIC NOT NULL,
     barcode_value VARCHAR(100),
     is_expired BOOLEAN NOT NULL,
+    is_placeholder BOOLEAN NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_product_batch UNIQUE (pharmacy_no, branch_no, product_no, batch_number)
@@ -445,6 +446,35 @@ CREATE TABLE IF NOT EXISTS inv_adjustment_items (
     unit_cost NUMERIC(20, 4) NOT NULL,
     total_cost_impact NUMERIC(20, 4) NOT NULL,
     reason_code SMALLINT
+);
+
+-- Inventory Stock-take (Cycle Count Header)
+CREATE TABLE IF NOT EXISTS inv_stocktakes (
+    stocktake_no BIGINT PRIMARY KEY,
+    pharmacy_no BIGINT NOT NULL REFERENCES sys_pharmacies(pharmacy_no) ON DELETE RESTRICT,
+    branch_no BIGINT NOT NULL REFERENCES sys_branches(branch_no) ON DELETE RESTRICT,
+    status VARCHAR(50) NOT NULL,
+    note TEXT,
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    started_by BIGINT REFERENCES sys_users(user_no) ON DELETE SET NULL,
+    posted_at TIMESTAMP WITH TIME ZONE,
+    posted_by BIGINT REFERENCES sys_users(user_no) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+-- Inventory Stock-take Items (Cycle Count Lines)
+CREATE TABLE IF NOT EXISTS inv_stocktake_items (
+    stocktake_item_no BIGINT PRIMARY KEY,
+    pharmacy_no BIGINT NOT NULL REFERENCES sys_pharmacies(pharmacy_no) ON DELETE RESTRICT,
+    branch_no BIGINT NOT NULL REFERENCES sys_branches(branch_no) ON DELETE RESTRICT,
+    stocktake_no BIGINT NOT NULL REFERENCES inv_stocktakes(stocktake_no) ON DELETE CASCADE,
+    product_no BIGINT NOT NULL REFERENCES prod_products(product_no) ON DELETE RESTRICT,
+    batch_no BIGINT REFERENCES prod_product_batches(batch_no) ON DELETE RESTRICT,
+    system_qty_pcs INT NOT NULL,
+    counted_qty_pcs INT,
+    variance_pcs INT,
+    reason TEXT
 );
 
 -- Product Requisitions
@@ -1244,6 +1274,10 @@ CREATE INDEX IF NOT EXISTS idx_inv_transfer_items_product ON inv_transfer_items(
 CREATE INDEX IF NOT EXISTS idx_inv_adjustments_lookup ON inv_adjustments(pharmacy_no, branch_no, adjustment_date DESC);
 CREATE INDEX IF NOT EXISTS idx_inv_adjustment_items_parent ON inv_adjustment_items(adjustment_no);
 CREATE INDEX IF NOT EXISTS idx_inv_adjustment_items_product ON inv_adjustment_items(product_no);
+CREATE INDEX IF NOT EXISTS idx_stocktakes_pharmacy_branch ON inv_stocktakes(pharmacy_no, branch_no);
+CREATE INDEX IF NOT EXISTS idx_stocktake_items_parent ON inv_stocktake_items(stocktake_no);
+CREATE INDEX IF NOT EXISTS idx_stocktake_items_batch ON inv_stocktake_items(batch_no);
+CREATE INDEX IF NOT EXISTS idx_prod_batches_placeholder ON prod_product_batches(pharmacy_no, branch_no, product_no, is_placeholder);
 
 -- Universal Stock Movement Indexes (Single Stock Ledger)
 CREATE INDEX IF NOT EXISTS idx_inv_movement_lookup ON inv_stock_movement(pharmacy_no, branch_no, product_no, created_at DESC);
@@ -1489,6 +1523,8 @@ CREATE SEQUENCE IF NOT EXISTS seq_transfer_no;
 CREATE SEQUENCE IF NOT EXISTS seq_transfer_item_no;
 CREATE SEQUENCE IF NOT EXISTS seq_subscription_payment_no;
 CREATE SEQUENCE IF NOT EXISTS seq_subscription_no;
+CREATE SEQUENCE IF NOT EXISTS seq_stocktake_no;
+CREATE SEQUENCE IF NOT EXISTS seq_stocktake_item_no;
 
 SELECT setval('seq_sale_invoice_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_no) FROM sale_invoices), 0) + 1, 1), false);
 SELECT setval('seq_sale_invoice_item_no', GREATEST(COALESCE((SELECT MAX(sale_invoice_item_no) FROM sale_invoice_items), 0) + 1, 1), false);

@@ -32,13 +32,14 @@ public class StockPostingService : IStockPostingService
 
         var isSaleOutward = entry.QtyPcs < 0 && (entry.MovementType == 4 || entry.ReferenceDocType == "SALE_INVOICE");
 
-        // If batch is not specified, resolve the active unexpired batch for this product (FEFO)
+        // If batch is not specified, resolve the active unexpired batch for this product (FEFO, excluding placeholders)
         if (!entry.BatchNo.HasValue || entry.BatchNo.Value <= 0)
         {
             var fallbackBatchNo = await conn.ExecuteScalarAsync<long?>(@"
                 SELECT batch_no
                 FROM prod_product_batches
                 WHERE product_no = @ProductNo AND pharmacy_no = @PharmacyNo AND branch_no = @BranchNo
+                  AND is_placeholder = FALSE
                   AND (@isSaleOutward = FALSE OR expiry_date >= CURRENT_DATE)
                 ORDER BY (total_quantity_pcs > 0) DESC, expiry_date ASC, batch_no ASC
                 LIMIT 1
@@ -56,7 +57,7 @@ public class StockPostingService : IStockPostingService
         if (entry.BatchNo.HasValue && entry.BatchNo.Value > 0)
         {
             var batch = await conn.QuerySingleOrDefaultAsync<ProdProductBatch>(@"
-                SELECT batch_no, batch_number, expiry_date, total_quantity_pcs, quantity_in_box
+                SELECT batch_no, batch_number, expiry_date, total_quantity_pcs, quantity_in_box, is_placeholder
                 FROM prod_product_batches
                 WHERE batch_no = @BatchNo AND pharmacy_no = @PharmacyNo AND branch_no = @BranchNo
                 FOR UPDATE;",
@@ -65,8 +66,8 @@ public class StockPostingService : IStockPostingService
 
             if (batch != null)
             {
-                // Clinical Safety Block: Prevent dispensing expired batches on sale
-                if (isSaleOutward && batch.ExpiryDate.Date < DateTime.UtcNow.Date)
+                // Clinical Safety Block: Prevent dispensing expired batches on sale (placeholders exempted)
+                if (isSaleOutward && !batch.IsPlaceholder && batch.ExpiryDate.Date < DateTime.UtcNow.Date)
                 {
                     throw new InvalidOperationException(
                         $"Clinical Safety Block: Batch '{batch.BatchNumber}' expired on {batch.ExpiryDate:yyyy-MM-dd} and cannot be dispensed.");

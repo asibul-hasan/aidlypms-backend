@@ -87,6 +87,7 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
         services.AddScoped<ILedgerPostingService, LedgerPostingService>();
         services.AddScoped<IStockPostingService, StockPostingService>();
         services.AddScoped<ISalePostingEngine, SalePostingEngine>();
+        services.AddScoped<IStockIntegrityService, StockIntegrityService>();
 
         _serviceProvider = services.BuildServiceProvider();
 
@@ -111,6 +112,8 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
         if (!tables.Contains("sale_invoices")) return;
 
         await conn.ExecuteAsync(@"
+            DELETE FROM inv_stocktake_items WHERE pharmacy_no = @pharmacyNo;
+            DELETE FROM inv_stocktakes WHERE pharmacy_no = @pharmacyNo;
             DELETE FROM sale_return_items WHERE pharmacy_no = @pharmacyNo;
             DELETE FROM sale_returns WHERE pharmacy_no = @pharmacyNo;
             DELETE FROM sale_invoice_payments WHERE pharmacy_no = @pharmacyNo;
@@ -423,7 +426,8 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
 
         var controller = CreateController(sp => new CashCloserController(
             sp.GetRequiredService<IDbConnectionFactory>(),
-            sp.GetRequiredService<ILedgerPostingService>()));
+            sp.GetRequiredService<ILedgerPostingService>(),
+            sp.GetRequiredService<IStockIntegrityService>()));
 
         var result = await controller.GetDayEndReconciliation(DateTime.UtcNow.Date);
         var okResult = Assert.IsType<OkObjectResult>(result.Result);

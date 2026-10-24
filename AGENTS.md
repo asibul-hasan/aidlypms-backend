@@ -92,3 +92,9 @@ git -C sme-software-frontend push origin main
   - Total VAT and gross payable breakdown.
   Reference: National Board of Revenue (NBR) Value Added Tax and Supplementary Duty Act & Rules.
 
+---
+
+### Rule 8: Unreceived Stock Settlement & Valuation Limitation
+- When out-of-stock sales occur, the COGS and sale prices are recorded using estimated/product master costs. On subsequent GRN purchase receipt and placeholder settlement, stock quantities are trued up (placeholder returns toward 0 and real batch is reduced), but historical sale COGS and profit margins are not retroactively re-costed.
+
+

@@ -75,6 +75,7 @@ public class DashboardController : BaseController
             FROM prod_product_batches b
             JOIN prod_products p ON b.product_no = p.product_no
             WHERE b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo
+              AND b.is_placeholder = FALSE
               AND b.total_quantity_pcs > 0;",
             new { CurrentPharmacyNo, CurrentBranchNo }) ?? 0m;
 
@@ -87,7 +88,7 @@ public class DashboardController : BaseController
             SELECT COUNT(1) FROM (
                 SELECT p.product_no, p.min_stock_qty_pcs, COALESCE(SUM(b.total_quantity_pcs), 0) AS current_stock
                 FROM prod_products p
-                LEFT JOIN prod_product_batches b ON p.product_no = b.product_no
+                LEFT JOIN prod_product_batches b ON p.product_no = b.product_no AND b.is_placeholder = FALSE
                 WHERE p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo AND p.is_active = TRUE
                 GROUP BY p.product_no, p.min_stock_qty_pcs
                 HAVING COALESCE(SUM(b.total_quantity_pcs), 0) <= p.min_stock_qty_pcs
@@ -97,6 +98,7 @@ public class DashboardController : BaseController
         var expiredCount = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(1) FROM prod_product_batches
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND is_placeholder = FALSE
               AND expiry_date < CURRENT_DATE AND total_quantity_pcs > 0;",
             new { CurrentPharmacyNo, CurrentBranchNo });
 
@@ -109,6 +111,7 @@ public class DashboardController : BaseController
         var nearExpiryCount = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(1) FROM prod_product_batches
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND is_placeholder = FALSE
               AND expiry_date >= CURRENT_DATE AND expiry_date <= @NearExpiryThreshold
               AND total_quantity_pcs > 0;",
             new { CurrentPharmacyNo, CurrentBranchNo, NearExpiryThreshold = nearExpiryThreshold });

@@ -17,6 +17,14 @@ builder.Services.AddScoped<IDocumentNumberService, DocumentNumberService>();
 builder.Services.AddScoped<ILedgerPostingService, LedgerPostingService>();
 builder.Services.AddScoped<IStockPostingService, StockPostingService>();
 builder.Services.AddScoped<ISalePostingEngine, SalePostingEngine>();
+builder.Services.AddScoped<IStockIntegrityService, StockIntegrityService>();
+builder.Services.AddSingleton<IExpiryMaintenanceService, ExpiryMaintenanceService>();
+
+var runBgJobsStr = builder.Configuration["RUN_BACKGROUND_JOBS"] ?? Environment.GetEnvironmentVariable("RUN_BACKGROUND_JOBS");
+if (string.Equals(runBgJobsStr, "true", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddHostedService(sp => (ExpiryMaintenanceService)sp.GetRequiredService<IExpiryMaintenanceService>());
+}
 
 // JWT Authentication
 var jwtConfig = builder.Configuration.GetSection("Jwt");

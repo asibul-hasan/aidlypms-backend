@@ -227,8 +227,29 @@ public class ProdProductBatch
     [JsonPropertyName("is_expired")]
     public bool IsExpired { get; set; }
 
+    [JsonPropertyName("is_placeholder")]
+    public bool IsPlaceholder { get; set; }
+
     [JsonPropertyName("product_name")]
     public string? ProductName { get; set; }
+}
+
+public class UnreceivedSaleItem
+{
+    [JsonPropertyName("batch_no")]
+    public long BatchNo { get; set; }
+
+    [JsonPropertyName("product_no")]
+    public long ProductNo { get; set; }
+
+    [JsonPropertyName("product_name")]
+    public string ProductName { get; set; } = string.Empty;
+
+    [JsonPropertyName("quantity_sold")]
+    public int QuantitySold { get; set; }
+
+    [JsonPropertyName("first_date")]
+    public DateTime FirstDate { get; set; }
 }
 
 public class ProdProductRequisition

@@ -60,6 +60,7 @@ public class SalePostingEngine : ISalePostingEngine
         decimal totalCogs = 0;
 
         var processedItems = new List<SaleInvoiceItem>();
+        var saleTimestamp = invoice.SaleTimestamp != default ? invoice.SaleTimestamp : DateTime.UtcNow;
 
         foreach (var line in items)
         {
@@ -138,171 +139,188 @@ public class SalePostingEngine : ISalePostingEngine
             {
                 unitSalePrice = Math.Round(product.SalePricePerBox / pcsPerBoxVal, 4);
             }
-            var lineGross = Math.Round(qtyPcs * unitSalePrice, 4);
 
-            // Batch Selection (FEFO)
-            long? batchNo = line.BatchNo;
-            string batchNumber = line.BatchNumber ?? string.Empty;
-            decimal batchCost = product.PurchasePricePerPiece;
-            decimal batchVatPercent = 0m;
+            // Retrieve available real unexpired batches with stock (FEFO order, excluding placeholders)
+            var availableRealBatches = (await conn.QueryAsync<ProdProductBatch>(@"
+                SELECT batch_no, batch_number, expiry_date, cost_per_box, quantity_in_box, total_quantity_pcs, vat_percent
+                FROM prod_product_batches
+                WHERE product_no = @ProductNo AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo
+                  AND is_placeholder = FALSE AND is_expired = FALSE AND expiry_date >= CURRENT_DATE AND total_quantity_pcs > 0
+                ORDER BY expiry_date ASC, batch_no ASC
+                FOR UPDATE;",
+                new { line.ProductNo, pharmacyNo, branchNo },
+                transaction: tran)).ToList();
 
-            if (!batchNo.HasValue || batchNo.Value <= 0)
+            if (line.BatchNo.HasValue && line.BatchNo.Value > 0)
             {
-                var activeBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
-                    SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs, vat_percent
+                var matching = availableRealBatches.FirstOrDefault(b => b.BatchNo == line.BatchNo.Value);
+                if (matching != null)
+                {
+                    availableRealBatches = new List<ProdProductBatch> { matching };
+                }
+                else
+                {
+                    var specified = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
+                        SELECT batch_no, batch_number, expiry_date, total_quantity_pcs, is_placeholder, is_expired
+                        FROM prod_product_batches
+                        WHERE batch_no = @bNo AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
+                        new { bNo = line.BatchNo.Value, pharmacyNo, branchNo }, transaction: tran);
+                    if (specified != null && !specified.IsPlaceholder && specified.ExpiryDate.Date < DateTime.UtcNow.Date)
+                    {
+                        throw new InvalidOperationException($"Clinical Safety Block: Batch '{specified.BatchNumber}' expired on {specified.ExpiryDate:yyyy-MM-dd} and cannot be dispensed.");
+                    }
+                }
+            }
+
+            var totalRealAvailable = availableRealBatches.Sum(b => b.TotalQuantityPcs);
+
+            if (qtyPcs > totalRealAvailable && !allowOutOfStock)
+            {
+                throw new InvalidOperationException(
+                    $"Medicine '{product.ProductName}' has insufficient stock (available: {totalRealAvailable} pcs, requested: {qtyPcs} pcs), and out-of-stock sales are disabled in settings.");
+            }
+
+            // Split needed quantity across real batches (FEFO) and placeholder (remainder)
+            var allocations = new List<(long batchNo, string batchNumber, decimal batchCost, decimal batchVatPercent, int allocatedQty, bool isPlaceholder)>();
+            var remainingToAllocate = qtyPcs;
+
+            foreach (var rb in availableRealBatches)
+            {
+                if (remainingToAllocate <= 0) break;
+                var take = Math.Min(rb.TotalQuantityPcs, remainingToAllocate);
+                if (take > 0)
+                {
+                    var bCost = (rb.QuantityInBox > 0 && rb.CostPerBox > 0)
+                        ? Math.Round(rb.CostPerBox / rb.QuantityInBox, 4)
+                        : product.PurchasePricePerPiece;
+                    allocations.Add((rb.BatchNo, rb.BatchNumber, bCost, rb.VatPercent, take, false));
+                    remainingToAllocate -= take;
+                }
+            }
+
+            if (remainingToAllocate > 0 && allowOutOfStock)
+            {
+                // Remainder goes to ONE placeholder batch per product (batch_number 'UNRECEIVED', expiry_date = sale date, is_placeholder = true)
+                var placeholder = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
+                    SELECT batch_no, batch_number, expiry_date, cost_per_box, quantity_in_box, total_quantity_pcs, vat_percent
                     FROM prod_product_batches
                     WHERE product_no = @ProductNo AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo
-                      AND total_quantity_pcs > 0 AND expiry_date >= CURRENT_DATE
-                    ORDER BY expiry_date ASC
+                      AND is_placeholder = TRUE
+                    LIMIT 1
                     FOR UPDATE;",
                     new { line.ProductNo, pharmacyNo, branchNo },
                     transaction: tran);
 
-                if (activeBatch != null && activeBatch.BatchNo > 0)
+                long pBatchNo;
+                string pBatchNum = "UNRECEIVED";
+                decimal pCost = product.PurchasePricePerPiece;
+                decimal pVat = 0m;
+
+                if (placeholder != null)
                 {
-                    batchNo = activeBatch.BatchNo;
-                    batchNumber = activeBatch.BatchNumber;
-                    batchVatPercent = activeBatch.VatPercent;
-                    if (activeBatch.QuantityInBox > 0 && activeBatch.CostPerBox > 0)
+                    pBatchNo = placeholder.BatchNo;
+                    pBatchNum = placeholder.BatchNumber;
+                    if (placeholder.QuantityInBox > 0 && placeholder.CostPerBox > 0)
                     {
-                        batchCost = Math.Round(activeBatch.CostPerBox / activeBatch.QuantityInBox, 4);
+                        pCost = Math.Round(placeholder.CostPerBox / placeholder.QuantityInBox, 4);
                     }
+                    await conn.ExecuteAsync(@"
+                        UPDATE prod_product_batches
+                        SET expiry_date = @saleDate, updated_at = NOW()
+                        WHERE batch_no = @pBatchNo;",
+                        new { saleDate = saleTimestamp.Date, pBatchNo }, transaction: tran);
                 }
                 else
                 {
-                    if (!allowOutOfStock)
-                    {
-                        throw new InvalidOperationException(
-                            $"Medicine '{product.ProductName}' is out of stock (available: 0 pcs), and out-of-stock sales are disabled in settings.");
-                    }
-
-                    var anyBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
-                        SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs, vat_percent
-                        FROM prod_product_batches
-                        WHERE product_no = @ProductNo AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo
-                        ORDER BY (total_quantity_pcs > 0) DESC, expiry_date DESC, batch_no DESC
-                        LIMIT 1
-                        FOR UPDATE;",
-                        new { line.ProductNo, pharmacyNo, branchNo },
-                        transaction: tran);
-
-                    if (anyBatch != null && anyBatch.BatchNo > 0)
-                    {
-                        batchNo = anyBatch.BatchNo;
-                        batchNumber = anyBatch.BatchNumber;
-                        batchVatPercent = anyBatch.VatPercent;
-                        if (anyBatch.QuantityInBox > 0 && anyBatch.CostPerBox > 0)
+                    pBatchNo = await conn.ExecuteScalarAsync<long>(
+                        "SELECT nextval('seq_prod_batch_no');", transaction: tran);
+                    var qInBox = product.QuantityPerBox > 0 ? product.QuantityPerBox : 10;
+                    await conn.ExecuteAsync(@"
+                        INSERT INTO prod_product_batches (
+                            batch_no, pharmacy_no, branch_no, product_no, batch_number,
+                            expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
+                            cost_per_box, sale_price_per_box, vat_percent, is_expired, is_placeholder,
+                            created_at, updated_at
+                        ) VALUES (
+                            @pBatchNo, @pharmacyNo, @branchNo, @ProductNo, 'UNRECEIVED',
+                            @saleDate, 0, @qInBox, 0,
+                            @CostPerBox, @SalePricePerBox, 0, FALSE, TRUE,
+                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                        );",
+                        new
                         {
-                            batchCost = Math.Round(anyBatch.CostPerBox / anyBatch.QuantityInBox, 4);
-                        }
-                    }
-                    else
-                    {
-                        var newBatchNo = await conn.ExecuteScalarAsync<long>(
-                            "SELECT nextval('seq_prod_batch_no');", transaction: tran);
-                        var defaultBatchNum = !string.IsNullOrWhiteSpace(line.BatchNumber) ? line.BatchNumber.Trim() : "PRE-PURCHASE";
-                        var expiry = new DateTime(2099, 12, 31);
-                        var qInBox = product.QuantityPerBox > 0 ? product.QuantityPerBox : 10;
-
-                        await conn.ExecuteAsync(@"
-                            INSERT INTO prod_product_batches (
-                                batch_no, pharmacy_no, branch_no, product_no, batch_number,
-                                expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
-                                cost_per_box, sale_price_per_box, vat_percent, is_expired,
-                                created_at, updated_at
-                            ) VALUES (
-                                @newBatchNo, @pharmacyNo, @branchNo, @ProductNo, @defaultBatchNum,
-                                @expiry, 0, @qInBox, 0,
-                                @CostPerBox, @SalePricePerBox, 0, false,
-                                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                            );",
-                            new
-                            {
-                                newBatchNo,
-                                pharmacyNo,
-                                branchNo,
-                                line.ProductNo,
-                                defaultBatchNum,
-                                expiry,
-                                qInBox,
-                                CostPerBox = product.CostPerBox > 0 ? product.CostPerBox : 0m,
-                                SalePricePerBox = product.SalePricePerBox > 0 ? product.SalePricePerBox : 0m
-                            },
-                            transaction: tran);
-
-                        batchNo = newBatchNo;
-                        batchNumber = defaultBatchNum;
-                    }
+                            pBatchNo,
+                            pharmacyNo,
+                            branchNo,
+                            line.ProductNo,
+                            saleDate = saleTimestamp.Date,
+                            qInBox,
+                            CostPerBox = product.CostPerBox > 0 ? product.CostPerBox : 0m,
+                            SalePricePerBox = product.SalePricePerBox > 0 ? product.SalePricePerBox : 0m
+                        },
+                        transaction: tran);
                 }
-            }
-            else
-            {
-                var specifiedBatch = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
-                    SELECT batch_no, batch_number, cost_per_box, quantity_in_box, total_quantity_pcs, vat_percent
-                    FROM prod_product_batches
-                    WHERE batch_no = @batchNo AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                    new { batchNo, pharmacyNo, branchNo },
-                    transaction: tran);
-                if (specifiedBatch != null)
-                {
-                    batchVatPercent = specifiedBatch.VatPercent;
-                    if (specifiedBatch.QuantityInBox > 0 && specifiedBatch.CostPerBox > 0)
-                    {
-                        batchCost = Math.Round(specifiedBatch.CostPerBox / specifiedBatch.QuantityInBox, 4);
-                    }
-                }
+
+                allocations.Add((pBatchNo, pBatchNum, pCost, pVat, remainingToAllocate, true));
             }
 
-            var saleItemNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT nextval('seq_sale_invoice_item_no');", transaction: tran);
-
-            // Item 3: Cap line discount using cfg_sale_configs and ignore client VAT
+            // Cap line discount using cfg_sale_configs and ignore client VAT
             var maxDiscountPct = (saleConfig?.IsMaxDiscountEnabled == true)
                 ? (saleConfig.MaxSaleDiscountPercent > 0 ? saleConfig.MaxSaleDiscountPercent : 20m)
                 : 100m;
 
-            var requestedDiscount = line.DiscountAmount;
-            var maxAllowedLineDiscount = Math.Round(lineGross * (maxDiscountPct / 100m), 4);
-            var lineDiscount = Math.Min(requestedDiscount, maxAllowedLineDiscount);
-            var lineNet = Math.Max(0, lineGross - lineDiscount);
-
-            // Item 3: Reject a sale below the batch cost
-            var effectiveUnitPrice = qtyPcs > 0 ? (lineNet / qtyPcs) : 0m;
-            if (saleConfig?.AllowLossSale != true && effectiveUnitPrice < batchCost)
+            foreach (var alloc in allocations)
             {
-                throw new InvalidOperationException(
-                    $"Sale price ৳{effectiveUnitPrice:F2} for '{product.ProductName}' is below batch cost ৳{batchCost:F2}. Loss sales are prohibited.");
+                var allocQty = alloc.allocatedQty;
+                var lineGross = Math.Round(allocQty * unitSalePrice, 4);
+
+                var saleItemNo = await conn.ExecuteScalarAsync<long>(
+                    "SELECT nextval('seq_sale_invoice_item_no');", transaction: tran);
+
+                var requestedDiscount = (qtyPcs > 0 && line.DiscountAmount > 0)
+                    ? Math.Round(line.DiscountAmount * (allocQty / (decimal)qtyPcs), 4)
+                    : 0m;
+                var maxAllowedLineDiscount = Math.Round(lineGross * (maxDiscountPct / 100m), 4);
+                var lineDiscount = Math.Min(requestedDiscount, maxAllowedLineDiscount);
+                var lineNet = Math.Max(0, lineGross - lineDiscount);
+
+                var effectiveUnitPrice = allocQty > 0 ? (lineNet / allocQty) : 0m;
+                if (saleConfig?.AllowLossSale != true && effectiveUnitPrice < alloc.batchCost)
+                {
+                    throw new InvalidOperationException(
+                        $"Sale price ৳{effectiveUnitPrice:F2} for '{product.ProductName}' is below batch cost ৳{alloc.batchCost:F2}. Loss sales are prohibited.");
+                }
+
+                var lineVat = Math.Round(lineNet * (alloc.batchVatPercent / 100m), 4);
+                var lineTotal = lineNet + lineVat;
+                var lineCogs = Math.Round(allocQty * alloc.batchCost, 4);
+
+                grossTotal += lineGross;
+                totalVat += lineVat;
+                totalCogs += lineCogs;
+
+                processedItems.Add(new SaleInvoiceItem
+                {
+                    SaleInvoiceItemNo = saleItemNo,
+                    PharmacyNo = pharmacyNo,
+                    BranchNo = branchNo,
+                    SaleInvoiceNo = saleInvoiceNo,
+                    ProductNo = line.ProductNo,
+                    BatchNo = alloc.batchNo,
+                    SaleMode = isWholesaleLine ? (short)2 : (short)1,
+                    SaleQty = allocQty,
+                    BoxQty = line.BoxQty,
+                    PcsPerBox = pcsPerBoxVal,
+                    UnitCostPrice = alloc.batchCost,
+                    UnitSalePrice = unitSalePrice,
+                    DiscountAmount = lineDiscount,
+                    VatPercent = alloc.batchVatPercent,
+                    VatAmount = lineVat,
+                    NetAmount = lineNet,
+                    TotalPrice = lineTotal,
+                    ProductName = product.ProductName
+                });
             }
-
-            var lineVat = Math.Round(lineNet * (batchVatPercent / 100m), 4);
-            var lineTotal = lineNet + lineVat;
-            var lineCogs = Math.Round(qtyPcs * batchCost, 4);
-
-            grossTotal += lineGross;
-            totalVat += lineVat;
-            totalCogs += lineCogs;
-
-            processedItems.Add(new SaleInvoiceItem
-            {
-                SaleInvoiceItemNo = saleItemNo,
-                PharmacyNo = pharmacyNo,
-                BranchNo = branchNo,
-                SaleInvoiceNo = saleInvoiceNo,
-                ProductNo = line.ProductNo,
-                BatchNo = batchNo.Value,
-                SaleMode = isWholesaleLine ? (short)2 : (short)1,
-                SaleQty = qtyPcs,
-                BoxQty = line.BoxQty,
-                PcsPerBox = pcsPerBoxVal,
-                UnitCostPrice = batchCost,
-                UnitSalePrice = unitSalePrice,
-                DiscountAmount = lineDiscount,
-                VatPercent = batchVatPercent,
-                VatAmount = lineVat,
-                NetAmount = lineNet,
-                TotalPrice = lineTotal,
-                ProductName = product.ProductName
-            });
         }
 
         // Apply invoice-level discounts (capped by cfg_sale_configs)

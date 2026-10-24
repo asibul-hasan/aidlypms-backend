@@ -220,12 +220,12 @@ public class PurchaseInvoiceController : BaseController
                         INSERT INTO prod_product_batches (
                             batch_no, pharmacy_no, branch_no, product_no, batch_number,
                             expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
-                            cost_per_box, sale_price_per_box, vat_percent, is_expired,
+                            cost_per_box, sale_price_per_box, vat_percent, is_expired, is_placeholder,
                             created_at, updated_at
                         ) VALUES (
                             @BatchNo, @PharmacyNo, @BranchNo, @ProductNo, @BatchNumber,
                             @ExpiryDate, 0, @QuantityInBox, 0,
-                            @CostPerBox, @SalePricePerBox, @VatPercent, FALSE,
+                            @CostPerBox, @SalePricePerBox, @VatPercent, FALSE, FALSE,
                             NOW(), NOW()
                         );",
                         new
@@ -313,6 +313,56 @@ public class PurchaseInvoiceController : BaseController
                     UnitCost = unitCost,
                     Remarks = $"Purchase GRN {inventoryNumber}"
                 });
+
+                // Settle unreceived placeholder batch if one exists with negative stock
+                var placeholder = await conn.QueryFirstOrDefaultAsync<ProdProductBatch>(@"
+                    SELECT batch_no, batch_number, total_quantity_pcs, quantity_in_box
+                    FROM prod_product_batches
+                    WHERE product_no = @ProductNo AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                      AND is_placeholder = TRUE
+                    FOR UPDATE;",
+                    new { line.ProductNo, CurrentPharmacyNo, CurrentBranchNo },
+                    transaction: tran);
+
+                if (placeholder != null && placeholder.TotalQuantityPcs < 0)
+                {
+                    var unreceivedPcs = Math.Abs(placeholder.TotalQuantityPcs);
+                    var settleQty = Math.Min(unreceivedPcs, totalQtyPcs);
+                    if (settleQty > 0)
+                    {
+                        // Deduct from real batch
+                        await _stockPosting.PostMovementAsync(conn, tran, new StockMovementEntry
+                        {
+                            PharmacyNo = CurrentPharmacyNo,
+                            BranchNo = CurrentBranchNo,
+                            ProductNo = line.ProductNo,
+                            BatchNo = batchNo,
+                            MovementType = 8, // SETTLEMENT
+                            ReferenceDocType = "SETTLEMENT",
+                            ReferenceDocNo = inventoryNumber,
+                            ReferenceDocId = nextInvoiceNo,
+                            QtyPcs = -settleQty,
+                            UnitCost = unitCost,
+                            Remarks = $"Settlement of unreceived sales against GRN {inventoryNumber}"
+                        });
+
+                        // Add to placeholder batch, bringing it toward 0
+                        await _stockPosting.PostMovementAsync(conn, tran, new StockMovementEntry
+                        {
+                            PharmacyNo = CurrentPharmacyNo,
+                            BranchNo = CurrentBranchNo,
+                            ProductNo = line.ProductNo,
+                            BatchNo = placeholder.BatchNo,
+                            MovementType = 8, // SETTLEMENT
+                            ReferenceDocType = "SETTLEMENT",
+                            ReferenceDocNo = inventoryNumber,
+                            ReferenceDocId = nextInvoiceNo,
+                            QtyPcs = settleQty,
+                            UnitCost = unitCost,
+                            Remarks = $"Settlement of unreceived sales from GRN {inventoryNumber}"
+                        });
+                    }
+                }
 
                 line.BoxQty = boxQty;
                 line.QtyInBox = qtyInBox;

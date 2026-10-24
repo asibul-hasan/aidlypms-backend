@@ -53,6 +53,7 @@ public class ReportController : BaseController
             LEFT JOIN prod_companies c ON p.company_no = c.company_no
             WHERE b.pharmacy_no = @CurrentPharmacyNo
               AND b.branch_no = @CurrentBranchNo
+              AND b.is_placeholder = FALSE
               AND b.total_quantity_pcs > 0
               AND b.expiry_date <= CURRENT_DATE + INTERVAL '90 days'
             ORDER BY b.expiry_date ASC;";

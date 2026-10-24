@@ -197,6 +197,7 @@ public class ProductController : BaseController
                     ON p.product_no = b.product_no 
                     AND b.pharmacy_no = @CurrentPharmacyNo 
                     AND b.branch_no = @CurrentBranchNo
+                    AND b.is_placeholder = FALSE
                     AND b.total_quantity_pcs > 0
                     AND b.expiry_date >= CURRENT_DATE
                 LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
@@ -256,6 +257,7 @@ public class ProductController : BaseController
                     ON p.product_no = b.product_no 
                     AND b.pharmacy_no = @CurrentPharmacyNo 
                     AND b.branch_no = @CurrentBranchNo
+                    AND b.is_placeholder = FALSE
                 WHERE p.pharmacy_no = @CurrentPharmacyNo 
                   AND p.branch_no = @CurrentBranchNo 
                   AND p.is_active = TRUE
@@ -314,6 +316,7 @@ public class ProductController : BaseController
                     ON p.product_no = b.product_no 
                     AND b.pharmacy_no = @CurrentPharmacyNo 
                     AND b.branch_no = @CurrentBranchNo
+                    AND b.is_placeholder = FALSE
                 LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
                 LEFT JOIN prod_companies c ON p.company_no = c.company_no
                 WHERE p.pharmacy_no = @CurrentPharmacyNo 
@@ -542,12 +545,12 @@ public class ProductController : BaseController
                     INSERT INTO prod_product_batches (
                         batch_no, pharmacy_no, branch_no, product_no, batch_number,
                         expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
-                        cost_per_box, sale_price_per_box, vat_percent, is_expired,
+                        cost_per_box, sale_price_per_box, vat_percent, is_expired, is_placeholder,
                         created_at, updated_at
                     ) VALUES (
                         @batchNo, @CurrentPharmacyNo, @CurrentBranchNo, @productNo, 'INIT-BATCH',
                         @expiry, 0, @qtyPerBox, 0,
-                        @CostPerBox, @SalePricePerBox, 0, false,
+                        @CostPerBox, @SalePricePerBox, 0, false, false,
                         NOW(), NOW()
                     );";
 
@@ -793,12 +796,12 @@ public class ProductController : BaseController
                         INSERT INTO prod_product_batches (
                             batch_no, pharmacy_no, branch_no, product_no, batch_number,
                             expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
-                            cost_per_box, sale_price_per_box, vat_percent, is_expired,
+                            cost_per_box, sale_price_per_box, vat_percent, is_expired, is_placeholder,
                             created_at, updated_at
                         ) VALUES (
                             @batchNo, @CurrentPharmacyNo, @CurrentBranchNo, @id, 'INITIAL-01',
                             CURRENT_DATE + INTERVAL '1 year', 0, @qtyPerBox, 0,
-                            @costPerBox, @salePerBox, 0, false,
+                            @costPerBox, @salePerBox, 0, false, false,
                             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                         );",
                         new {
@@ -1201,12 +1204,12 @@ public class ProductController : BaseController
                         INSERT INTO prod_product_batches (
                             batch_no, pharmacy_no, branch_no, product_no, batch_number,
                             expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
-                            cost_per_box, sale_price_per_box, vat_percent, is_expired,
+                            cost_per_box, sale_price_per_box, vat_percent, is_expired, is_placeholder,
                             created_at, updated_at
                         ) VALUES (
                             @batchNo, @CurrentPharmacyNo, @CurrentBranchNo, @productNo, @batchNumber,
                             @expDate, @boxQty, @qtyPerBox, @totalQtyPcs,
-                            @costPerBox, @salePriceBox, 0, FALSE,
+                            @costPerBox, @salePriceBox, 0, FALSE, FALSE,
                             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                         );";
 
