@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.2...v1.13.3) (2026-10-24)
+
+
+### 🐛 Bug Fixes
+
+* **tests:** ensure __schema_migrations exists in isolated test schema ([e92fc5f](https://github.com/asibul-hasan/aidlypms-backend/commit/e92fc5f8de0889e6dfe9c5c5058cd688d673d8aa))
+
 ## [1.13.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.1...v1.13.2) (2026-10-24)
 
 
