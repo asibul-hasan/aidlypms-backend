@@ -78,7 +78,20 @@ jobs:
         env:
           TEST_POSTGRES_CONNECTION: "Host=localhost;Port=5432;Database=aidly_test;Username=postgres;Password=testpassword"
         run: |
-          dotnet test tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj --logger "console;verbosity=normal" --logger "trx;LogFileName=test_results.trx"
+          dotnet test tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj --logger "console;verbosity=normal" --logger "trx;LogFileName=test_results.trx" || {
+            python3 -c '
+          import xml.etree.ElementTree as ET, glob
+          for f in glob.glob("**/test_results.trx", recursive=True):
+              root = ET.parse(f).getroot()
+              for r in root.findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}UnitTestResult[@outcome=\"Failed\"]"):
+                  print(f"::error::FAILED TEST: {r.attrib.get(\"testName\")}")
+                  for err in r.findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}Message"):
+                      print(f"::error::MESSAGE: {err.text}")
+                  for trace in r.findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}StackTrace"):
+                      print(f"::error::STACK: {trace.text}")
+          '
+            exit 1
+          }
 
       - name: Push to Hugging Face
         env:
