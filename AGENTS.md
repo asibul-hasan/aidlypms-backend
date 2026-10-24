@@ -97,4 +97,12 @@ git -C sme-software-frontend push origin main
 ### Rule 8: Unreceived Stock Settlement & Valuation Limitation
 - When out-of-stock sales occur, the COGS and sale prices are recorded using estimated/product master costs. On subsequent GRN purchase receipt and placeholder settlement, stock quantities are trued up (placeholder returns toward 0 and real batch is reduced), but historical sale COGS and profit margins are not retroactively re-costed.
 
+---
+
+### Rule 9: Background Jobs Configuration (`RUN_BACKGROUND_JOBS`)
+- `ExpiryMaintenanceService` runs daily at 00:01 Asia/Dhaka (with an initial sweep on startup) to mark passed batches as expired using PostgreSQL advisory locking (`pg_try_advisory_lock(7421098)`).
+- By default in production, background jobs are **enabled**.
+- Set environment variable `RUN_BACKGROUND_JOBS=false` (or configuration `"RUN_BACKGROUND_JOBS": "false"`) to explicitly disable background jobs (e.g. during integration testing or ad-hoc maintenance tasks).
+
+
 

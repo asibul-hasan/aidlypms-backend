@@ -49,11 +49,11 @@ jobs:
           SCRIPT_COUNT=$(psql -h localhost -U postgres -d test_db_script -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';")
           echo "schema.sql tables: $SCHEMA_COUNT"
           echo "db_script.sql tables: $SCRIPT_COUNT"
-          if [ "${SCHEMA_COUNT// /}" -ne 59 ] || [ "${SCRIPT_COUNT// /}" -ne 59 ]; then
-            echo "::error::Schema verification failed: Expected 59 tables in both databases!"
+          if [ "${SCHEMA_COUNT// /}" -ne 61 ] || [ "${SCRIPT_COUNT// /}" -ne 61 ]; then
+            echo "::error::Schema verification failed: Expected 61 tables in both databases!"
             exit 1
           fi
-          echo "Both schema.sql and db_script.sql loaded into empty databases without errors (59 tables each)."
+          echo "Both schema.sql and db_script.sql loaded into empty databases without errors (61 tables each)."
 
           echo "Pre-populating aidly_test database with schema.sql..."
           psql -h localhost -U postgres -d aidly_test -v ON_ERROR_STOP=1 -f database/schema.sql

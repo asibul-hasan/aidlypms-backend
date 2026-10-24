@@ -69,12 +69,12 @@ public class ExpiryMaintenanceService : BackgroundService, IExpiryMaintenanceSer
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var runBg = _config.GetValue<bool>("RUN_BACKGROUND_JOBS", false)
-                    || string.Equals(Environment.GetEnvironmentVariable("RUN_BACKGROUND_JOBS"), "true", StringComparison.OrdinalIgnoreCase);
+        var runBgStr = _config["RUN_BACKGROUND_JOBS"] ?? Environment.GetEnvironmentVariable("RUN_BACKGROUND_JOBS");
+        var runBg = !string.Equals(runBgStr, "false", StringComparison.OrdinalIgnoreCase);
 
         if (!runBg)
         {
-            _logger.LogInformation("ExpiryMaintenanceService is disabled (RUN_BACKGROUND_JOBS is false or unset).");
+            _logger.LogInformation("ExpiryMaintenanceService is disabled (RUN_BACKGROUND_JOBS is false).");
             return;
         }
 

@@ -21,7 +21,8 @@ builder.Services.AddScoped<IStockIntegrityService, StockIntegrityService>();
 builder.Services.AddSingleton<IExpiryMaintenanceService, ExpiryMaintenanceService>();
 
 var runBgJobsStr = builder.Configuration["RUN_BACKGROUND_JOBS"] ?? Environment.GetEnvironmentVariable("RUN_BACKGROUND_JOBS");
-if (string.Equals(runBgJobsStr, "true", StringComparison.OrdinalIgnoreCase))
+var runBgJobs = !string.Equals(runBgJobsStr, "false", StringComparison.OrdinalIgnoreCase);
+if (runBgJobs)
 {
     builder.Services.AddHostedService(sp => (ExpiryMaintenanceService)sp.GetRequiredService<IExpiryMaintenanceService>());
 }

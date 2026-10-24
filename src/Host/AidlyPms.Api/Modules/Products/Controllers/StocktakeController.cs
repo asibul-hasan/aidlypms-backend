@@ -39,8 +39,8 @@ public class StocktakeController : BaseController
                 s.stocktake_no, s.pharmacy_no, s.branch_no, s.status, s.note,
                 s.started_at, s.started_by, s.posted_at, s.posted_by,
                 s.created_at, s.updated_at,
-                u1.user_name AS started_by_name,
-                u2.user_name AS posted_by_name,
+                TRIM(CONCAT(u1.first_name, ' ', u1.last_name)) AS started_by_name,
+                TRIM(CONCAT(u2.first_name, ' ', u2.last_name)) AS posted_by_name,
                 COUNT(i.stocktake_item_no) AS total_items,
                 COUNT(CASE WHEN i.counted_qty_pcs IS NOT NULL THEN 1 END) AS total_counted,
                 COALESCE(SUM(CASE WHEN i.variance_pcs != 0 THEN 1 ELSE 0 END), 0) AS total_variance
@@ -71,7 +71,7 @@ public class StocktakeController : BaseController
         sql += @"
             GROUP BY s.stocktake_no, s.pharmacy_no, s.branch_no, s.status, s.note,
                      s.started_at, s.started_by, s.posted_at, s.posted_by,
-                     s.created_at, s.updated_at, u1.user_name, u2.user_name
+                     s.created_at, s.updated_at, u1.first_name, u1.last_name, u2.first_name, u2.last_name
             ORDER BY s.stocktake_no DESC
             OFFSET @Offset LIMIT @PageSize;";
 
@@ -91,8 +91,8 @@ public class StocktakeController : BaseController
                 s.stocktake_no, s.pharmacy_no, s.branch_no, s.status, s.note,
                 s.started_at, s.started_by, s.posted_at, s.posted_by,
                 s.created_at, s.updated_at,
-                u1.user_name AS started_by_name,
-                u2.user_name AS posted_by_name
+                TRIM(CONCAT(u1.first_name, ' ', u1.last_name)) AS started_by_name,
+                TRIM(CONCAT(u2.first_name, ' ', u2.last_name)) AS posted_by_name
             FROM inv_stocktakes s
             LEFT JOIN sys_users u1 ON s.started_by = u1.user_no
             LEFT JOIN sys_users u2 ON s.posted_by = u2.user_no

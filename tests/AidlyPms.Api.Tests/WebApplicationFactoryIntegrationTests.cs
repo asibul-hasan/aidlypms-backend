@@ -76,7 +76,8 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
                     configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
                     {
                         ["ConnectionStrings:DefaultConnection"] = _connectionString,
-                        ["ConnectionStrings:DirectConnection"] = _connectionString
+                        ["ConnectionStrings:DirectConnection"] = _connectionString,
+                        ["RUN_BACKGROUND_JOBS"] = "false"
                     });
                 });
             });
@@ -1526,5 +1527,174 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         Assert.True(data?["totalApplied"]?.GetValue<int>() >= 0);
 
         _output.WriteLine("Test 19 Passed: /api/v1/sys/migrations enforces auth and returns migration status.");
+    }
+
+    // =========================================================================
+    // 20. Stocktake End-to-End: List, Get, Count, Refresh, and Post endpoints return 200 and valid shape
+    // =========================================================================
+    [Fact]
+    public async Task Test_20_Stocktake_EndToEnd_HttpEndpoints_Return200AndValidShape()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        // Seed product & batch if missing in isolated schema
+        await using (var conn = new NpgsqlConnection(_connectionString))
+        {
+            await conn.OpenAsync();
+            var prodExists = await conn.ExecuteScalarAsync<int>(
+                "SELECT COUNT(1) FROM prod_products WHERE pharmacy_no = @p AND product_no = 9101;",
+                new { p = TestPharmacyNo });
+
+            if (prodExists == 0)
+            {
+                await conn.ExecuteAsync(@"
+                    INSERT INTO prod_products (
+                        product_no, pharmacy_no, branch_no, product_name, generic_no, company_no,
+                        product_type, product_form, strength, pack_size, strip_size,
+                        purchase_price_per_piece, mrp_per_piece, is_active, created_at, updated_at
+                    ) VALUES (
+                        9101, @p, @b, 'Stocktake HTTP Test Paracetamol', @p, @p,
+                        1, 1, '500mg', 100, 10,
+                        2.50, 3.00, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    );
+
+                    INSERT INTO prod_product_batches (
+                        batch_no, pharmacy_no, branch_no, product_no, batch_number, expiry_date,
+                        box_quantity, quantity_in_box, total_quantity_pcs, cost_per_box,
+                        sale_price_per_box, vat_percent, barcode_value, is_expired, is_placeholder,
+                        created_at, updated_at
+                    ) VALUES (
+                        9101, @p, @b, 9101, 'BATCH-HTTP-01', CURRENT_DATE + INTERVAL '180 days',
+                        1, 100, 100, 250.00,
+                        300.00, 0, 'BARCODE-HTTP-01', FALSE, FALSE,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    );",
+                    new { p = TestPharmacyNo, b = TestBranchNo });
+            }
+        }
+
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+
+        // 1. POST /api/v1/inv/stocktakes -> Initialize stocktake
+        var createReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/inv/stocktakes");
+        createReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        createReq.Content = JsonContent.Create(new
+        {
+            note = "HTTP integration test stocktake",
+            filter_type = "ALL"
+        });
+
+        var createResp = await _client.SendAsync(createReq);
+        Assert.Equal(HttpStatusCode.OK, createResp.StatusCode);
+
+        var createJson = await createResp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.True(createJson?["success"]?.GetValue<bool>());
+        var createdData = createJson?["data"]?.AsObject();
+        Assert.NotNull(createdData);
+
+        var stocktakeNo = createdData?["stocktake_no"]?.GetValue<long>() ?? 0;
+        Assert.True(stocktakeNo > 0);
+        Assert.Equal("OPEN", createdData?["status"]?.GetValue<string>());
+        Assert.True(createdData?["total_items"]?.GetValue<int>() >= 1);
+
+        // 2. GET /api/v1/inv/stocktakes -> List stocktakes & assert started_by_name shape
+        var listReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/inv/stocktakes?page=1&pageSize=10");
+        listReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var listResp = await _client.SendAsync(listReq);
+        Assert.Equal(HttpStatusCode.OK, listResp.StatusCode);
+
+        var listJson = await listResp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.True(listJson?["success"]?.GetValue<bool>());
+        var listData = listJson?["data"]?.AsObject();
+        Assert.NotNull(listData);
+
+        var items = listData?["items"]?.AsArray();
+        Assert.NotNull(items);
+        Assert.NotEmpty(items);
+
+        var firstListItem = items?[0]?.AsObject();
+        Assert.NotNull(firstListItem);
+        Assert.False(string.IsNullOrWhiteSpace(firstListItem?["started_by_name"]?.GetValue<string>()),
+            "started_by_name must be populated via TRIM(CONCAT(first_name, ' ', last_name)).");
+
+        // 3. GET /api/v1/inv/stocktakes/{stocktakeNo} -> Get detail and items
+        var getReq = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/inv/stocktakes/{stocktakeNo}");
+        getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var getResp = await _client.SendAsync(getReq);
+        Assert.Equal(HttpStatusCode.OK, getResp.StatusCode);
+
+        var getJson = await getResp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.True(getJson?["success"]?.GetValue<bool>());
+        var getData = getJson?["data"]?.AsObject();
+        Assert.NotNull(getData);
+        Assert.Equal(stocktakeNo, getData?["stocktake_no"]?.GetValue<long>());
+
+        var stocktakeItems = getData?["items"]?.AsArray();
+        Assert.NotNull(stocktakeItems);
+        Assert.NotEmpty(stocktakeItems);
+
+        var firstItem = stocktakeItems?[0]?.AsObject();
+        Assert.NotNull(firstItem);
+        var itemNo = firstItem?["stocktake_item_no"]?.GetValue<long>() ?? 0;
+        var sysQty = firstItem?["system_qty_pcs"]?.GetValue<int>() ?? 0;
+        Assert.True(itemNo > 0);
+
+        // 4. PUT /api/v1/inv/stocktakes/{stocktakeNo}/count -> Save counts with variance & reason
+        var countReq = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/inv/stocktakes/{stocktakeNo}/count");
+        countReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        countReq.Content = JsonContent.Create(new
+        {
+            items = new[]
+            {
+                new
+                {
+                    stocktake_item_no = itemNo,
+                    counted_qty_pcs = sysQty + 5,
+                    reason = "Physical count found 5 extra blister packs in rack"
+                }
+            }
+        });
+
+        var countResp = await _client.SendAsync(countReq);
+        Assert.Equal(HttpStatusCode.OK, countResp.StatusCode);
+
+        var countJson = await countResp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.True(countJson?["success"]?.GetValue<bool>());
+        var countData = countJson?["data"]?.AsObject();
+        Assert.NotNull(countData);
+        Assert.Equal("COUNTING", countData?["status"]?.GetValue<string>());
+        Assert.Equal(1, countData?["updated_items_count"]?.GetValue<int>());
+
+        // 5. POST /api/v1/inv/stocktakes/{stocktakeNo}/refresh -> Refresh snapshot
+        var refreshReq = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/inv/stocktakes/{stocktakeNo}/refresh");
+        refreshReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var refreshResp = await _client.SendAsync(refreshReq);
+        Assert.Equal(HttpStatusCode.OK, refreshResp.StatusCode);
+
+        var refreshJson = await refreshResp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.True(refreshJson?["success"]?.GetValue<bool>());
+
+        // 6. POST /api/v1/inv/stocktakes/{stocktakeNo}/post -> Post adjustments
+        var postReq = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/inv/stocktakes/{stocktakeNo}/post");
+        postReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var postResp = await _client.SendAsync(postReq);
+        Assert.Equal(HttpStatusCode.OK, postResp.StatusCode);
+
+        var postJson = await postResp.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.True(postJson?["success"]?.GetValue<bool>());
+        var postData = postJson?["data"]?.AsObject();
+        Assert.NotNull(postData);
+        Assert.Equal("POSTED", postData?["status"]?.GetValue<string>());
+        Assert.True(postData?["adjusted_items_count"]?.GetValue<int>() >= 1);
+
+        _output.WriteLine("Test 20 Passed: Stocktake list, get, count, refresh, and post HTTP endpoints succeeded with HTTP 200 and valid responses.");
     }
 }
