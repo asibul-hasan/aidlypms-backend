@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.12](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.11...v1.13.12) (2026-10-24)
+
+
+### 🐛 Bug Fixes
+
+* **purchase:** resolve cash payment account dynamically and seed AP and input VAT accounts ([a63b614](https://github.com/asibul-hasan/aidlypms-backend/commit/a63b6146d1b127bc77611b1b6905162f17ce5e6e))
+
 ## [1.13.11](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.10...v1.13.11) (2026-10-24)
 
 
