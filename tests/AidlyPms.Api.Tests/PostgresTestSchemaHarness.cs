@@ -82,6 +82,13 @@ public class PostgresTestSchemaHarness : IAsyncDisposable
             await isolatedConn.OpenAsync();
             await isolatedConn.ExecuteAsync(schemaSql);
 
+            // Ensure __schema_migrations exists inside isolated schema
+            await isolatedConn.ExecuteAsync(@"
+                CREATE TABLE IF NOT EXISTS __schema_migrations (
+                    migration_id VARCHAR(255) PRIMARY KEY,
+                    applied_at TIMESTAMP WITH TIME ZONE NOT NULL
+                );");
+
             // Hard Guard: assert SELECT current_schema() equals test schema
             var currentSchema = await isolatedConn.ExecuteScalarAsync<string>("SELECT current_schema();");
             if (!string.Equals(currentSchema, schemaName, StringComparison.OrdinalIgnoreCase))
