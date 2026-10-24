@@ -158,7 +158,7 @@ public class StocktakeController : BaseController
                 query += " AND p.company_no = @compNo";
                 filterPms.Add("compNo", compNo);
             }
-            else if (filterType == "PRODUCT" && request.ProductIds != null && request.ProductIds.Count > 0)
+            else if ((filterType == "PRODUCT" || filterType == "PRODUCTS") && request.ProductIds != null && request.ProductIds.Count > 0)
             {
                 query += " AND p.product_no = ANY(@prodIds)";
                 filterPms.Add("prodIds", request.ProductIds);

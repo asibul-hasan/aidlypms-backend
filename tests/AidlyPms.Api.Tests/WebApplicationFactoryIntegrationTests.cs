@@ -922,6 +922,8 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         custDueReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var custDueResp = await _client.SendAsync(custDueReq);
         Assert.Equal(HttpStatusCode.BadRequest, custDueResp.StatusCode);
+        await custDueResp.Content.ReadAsStringAsync();
+        custDueResp.Dispose();
 
         // Clear customer due
         await conn.ExecuteAsync("UPDATE cust_customers SET has_due = FALSE, current_due = 0 WHERE customer_no = @testCustNo;", new { testCustNo });
@@ -934,6 +936,8 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         custValidReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var custValidResp = await _client.SendAsync(custValidReq);
         Assert.Equal(HttpStatusCode.OK, custValidResp.StatusCode);
+        await custValidResp.Content.ReadAsStringAsync();
+        custValidResp.Dispose();
 
         // 3. Setup active Supplier with due balance
         const long testSuppNo = 900270;
@@ -955,6 +959,8 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         suppDueReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var suppDueResp = await _client.SendAsync(suppDueReq);
         Assert.Equal(HttpStatusCode.BadRequest, suppDueResp.StatusCode);
+        await suppDueResp.Content.ReadAsStringAsync();
+        suppDueResp.Dispose();
 
         // Clear supplier due
         await conn.ExecuteAsync("UPDATE supp_suppliers SET current_due_balance = 0 WHERE supplier_no = @testSuppNo;", new { testSuppNo });
@@ -967,6 +973,8 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         purSuppReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var purSuppResp = await _client.SendAsync(purSuppReq);
         Assert.Equal(HttpStatusCode.OK, purSuppResp.StatusCode);
+        await purSuppResp.Content.ReadAsStringAsync();
+        purSuppResp.Dispose();
 
         _output.WriteLine("Test 10 Passed: Soft-delete requires reason, blocks in-use records, and hides inactive records.");
     }
@@ -1091,24 +1099,18 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
         try
         {
-            // Insert an expired subscription past its grace period
-            const long subNo = 900290;
+            // Set subscription as expired past its grace period
             await conn.ExecuteAsync(@"
-                INSERT INTO sub_pharmacy_subscriptions (
-                    subscription_no, pharmacy_no, branch_no, plan_no,
-                    billing_cycle, subscription_status, trial_end_date,
-                    subscription_start_date, subscription_end_date,
-                    next_payment_date, monthly_rate, grace_period_days, updated_at
-                ) VALUES (
-                    @subNo, @p, @b, 1,
-                    1, 1, CURRENT_DATE - INTERVAL '60 days',
-                    CURRENT_DATE - INTERVAL '45 days', CURRENT_DATE - INTERVAL '15 days',
-                    CURRENT_DATE - INTERVAL '15 days', 500, 7, CURRENT_TIMESTAMP
-                ) ON CONFLICT (subscription_no) DO UPDATE
+                UPDATE sub_pharmacy_subscriptions
                 SET subscription_end_date = CURRENT_DATE - INTERVAL '15 days',
                     grace_period_days = 7,
-                    subscription_status = 1;
-            ", new { subNo, p = TestPharmacyNo, b = TestBranchNo });
+                    subscription_status = 1,
+                    trial_end_date = CURRENT_DATE - INTERVAL '60 days',
+                    subscription_start_date = CURRENT_DATE - INTERVAL '45 days',
+                    next_payment_date = CURRENT_DATE - INTERVAL '15 days',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE pharmacy_no = @p AND branch_no = @b;",
+                new { p = TestPharmacyNo, b = TestBranchNo });
 
             // 1. Business endpoint (e.g. Products list) must return 402 Payment Required
             var prodReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/prod/products");
@@ -1159,7 +1161,17 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         finally
         {
             await conn.ExecuteAsync("DELETE FROM sub_subscription_payments WHERE pharmacy_no = @p;", new { p = TestPharmacyNo });
-            await conn.ExecuteAsync("DELETE FROM sub_pharmacy_subscriptions WHERE pharmacy_no = @p;", new { p = TestPharmacyNo });
+            await conn.ExecuteAsync(@"
+                UPDATE sub_pharmacy_subscriptions
+                SET subscription_end_date = CURRENT_DATE + INTERVAL '30 days',
+                    grace_period_days = 7,
+                    subscription_status = 1,
+                    trial_end_date = CURRENT_DATE + INTERVAL '14 days',
+                    subscription_start_date = CURRENT_DATE,
+                    next_payment_date = CURRENT_DATE + INTERVAL '30 days',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE pharmacy_no = @p AND branch_no = @b;",
+                new { p = TestPharmacyNo, b = TestBranchNo });
         }
     }
 

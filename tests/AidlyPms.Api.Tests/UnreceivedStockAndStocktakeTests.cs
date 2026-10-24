@@ -166,11 +166,19 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 account_no, pharmacy_no, branch_no, account_category, account_code,
                 account_name, account_type, bank_account_number, bank_name,
                 current_balance, is_active, created_at, updated_at
-            ) VALUES (
-                @pharmacyNo * 100 + 1, @pharmacyNo, @branchNo, 1, '10905',
-                'Default Cash Account', 1, '', 'Internal Cash Drawer',
-                50000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            ) ON CONFLICT (account_no) DO NOTHING;
+            ) VALUES 
+            (@pharmacyNo * 100 + 1, @pharmacyNo, @branchNo, 1, '10101', 'Cash in Hand', 1, '', 'Main Cash Drawer', 100000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 2, @pharmacyNo, @branchNo, 4, '40101', 'Sales Revenue', 1, '', 'General Sales', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 3, @pharmacyNo, @branchNo, 2, '20201', 'Output VAT Payable', 1, '', 'Govt VAT', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 4, @pharmacyNo, @branchNo, 1, '10301', 'Customer Accounts Receivable', 1, '', 'Customer Dues', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 5, @pharmacyNo, @branchNo, 5, '50101', 'Cost of Goods Sold', 1, '', 'COGS', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 6, @pharmacyNo, @branchNo, 1, '10201', 'Inventory Asset', 1, '', 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 7, @pharmacyNo, @branchNo, 1, '10901', 'Return Credit Clearing Account', 1, '', 'Exchange Clearing', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 8, @pharmacyNo, @branchNo, 1, '10401', 'Merchandise Inventory Asset', 1, '', 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 9, @pharmacyNo, @branchNo, 4, '40102', 'Sales Returns and Allowances', 1, '', 'Returns', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 10, @pharmacyNo, @branchNo, 2, '20301', 'Customer Store Credit Liability', 1, '', 'Store Credit', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 11, @pharmacyNo, @branchNo, 1, '10905', 'Default Cash Account', 1, '', 'Internal Cash Drawer', 50000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (account_no) DO NOTHING;
 
             INSERT INTO cfg_sale_configs (
                 sale_config_no, pharmacy_no, branch_no, cash_received, out_of_stock_sale,
@@ -471,6 +479,7 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         {
             HttpContext = new DefaultHttpContext
             {
+                RequestServices = _serviceProvider,
                 User = new ClaimsPrincipal(new ClaimsIdentity(new[]
                 {
                     new Claim("pharmacy_no", TestPharmacyNo.ToString()),
@@ -557,6 +566,7 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         {
             HttpContext = new DefaultHttpContext
             {
+                RequestServices = _serviceProvider,
                 User = new ClaimsPrincipal(new ClaimsIdentity(new[]
                 {
                     new Claim("pharmacy_no", TestPharmacyNo.ToString()),
@@ -663,12 +673,16 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         // 1. Create Stocktake
         stocktakeController.ControllerContext = new ControllerContext
         {
-            HttpContext = new DefaultHttpContext { User = authorizedUser }
+            HttpContext = new DefaultHttpContext
+            {
+                RequestServices = _serviceProvider,
+                User = authorizedUser
+            }
         };
 
         var createRes = await stocktakeController.CreateStocktake(new CreateStocktakeRequest
         {
-            FilterType = "PRODUCTS",
+            FilterType = "PRODUCT",
             ProductIds = new List<long> { prodNo },
             Note = "Cycle Count Test"
         });
@@ -711,7 +725,11 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         // 5. Post without permission -> 403 Forbidden
         stocktakeController.ControllerContext = new ControllerContext
         {
-            HttpContext = new DefaultHttpContext { User = unauthorizedUser }
+            HttpContext = new DefaultHttpContext
+            {
+                RequestServices = _serviceProvider,
+                User = unauthorizedUser
+            }
         };
         var postNoPermRes = await stocktakeController.PostStocktake(stocktakeNo);
         var forbiddenReq = Assert.IsType<ObjectResult>(postNoPermRes.Result);
@@ -720,7 +738,11 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         // 6. Post with authorized user and valid reason -> 200 OK
         stocktakeController.ControllerContext = new ControllerContext
         {
-            HttpContext = new DefaultHttpContext { User = authorizedUser }
+            HttpContext = new DefaultHttpContext
+            {
+                RequestServices = _serviceProvider,
+                User = authorizedUser
+            }
         };
         var postSuccessRes = await stocktakeController.PostStocktake(stocktakeNo);
         var okPost = Assert.IsType<OkObjectResult>(postSuccessRes.Result);
@@ -894,6 +916,7 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         {
             HttpContext = new DefaultHttpContext
             {
+                RequestServices = _serviceProvider,
                 User = new ClaimsPrincipal(new ClaimsIdentity(new[]
                 {
                     new Claim("pharmacy_no", TestPharmacyNo.ToString()),
