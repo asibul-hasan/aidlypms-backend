@@ -381,6 +381,23 @@ public class StocktakeController : BaseController
     [RequirePermission("stock.adjust")]
     public async Task<ActionResult<ApiResponse<object>>> PostStocktake(long stocktakeNo)
     {
+        if (CurrentRoleNo != 9 && !User.Claims.Any(c => (c.Type == "permissions" || c.Type == "permission") && c.Value.Split(',').Select(p => p.Trim()).Contains("stock.adjust")))
+        {
+            await using var permConn = await _db.CreateOpenConnectionAsync();
+            var hasPerm = await permConn.ExecuteScalarAsync<bool>(@"
+                SELECT EXISTS(
+                    SELECT 1 FROM sys_role_permissions rp
+                    JOIN sys_permissions p ON rp.permission_no = p.permission_no
+                    WHERE rp.role_no = @CurrentRoleNo AND rp.pharmacy_no = @CurrentPharmacyNo
+                      AND p.code = 'stock.adjust'
+                );", new { CurrentRoleNo, CurrentPharmacyNo });
+
+            if (!hasPerm)
+            {
+                return FailResponse<object>("Forbidden", "You do not have permission to post stocktake adjustments ('stock.adjust' required).", 403);
+            }
+        }
+
         await using var conn = await _db.CreateOpenConnectionAsync();
         await using var tran = await conn.BeginTransactionAsync();
 

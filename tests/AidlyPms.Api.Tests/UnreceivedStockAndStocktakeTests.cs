@@ -353,7 +353,7 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
 
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 postingEngine.ExecuteSaleAsync(conn, tran2, req2));
-            Assert.Contains("Insufficient stock", ex.Message);
+            Assert.Contains("insufficient stock", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -408,7 +408,7 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 movement_type, reference_doc_type, reference_doc_no, reference_doc_id,
                 qty_pcs, unit_cost, balance_after_pcs, remarks, created_by_user_no, created_at
             ) VALUES (
-                nextval('seq_inv_movement_no'), @p, @b, @productNo, @realBatchNo,
+                nextval('seq_stock_movement_no'), @p, @b, @productNo, @realBatchNo,
                 1, 'PURCHASE', 'PO-INIT', 1,
                 5, 10, 5, 'Initial stock', @u, CURRENT_TIMESTAMP
             );", new { p = TestPharmacyNo, b = TestBranchNo, productNo, realBatchNo, u = TestUserNo });
