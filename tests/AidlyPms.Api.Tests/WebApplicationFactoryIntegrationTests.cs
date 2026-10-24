@@ -1553,14 +1553,18 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             {
                 await conn.ExecuteAsync(@"
                     INSERT INTO prod_products (
-                        product_no, pharmacy_no, branch_no, product_name, generic_no, company_no,
-                        product_type, product_form, strength, pack_size, strip_size,
-                        purchase_price_per_piece, mrp_per_piece, is_active, created_at, updated_at
+                        product_no, uuid, pharmacy_no, branch_no, company_no, generic_no, product_name,
+                        medicine_type, unit_type, quantity_per_box,
+                        cost_per_box, sale_price_per_box, avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                        wholesale_price_per_box, wholesale_price_per_piece,
+                        is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active, created_at, updated_at
                     ) VALUES (
-                        9101, @p, @b, 'Stocktake HTTP Test Paracetamol', @p, @p,
-                        1, 1, '500mg', 100, 10,
-                        2.50, 3.00, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                    );
+                        9101, gen_random_uuid(), @p, @b, @p, @p, 'Stocktake HTTP Test Paracetamol',
+                        1, 1, 10,
+                        25.00, 30.00, 2.50, 2.50, 3.00,
+                        30.00, 30.00,
+                        TRUE, FALSE, FALSE, 10, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    ) ON CONFLICT (product_no) DO NOTHING;
 
                     INSERT INTO prod_product_batches (
                         batch_no, pharmacy_no, branch_no, product_no, batch_number, expiry_date,
@@ -1569,10 +1573,10 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
                         created_at, updated_at
                     ) VALUES (
                         9101, @p, @b, 9101, 'BATCH-HTTP-01', CURRENT_DATE + INTERVAL '180 days',
-                        1, 100, 100, 250.00,
-                        300.00, 0, 'BARCODE-HTTP-01', FALSE, FALSE,
+                        10, 10, 100, 25.00,
+                        30.00, 0, 'BARCODE-HTTP-01', FALSE, FALSE,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                    );",
+                    ) ON CONFLICT (batch_no) DO NOTHING;",
                     new { p = TestPharmacyNo, b = TestBranchNo });
             }
         }
