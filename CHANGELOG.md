@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.7](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.6...v1.13.7) (2026-10-24)
+
+
+### 🤖 Continuous Integration
+
+* publish trx test failure annotations to check runs ([fcf9e65](https://github.com/asibul-hasan/aidlypms-backend/commit/fcf9e6577f88bbd4413776505ac58d229ec74667))
+
 ## [1.13.6](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.5...v1.13.6) (2026-10-24)
 
 
