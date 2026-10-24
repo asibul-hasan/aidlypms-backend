@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.6](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.5...v1.13.6) (2026-10-24)
+
+
+### 🤖 Continuous Integration
+
+* publish test output to step summary on failure ([965753c](https://github.com/asibul-hasan/aidlypms-backend/commit/965753cf2d48a882321be6bbfa23c331a7c0f352))
+
 ## [1.13.5](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.4...v1.13.5) (2026-10-24)
 
 
