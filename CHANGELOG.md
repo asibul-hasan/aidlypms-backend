@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.11](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.10...v1.13.11) (2026-10-24)
+
+
+### 🐛 Bug Fixes
+
+* **stocktake:** enforce permission check in post endpoint and correct movement sequence ([d537a8c](https://github.com/asibul-hasan/aidlypms-backend/commit/d537a8ced3467e03a11b40e1af94ade8f12b9cba))
+
 ## [1.13.10](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.9...v1.13.10) (2026-10-24)
 
 
