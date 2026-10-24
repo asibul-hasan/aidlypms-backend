@@ -177,7 +177,9 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
             (@pharmacyNo * 100 + 8, @pharmacyNo, @branchNo, 1, '10401', 'Merchandise Inventory Asset', 1, '', 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
             (@pharmacyNo * 100 + 9, @pharmacyNo, @branchNo, 4, '40102', 'Sales Returns and Allowances', 1, '', 'Returns', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
             (@pharmacyNo * 100 + 10, @pharmacyNo, @branchNo, 2, '20301', 'Customer Store Credit Liability', 1, '', 'Store Credit', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 11, @pharmacyNo, @branchNo, 1, '10905', 'Default Cash Account', 1, '', 'Internal Cash Drawer', 50000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            (@pharmacyNo * 100 + 11, @pharmacyNo, @branchNo, 1, '10905', 'Default Cash Account', 1, '', 'Internal Cash Drawer', 50000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 12, @pharmacyNo, @branchNo, 2, '20101', 'Accounts Payable', 1, '', 'Supplier Payables', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 13, @pharmacyNo, @branchNo, 1, '10501', 'Input VAT Asset', 1, '', 'Input VAT', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (account_no) DO NOTHING;
 
             INSERT INTO cfg_sale_configs (
@@ -493,6 +495,7 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         var purchaseReq = new CreatePurchasePayload
         {
             SupplierNo = TestPharmacyNo,
+            PaymentAccountNo = TestPharmacyNo * 100 + 1,
             Invoice = new PurPurchaseInvoice
             {
                 SupplierNo = TestPharmacyNo,

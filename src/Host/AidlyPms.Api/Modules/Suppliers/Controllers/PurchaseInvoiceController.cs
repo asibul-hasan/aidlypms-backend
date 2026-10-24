@@ -394,7 +394,15 @@ public class PurchaseInvoiceController : BaseController
             var calculationMode = payload.CalculationMode ?? inv.CalculationMode;
             var inventoryTypeVal = payload.InventoryType ?? inv.InventoryType;
             var supplierInvoiceNo = payload.SupplierInvoiceNo ?? inv.SupplierInvoiceNo;
-            var paymentAccountNo = payload.PaymentAccountNo ?? 1;
+            var paymentAccountNo = payload.PaymentAccountNo.GetValueOrDefault(0);
+            if (paymentAccountNo <= 0)
+            {
+                paymentAccountNo = (await conn.ExecuteScalarAsync<long?>(@"
+                    SELECT account_no FROM acc_transaction_accounts
+                    WHERE account_code IN ('10101', '10905') AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    ORDER BY (account_code = '10101') DESC LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran)).GetValueOrDefault(1);
+            }
 
             // Insert purchase header
             await conn.ExecuteAsync(@"
