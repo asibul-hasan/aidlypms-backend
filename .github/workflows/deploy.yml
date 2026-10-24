@@ -78,7 +78,17 @@ jobs:
         env:
           TEST_POSTGRES_CONNECTION: "Host=localhost;Port=5432;Database=aidly_test;Username=postgres;Password=testpassword"
         run: |
-          dotnet test tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj --logger "console;verbosity=normal"
+          set +e
+          dotnet test tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj --logger "console;verbosity=normal" > test_output.txt 2>&1
+          TEST_EXIT_CODE=$?
+          if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo "## Test Failure Output" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 120 test_output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat test_output.txt
+            exit $TEST_EXIT_CODE
+          fi
 
       - name: Push to Hugging Face
         env:
