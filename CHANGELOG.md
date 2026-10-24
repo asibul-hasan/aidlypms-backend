@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.9...v1.13.0) (2026-10-24)
+
+
+### 🚀 Features
+
+* **inventory:** add unreceived-stock placeholder, stocktake engine, and ledger integrity ([d666fd4](https://github.com/asibul-hasan/aidlypms-backend/commit/d666fd48a4aabbcbf2aa61ec5e848d812f1e9339))
+
 ## [1.12.9](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.8...v1.12.9) (2026-10-23)
 
 
