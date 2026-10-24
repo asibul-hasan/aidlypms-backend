@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.5](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.4...v1.13.5) (2026-10-24)
+
+
+### 🐛 Bug Fixes
+
+* **tests:** align prod_products and batches seed with real schema columns in Test_20 ([2667dfd](https://github.com/asibul-hasan/aidlypms-backend/commit/2667dfdda7aae17e4adfe9b1997e278a4df39c54))
+
 ## [1.13.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.3...v1.13.4) (2026-10-24)
 
 
