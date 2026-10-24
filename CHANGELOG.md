@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.0...v1.13.1) (2026-10-24)
+
+
+### 🐛 Bug Fixes
+
+* **backend:** fix user columns in stocktake, add sql compile test, and stock ledger repair ([37c6966](https://github.com/asibul-hasan/aidlypms-backend/commit/37c696659554d5520c96bbd3c47f7efe4075afec))
+
 ## [1.13.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.12.9...v1.13.0) (2026-10-24)
 
 
