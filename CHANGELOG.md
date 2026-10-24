@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.1...v1.13.2) (2026-10-24)
+
+
+### 🐛 Bug Fixes
+
+* **backend:** resolve static sql group by clauses and quote-safe param replacements ([7459d2d](https://github.com/asibul-hasan/aidlypms-backend/commit/7459d2da14b71ee1099dfc454e7d0e9435dfc30f))
+
 ## [1.13.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.0...v1.13.1) (2026-10-24)
 
 
