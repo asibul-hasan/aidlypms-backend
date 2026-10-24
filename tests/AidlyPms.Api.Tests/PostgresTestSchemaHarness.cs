@@ -89,6 +89,29 @@ public class PostgresTestSchemaHarness : IAsyncDisposable
                     applied_at TIMESTAMP WITH TIME ZONE NOT NULL
                 );");
 
+            // Pre-seed __schema_migrations with existing migration IDs since schema.sql already reflects all migrations
+            var schemaFilePath = ResolveDatabaseFilePath("schema.sql");
+            var dbDir = Path.GetDirectoryName(schemaFilePath);
+            if (dbDir != null)
+            {
+                var migrationsDir = Path.Combine(dbDir, "migrations");
+                if (Directory.Exists(migrationsDir))
+                {
+                    var migrationFiles = Directory.GetFiles(migrationsDir, "*.sql")
+                        .Select(Path.GetFileName)
+                        .Where(f => !string.IsNullOrEmpty(f))
+                        .OrderBy(f => f)
+                        .ToList();
+
+                    foreach (var mf in migrationFiles)
+                    {
+                        await isolatedConn.ExecuteAsync(
+                            "INSERT INTO __schema_migrations (migration_id, applied_at) VALUES (@mf, CURRENT_TIMESTAMP) ON CONFLICT (migration_id) DO NOTHING;",
+                            new { mf });
+                    }
+                }
+            }
+
             // Hard Guard: assert SELECT current_schema() equals test schema
             var currentSchema = await isolatedConn.ExecuteScalarAsync<string>("SELECT current_schema();");
             if (!string.Equals(currentSchema, schemaName, StringComparison.OrdinalIgnoreCase))

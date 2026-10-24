@@ -111,11 +111,15 @@ public static class DatabaseMigrationRunner
 
                 if (string.IsNullOrWhiteSpace(sql)) continue;
 
-                // 4. Run each migration file in its own transaction together with its __schema_migrations insert
+                // 4. Run each migration file in its own transaction together with its __schema_migrations insert.
+                // Strip standalone script-level BEGIN; and COMMIT; statements so our outer C# transaction controls atomicity.
+                var cleanSql = Regex.Replace(sql, @"(?m)^\s*BEGIN\s*;\s*$", "", RegexOptions.IgnoreCase);
+                cleanSql = Regex.Replace(cleanSql, @"(?m)^\s*COMMIT\s*;\s*$", "", RegexOptions.IgnoreCase);
+
                 await using var tran = await conn.BeginTransactionAsync();
                 try
                 {
-                    await conn.ExecuteAsync(sql, transaction: tran);
+                    await conn.ExecuteAsync(cleanSql, transaction: tran);
                     await conn.ExecuteAsync(
                         "INSERT INTO __schema_migrations (migration_id, applied_at) VALUES (@migrationFileName, CURRENT_TIMESTAMP) ON CONFLICT (migration_id) DO NOTHING;",
                         new { migrationFileName }, transaction: tran);
@@ -132,7 +136,18 @@ public static class DatabaseMigrationRunner
                 }
                 catch (Exception ex)
                 {
-                    await tran.RollbackAsync();
+                    try
+                    {
+                        if (tran.Connection != null)
+                        {
+                            await tran.RollbackAsync();
+                        }
+                    }
+                    catch
+                    {
+                        // Suppress secondary rollback failures so the root migration exception is preserved
+                    }
+
                     LastError = $"Migration '{migrationFileName}' failed: {SanitizeMessage(ex.Message)}";
                     logger.LogError(ex, "Failed to apply database migration: {MigrationName}.", migrationFileName);
                     throw;

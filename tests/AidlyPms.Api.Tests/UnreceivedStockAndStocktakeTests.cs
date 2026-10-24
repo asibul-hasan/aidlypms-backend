@@ -153,10 +153,26 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 @pharmacyNo, @pharmacyNo, @branchNo, 'Paracetamol 500mg', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (generic_no) DO NOTHING;
 
-            INSERT INTO supp_suppliers (
-                supplier_no, pharmacy_no, branch_no, supplier_name, company_no, phone, email, address, is_active, created_at, updated_at
+            INSERT INTO prod_products (
+                product_no, uuid, pharmacy_no, branch_no, company_no, generic_no, product_name,
+                medicine_type, unit_type, quantity_per_box,
+                cost_per_box, sale_price_per_box, avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active, created_at, updated_at
             ) VALUES (
-                @pharmacyNo, @pharmacyNo, @branchNo, 'Main Supplier Square', @pharmacyNo, '01711111111', 'supp@example.com', 'Tejgaon Dhaka', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                1, gen_random_uuid(), @pharmacyNo, @branchNo, @pharmacyNo, @pharmacyNo, 'Default SeedTest Product 1',
+                1, 1, 10,
+                100, 150, 10, 10, 15,
+                150, 15,
+                TRUE, FALSE, FALSE, 10, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (product_no) DO NOTHING;
+
+            INSERT INTO supp_suppliers (
+                supplier_no, pharmacy_no, branch_no, name, phone,
+                current_due_balance, is_active, created_at, updated_at
+            ) VALUES (
+                @pharmacyNo, @pharmacyNo, @branchNo, 'Main Supplier Square', '01711111111',
+                0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (supplier_no) DO NOTHING;
 
             INSERT INTO acc_transaction_accounts (
@@ -231,14 +247,18 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         // 1. Create a zero-stock product
         var productNo = await conn.ExecuteScalarAsync<long>(@"
             INSERT INTO prod_products (
-                pharmacy_no, branch_no, product_name, generic_no, company_no,
-                cost_per_box, sale_price_per_box, purchase_price_per_piece, sale_price_per_piece,
-                quantity_per_box, is_active, is_prescription_required, is_narcotic, unit_type,
+                product_no, uuid, pharmacy_no, branch_no, product_name, generic_no, company_no,
+                medicine_type, unit_type, quantity_per_box,
+                cost_per_box, sale_price_per_box, avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active,
                 created_at, updated_at
             ) VALUES (
-                @p, @b, 'Napa Extra 500mg (Zero Stock)', @p, @p,
-                100, 150, 10, 15,
-                10, TRUE, FALSE, FALSE, 1,
+                nextval('seq_product_no'), gen_random_uuid(), @p, @b, 'Napa Extra 500mg (Zero Stock)', @p, @p,
+                1, 1, 10,
+                100, 150, 10, 10, 15,
+                150, 15,
+                TRUE, FALSE, FALSE, 10, TRUE,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) RETURNING product_no;", new { p = TestPharmacyNo, b = TestBranchNo });
 
@@ -357,14 +377,18 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         // 1. Create product
         var productNo = await conn.ExecuteScalarAsync<long>(@"
             INSERT INTO prod_products (
-                pharmacy_no, branch_no, product_name, generic_no, company_no,
-                cost_per_box, sale_price_per_box, purchase_price_per_piece, sale_price_per_piece,
-                quantity_per_box, is_active, is_prescription_required, is_narcotic, unit_type,
+                product_no, uuid, pharmacy_no, branch_no, product_name, generic_no, company_no,
+                medicine_type, unit_type, quantity_per_box,
+                cost_per_box, sale_price_per_box, avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active,
                 created_at, updated_at
             ) VALUES (
-                @p, @b, 'Ace 500mg Split Test', @p, @p,
-                100, 150, 10, 15,
-                10, TRUE, FALSE, FALSE, 1,
+                nextval('seq_product_no'), gen_random_uuid(), @p, @b, 'Ace 500mg Split Test', @p, @p,
+                1, 1, 10,
+                100, 150, 10, 10, 15,
+                150, 15,
+                TRUE, FALSE, FALSE, 10, TRUE,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) RETURNING product_no;", new { p = TestPharmacyNo, b = TestBranchNo });
 
@@ -585,14 +609,18 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         // 1. Create product and batch with 20 pcs
         var prodNo = await conn.ExecuteScalarAsync<long>(@"
             INSERT INTO prod_products (
-                pharmacy_no, branch_no, product_name, generic_no, company_no,
-                cost_per_box, sale_price_per_box, purchase_price_per_piece, sale_price_per_piece,
-                quantity_per_box, is_active, is_prescription_required, is_narcotic, unit_type,
+                product_no, uuid, pharmacy_no, branch_no, product_name, generic_no, company_no,
+                medicine_type, unit_type, quantity_per_box,
+                cost_per_box, sale_price_per_box, avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active,
                 created_at, updated_at
             ) VALUES (
-                @p, @b, 'Stocktake Test Product', @p, @p,
-                100, 150, 10, 15,
-                10, TRUE, FALSE, FALSE, 1,
+                nextval('seq_product_no'), gen_random_uuid(), @p, @b, 'Stocktake Test Product', @p, @p,
+                1, 1, 10,
+                100, 150, 10, 10, 15,
+                150, 15,
+                TRUE, FALSE, FALSE, 10, TRUE,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) RETURNING product_no;", new { p = TestPharmacyNo, b = TestBranchNo });
 

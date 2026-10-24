@@ -286,7 +286,7 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
             var tables = (await conn.QueryAsync<string>(
                 $"SELECT table_name FROM information_schema.tables WHERE table_schema = '{isolatedSchema}' AND table_type = 'BASE TABLE'")).ToHashSet();
 
-            Assert.Equal(59, tables.Count);
+            Assert.Equal(61, tables.Count);
             Assert.Contains("sys_menus", tables);
             Assert.Contains("sys_role_menu_permissions", tables);
             Assert.Contains("sale_invoices", tables);
@@ -296,6 +296,8 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
             Assert.Contains("inv_stock_movement", tables);
             Assert.Contains("prod_product_batches", tables);
             Assert.Contains("acc_transaction_ledger", tables);
+            Assert.Contains("inv_stocktakes", tables);
+            Assert.Contains("inv_stocktake_items", tables);
 
             // Assert foreign key fk_si_exchange_return exists
             var fkCount = await conn.ExecuteScalarAsync<int>($@"
@@ -314,7 +316,7 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                 $"SELECT column_name FROM information_schema.columns WHERE table_schema = '{isolatedSchema}' AND table_name = 'doc_doctors'")).ToHashSet();
             Assert.Contains("bmdc_reg_no", docCols);
 
-            _output.WriteLine($"Test_1 Passed: schema.sql loaded cleanly into isolated {isolatedSchema} with all 59 tables and constraints.");
+            _output.WriteLine($"Test_1 Passed: schema.sql loaded cleanly into isolated {isolatedSchema} with all 61 tables and constraints.");
         }
         finally
         {
