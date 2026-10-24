@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.9](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.8...v1.13.9) (2026-10-24)
+
+
+### 🐛 Bug Fixes
+
+* **tests:** resolve parameter type, sequence name, and subscription foreign key in integration tests ([4550f5a](https://github.com/asibul-hasan/aidlypms-backend/commit/4550f5a82b473d535fac252b00395a8e5d621e98))
+
 ## [1.13.8](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.7...v1.13.8) (2026-10-24)
 
 
