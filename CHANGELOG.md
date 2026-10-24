@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.8](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.7...v1.13.8) (2026-10-24)
+
+
+### 🐛 Bug Fixes
+
+* **tests:** align seed schema, pre-seed migrations, and handle migration script transactions ([d9929cc](https://github.com/asibul-hasan/aidlypms-backend/commit/d9929cc9172d08e0fae3e2de230dfb8bda6c8abd))
+
 ## [1.13.7](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.6...v1.13.7) (2026-10-24)
 
 
