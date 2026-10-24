@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.13.10](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.9...v1.13.10) (2026-10-24)
+
+
+### 🐛 Bug Fixes
+
+* **tests:** resolve accounts seed, request services context, and subscription branch uniqueness ([f5b7735](https://github.com/asibul-hasan/aidlypms-backend/commit/f5b7735fcb52a60044107af25e2143e28217e1d8))
+
 ## [1.13.9](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.8...v1.13.9) (2026-10-24)
 
 
