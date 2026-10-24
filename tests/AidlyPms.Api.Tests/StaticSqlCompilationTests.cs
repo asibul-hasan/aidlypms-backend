@@ -144,8 +144,26 @@ public class StaticSqlCompilationTests : IAsyncLifetime
 
     public static string ConvertParametersToPostgreSql(string sql)
     {
-        var matches = Regex.Matches(sql, @"@([a-zA-Z_][a-zA-Z0-9_]*)");
-        var paramNames = matches.Select(m => m.Groups[1].Value).Distinct().OrderByDescending(p => p.Length).ToList();
+        // Split by single quotes so we never replace @ inside string literals (e.g. email addresses)
+        // Tokens with even indices are outside quotes; odd indices are inside quotes.
+        var parts = Regex.Split(sql, @"('(?:''|[^'])*')");
+
+        var paramNames = new List<string>();
+        for (int i = 0; i < parts.Length; i += 2)
+        {
+            var matches = Regex.Matches(parts[i], @"@([a-zA-Z_][a-zA-Z0-9_]*)");
+            foreach (Match m in matches)
+            {
+                var name = m.Groups[1].Value;
+                if (!paramNames.Contains(name))
+                {
+                    paramNames.Add(name);
+                }
+            }
+        }
+
+        // Replace longer parameter names first to prevent partial prefix replacements
+        paramNames = paramNames.OrderByDescending(p => p.Length).ToList();
 
         var paramMap = new Dictionary<string, string>();
         for (int i = 0; i < paramNames.Count; i++)
@@ -153,11 +171,16 @@ public class StaticSqlCompilationTests : IAsyncLifetime
             paramMap[paramNames[i]] = $"${i + 1}";
         }
 
-        return Regex.Replace(sql, @"@([a-zA-Z_][a-zA-Z0-9_]*)", match =>
+        for (int i = 0; i < parts.Length; i += 2)
         {
-            var name = match.Groups[1].Value;
-            return paramMap.TryGetValue(name, out var placeholder) ? placeholder : match.Value;
-        });
+            parts[i] = Regex.Replace(parts[i], @"@([a-zA-Z_][a-zA-Z0-9_]*)", match =>
+            {
+                var name = match.Groups[1].Value;
+                return paramMap.TryGetValue(name, out var placeholder) ? placeholder : match.Value;
+            });
+        }
+
+        return string.Join("", parts);
     }
 
     [Fact]
@@ -181,10 +204,11 @@ public class StaticSqlCompilationTests : IAsyncLifetime
         {
             var stmt = statements[i];
             var prepName = $"stmt_{i}";
+            var cleanSql = stmt.ConvertedSql.Trim().TrimEnd(';');
 
             try
             {
-                await _connection.ExecuteAsync($"PREPARE {prepName} AS {stmt.ConvertedSql};");
+                await _connection.ExecuteAsync($"PREPARE {prepName} AS {cleanSql};");
                 await _connection.ExecuteAsync($"DEALLOCATE {prepName};");
                 tested++;
             }
@@ -197,7 +221,9 @@ public class StaticSqlCompilationTests : IAsyncLifetime
             catch (Exception ex)
             {
                 var relPath = Path.GetRelativePath(AppContext.BaseDirectory, stmt.FilePath);
-                errors.Add($"[{relPath}:{stmt.LineNumber}] SQL compile error: {ex.Message}\nQuery:\n{stmt.ConvertedSql}\n");
+                var errDesc = $"[{relPath}:{stmt.LineNumber}] SQL compile error: {ex.Message}\nQuery:\n{cleanSql}\n";
+                errors.Add(errDesc);
+                Console.Error.WriteLine($"::error file={relPath},line={stmt.LineNumber}::{ex.Message}");
                 try { await _connection.ExecuteAsync($"DEALLOCATE {prepName};"); } catch { }
             }
         }
@@ -206,7 +232,7 @@ public class StaticSqlCompilationTests : IAsyncLifetime
 
         if (errors.Count > 0)
         {
-            Assert.Fail($"Static SQL compilation failed for {errors.Count} statement(s):\n\n" + string.Join("\n---\n", errors));
+            Assert.True(errors.Count == 0, $"Static SQL compilation failed for {errors.Count} statement(s):\n\n" + string.Join("\n---\n", errors));
         }
     }
 }

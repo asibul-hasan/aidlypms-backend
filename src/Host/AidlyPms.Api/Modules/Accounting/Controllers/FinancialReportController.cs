@@ -78,7 +78,7 @@ public class FinancialReportController : BaseController
     {
         (fromDate, toDate) = DateHelper.NormalizeDateRange(fromDate, toDate);
         using var conn = _db.CreateConnection();
-        var sql = @"
+        const string sql = @"
             SELECT a.account_no, a.account_code, a.account_name, a.account_category,
                    COALESCE(SUM(l.debit_amount), 0) AS total_debit,
                    COALESCE(SUM(l.credit_amount), 0) AS total_credit,
@@ -89,28 +89,18 @@ public class FinancialReportController : BaseController
             FROM acc_transaction_accounts a
             LEFT JOIN acc_transaction_ledger l 
               ON a.account_no = l.account_no
-              AND l.pharmacy_no = @CurrentPharmacyNo AND l.branch_no = @CurrentBranchNo";
+              AND l.pharmacy_no = @CurrentPharmacyNo AND l.branch_no = @CurrentBranchNo
+              AND (@FromDate IS NULL OR DATE(l.transaction_date) >= @FromDate)
+              AND (@ToDate IS NULL OR DATE(l.transaction_date) <= @ToDate)
+            WHERE a.pharmacy_no = @CurrentPharmacyNo AND a.branch_no = @CurrentBranchNo
+            GROUP BY a.account_no, a.account_code, a.account_name, a.account_category
+            ORDER BY a.account_category ASC, a.account_code ASC;";
 
         var pms = new DynamicParameters();
         pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
         pms.Add("CurrentBranchNo", CurrentBranchNo);
-
-        if (fromDate.HasValue)
-        {
-            sql += " AND DATE(l.transaction_date) >= @FromDate";
-            pms.Add("FromDate", fromDate.Value.Date);
-        }
-
-        if (toDate.HasValue)
-        {
-            sql += " AND DATE(l.transaction_date) <= @ToDate";
-            pms.Add("ToDate", toDate.Value.Date);
-        }
-
-        sql += @"
-            WHERE a.pharmacy_no = @CurrentPharmacyNo AND a.branch_no = @CurrentBranchNo
-            GROUP BY a.account_no, a.account_code, a.account_name, a.account_category
-            ORDER BY a.account_category ASC, a.account_code ASC;";
+        pms.Add("FromDate", fromDate?.Date);
+        pms.Add("ToDate", toDate?.Date);
 
         var rows = (await conn.QueryAsync<TrialBalanceRow>(sql, pms)).ToList();
         return OkResponse(rows);

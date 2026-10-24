@@ -78,7 +78,7 @@ jobs:
         env:
           TEST_POSTGRES_CONNECTION: "Host=localhost;Port=5432;Database=aidly_test;Username=postgres;Password=testpassword"
         run: |
-          dotnet test tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj --logger "console;verbosity=normal"
+          dotnet test tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj --logger "console;verbosity=normal" --logger "trx;LogFileName=test_results.trx"
 
       - name: Push to Hugging Face
         env:

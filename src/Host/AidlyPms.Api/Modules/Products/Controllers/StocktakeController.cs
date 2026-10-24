@@ -34,7 +34,14 @@ public class StocktakeController : BaseController
         await using var conn = await _db.CreateOpenConnectionAsync();
         var offset = Math.Max(0, (page - 1) * pageSize);
 
-        var sql = @"
+        var pms = new DynamicParameters();
+        pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
+        pms.Add("CurrentBranchNo", CurrentBranchNo);
+        pms.Add("Offset", offset);
+        pms.Add("PageSize", pageSize);
+        pms.Add("status", string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToUpperInvariant());
+
+        const string sql = @"
             SELECT 
                 s.stocktake_no, s.pharmacy_no, s.branch_no, s.status, s.note,
                 s.started_at, s.started_by, s.posted_at, s.posted_by,
@@ -48,32 +55,19 @@ public class StocktakeController : BaseController
             LEFT JOIN inv_stocktake_items i ON s.stocktake_no = i.stocktake_no
             LEFT JOIN sys_users u1 ON s.started_by = u1.user_no
             LEFT JOIN sys_users u2 ON s.posted_by = u2.user_no
-            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo";
-
-        var countSql = @"
-            SELECT COUNT(1)
-            FROM inv_stocktakes s
-            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo";
-
-        var pms = new DynamicParameters();
-        pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
-        pms.Add("CurrentBranchNo", CurrentBranchNo);
-        pms.Add("Offset", offset);
-        pms.Add("PageSize", pageSize);
-
-        if (!string.IsNullOrWhiteSpace(status))
-        {
-            sql += " AND s.status = @status";
-            countSql += " AND s.status = @status";
-            pms.Add("status", status.Trim().ToUpperInvariant());
-        }
-
-        sql += @"
+            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+              AND (@status IS NULL OR s.status = @status)
             GROUP BY s.stocktake_no, s.pharmacy_no, s.branch_no, s.status, s.note,
                      s.started_at, s.started_by, s.posted_at, s.posted_by,
                      s.created_at, s.updated_at, u1.first_name, u1.last_name, u2.first_name, u2.last_name
             ORDER BY s.stocktake_no DESC
             OFFSET @Offset LIMIT @PageSize;";
+
+        const string countSql = @"
+            SELECT COUNT(1)
+            FROM inv_stocktakes s
+            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+              AND (@status IS NULL OR s.status = @status);";
 
         var total = await conn.ExecuteScalarAsync<int>(countSql, pms);
         var items = (await conn.QueryAsync<InvStocktake>(sql, pms)).AsList();
