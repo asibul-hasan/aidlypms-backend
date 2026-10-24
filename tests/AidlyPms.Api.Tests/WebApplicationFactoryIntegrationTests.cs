@@ -238,6 +238,18 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
                 TRUE, TRUE, 0, 10,
                 FALSE, 1, 14, CURRENT_TIMESTAMP
             ) ON CONFLICT (pharmacy_no, branch_no) DO UPDATE SET out_of_stock_sale = TRUE;
+
+            INSERT INTO sub_pharmacy_subscriptions (
+                subscription_no, pharmacy_no, branch_no, plan_no,
+                billing_cycle, subscription_status, trial_end_date,
+                subscription_start_date, subscription_end_date,
+                next_payment_date, monthly_rate, grace_period_days, updated_at
+            ) VALUES (
+                @p, @p, @b, 1,
+                1, 1, CURRENT_DATE + INTERVAL '14 days',
+                CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
+                CURRENT_DATE + INTERVAL '30 days', 500, 7, CURRENT_TIMESTAMP
+            ) ON CONFLICT (subscription_no) DO NOTHING;
         ", new { p = TestPharmacyNo, b = TestBranchNo, u = TestUserNo, restrictedRole = TestRestrictedRoleNo });
     }
 
@@ -1130,8 +1142,9 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             Assert.Equal("Pending", renewJson?["data"]?["payment_status"]?.ToString());
 
             // 4. Confirm payment -> extends subscription end date and activates
-            var confirmReq = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/sub/payments/{paymentNo}/confirm");
-            confirmReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var ownerToken = GenerateOwnerJwt();
+            var confirmReq = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/owner/subscriptions/payments/{paymentNo}/confirm");
+            confirmReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
             var confirmResp = await _client.SendAsync(confirmReq);
             Assert.Equal(HttpStatusCode.OK, confirmResp.StatusCode);
 

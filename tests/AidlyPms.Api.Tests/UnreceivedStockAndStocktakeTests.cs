@@ -153,19 +153,6 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 @pharmacyNo, @pharmacyNo, @branchNo, 'Paracetamol 500mg', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (generic_no) DO NOTHING;
 
-            INSERT INTO prod_products (
-                product_no, uuid, pharmacy_no, branch_no, company_no, generic_no, product_name,
-                medicine_type, unit_type, quantity_per_box,
-                cost_per_box, sale_price_per_box, avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
-                wholesale_price_per_box, wholesale_price_per_piece,
-                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active, created_at, updated_at
-            ) VALUES (
-                1, gen_random_uuid(), @pharmacyNo, @branchNo, @pharmacyNo, @pharmacyNo, 'Default SeedTest Product 1',
-                1, 1, 10,
-                100, 150, 10, 10, 15,
-                150, 15,
-                TRUE, FALSE, FALSE, 10, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            ) ON CONFLICT (product_no) DO NOTHING;
 
             INSERT INTO supp_suppliers (
                 supplier_no, pharmacy_no, branch_no, name, phone,
@@ -643,7 +630,7 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 movement_type, reference_doc_type, reference_doc_no, reference_doc_id,
                 qty_pcs, unit_cost, balance_after_pcs, remarks, created_by_user_no, created_at
             ) VALUES (
-                nextval('seq_inv_movement_no'), @p, @b, @prodNo, @batchNo,
+                nextval('seq_stock_movement_no'), @p, @b, @prodNo, @batchNo,
                 1, 'PURCHASE', 'PO-ST-1', 1,
                 20, 10, 20, 'Initial stock for ST', @u, CURRENT_TIMESTAMP
             );", new { p = TestPharmacyNo, b = TestBranchNo, prodNo, batchNo, u = TestUserNo });
@@ -768,6 +755,23 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
 
+        var productNo = await conn.ExecuteScalarAsync<long>(@"
+            INSERT INTO prod_products (
+                product_no, uuid, pharmacy_no, branch_no, product_name, generic_no, company_no,
+                medicine_type, unit_type, quantity_per_box,
+                cost_per_box, sale_price_per_box, avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active,
+                created_at, updated_at
+            ) VALUES (
+                nextval('seq_product_no'), gen_random_uuid(), @p, @b, 'Expiry Sweep Test Product', @p, @p,
+                1, 1, 10,
+                100, 150, 10, 10, 15,
+                150, 15,
+                TRUE, FALSE, FALSE, 10, TRUE,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) RETURNING product_no;", new { p = TestPharmacyNo, b = TestBranchNo });
+
         // Insert expired real batch (yesterday)
         var realBatchNo = await conn.ExecuteScalarAsync<long>(@"
             INSERT INTO prod_product_batches (
@@ -776,11 +780,11 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 cost_per_box, sale_price_per_box, vat_percent, is_expired, is_placeholder,
                 created_at, updated_at
             ) VALUES (
-                nextval('seq_prod_batch_no'), @p, @b, 1, 'BATCH-EXP-YESTERDAY',
+                nextval('seq_prod_batch_no'), @p, @b, @productNo, 'BATCH-EXP-YESTERDAY',
                 CURRENT_DATE - INTERVAL '1 day', 1, 10, 10,
                 100, 150, 0, FALSE, FALSE,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            ) RETURNING batch_no;", new { p = TestPharmacyNo, b = TestBranchNo });
+            ) RETURNING batch_no;", new { p = TestPharmacyNo, b = TestBranchNo, productNo });
 
         // Insert placeholder batch (also has past/today date)
         var placeholderBatchNo = await conn.ExecuteScalarAsync<long>(@"
@@ -790,11 +794,11 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 cost_per_box, sale_price_per_box, vat_percent, is_expired, is_placeholder,
                 created_at, updated_at
             ) VALUES (
-                nextval('seq_prod_batch_no'), @p, @b, 1, 'UNRECEIVED',
+                nextval('seq_prod_batch_no'), @p, @b, @productNo, 'UNRECEIVED',
                 CURRENT_DATE - INTERVAL '1 day', 0, 10, -2,
                 100, 150, 0, FALSE, TRUE,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            ) RETURNING batch_no;", new { p = TestPharmacyNo, b = TestBranchNo });
+            ) RETURNING batch_no;", new { p = TestPharmacyNo, b = TestBranchNo, productNo });
 
         var maintenanceService = new ExpiryMaintenanceService(
             _serviceProvider.GetRequiredService<IDbConnectionFactory>(),
@@ -833,6 +837,23 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         Assert.True(cleanResult.IsClean);
         Assert.Equal(0, cleanResult.TotalDiscrepancies);
 
+        var prodNo = await conn.ExecuteScalarAsync<long>(@"
+            INSERT INTO prod_products (
+                product_no, uuid, pharmacy_no, branch_no, product_name, generic_no, company_no,
+                medicine_type, unit_type, quantity_per_box,
+                cost_per_box, sale_price_per_box, avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active,
+                created_at, updated_at
+            ) VALUES (
+                nextval('seq_product_no'), gen_random_uuid(), @p, @b, 'Tamper Test Product', @p, @p,
+                1, 1, 10,
+                100, 150, 10, 10, 15,
+                150, 15,
+                TRUE, FALSE, FALSE, 10, TRUE,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) RETURNING product_no;", new { p = TestPharmacyNo, b = TestBranchNo });
+
         // Deliberately introduce a tamper/mismatch: create a batch with 999 pcs but only 10 in ledger
         var tamperedBatchNo = await conn.ExecuteScalarAsync<long>(@"
             INSERT INTO prod_product_batches (
@@ -841,11 +862,11 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 cost_per_box, sale_price_per_box, vat_percent, is_expired, is_placeholder,
                 created_at, updated_at
             ) VALUES (
-                nextval('seq_prod_batch_no'), @p, @b, 1, 'BATCH-TAMPERED',
+                nextval('seq_prod_batch_no'), @p, @b, @prodNo, 'BATCH-TAMPERED',
                 CURRENT_DATE + INTERVAL '1 year', 10, 10, 999,
                 100, 150, 0, FALSE, FALSE,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            ) RETURNING batch_no;", new { p = TestPharmacyNo, b = TestBranchNo });
+            ) RETURNING batch_no;", new { p = TestPharmacyNo, b = TestBranchNo, prodNo });
 
         await conn.ExecuteAsync(@"
             INSERT INTO inv_stock_movement (
@@ -853,10 +874,10 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 movement_type, reference_doc_type, reference_doc_no, reference_doc_id,
                 qty_pcs, unit_cost, balance_after_pcs, remarks, created_by_user_no, created_at
             ) VALUES (
-                nextval('seq_inv_movement_no'), @p, @b, 1, @tamperedBatchNo,
+                nextval('seq_stock_movement_no'), @p, @b, @prodNo, @tamperedBatchNo,
                 1, 'PURCHASE', 'PO-TAMP', 1,
                 10, 10, 10, 'Only 10 recorded', @u, CURRENT_TIMESTAMP
-            );", new { p = TestPharmacyNo, b = TestBranchNo, tamperedBatchNo, u = TestUserNo });
+            );", new { p = TestPharmacyNo, b = TestBranchNo, prodNo, tamperedBatchNo, u = TestUserNo });
 
         var dirtyResult = await integrityService.CheckIntegrityAsync(conn, TestPharmacyNo, TestBranchNo);
         Assert.False(dirtyResult.IsClean);
