@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.15.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.15.0...v1.15.1) (2026-10-25)
+
+
+### 🐛 Bug Fixes
+
+* **docker:** copy database directory so migrations are embedded into API dll ([e54bda1](https://github.com/asibul-hasan/aidlypms-backend/commit/e54bda17323dbc9bbb96aa0e0c7b7dbe07129b5b))
+
 ## [1.15.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.14.1...v1.15.0) (2026-10-25)
 
 
