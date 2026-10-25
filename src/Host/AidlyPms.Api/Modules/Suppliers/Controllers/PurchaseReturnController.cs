@@ -178,7 +178,7 @@ public class PurchaseReturnController : BaseController
                     BranchNo = CurrentBranchNo,
                     ProductNo = line.ProductNo,
                     BatchNo = batchNo,
-                    MovementType = 5, // Supplier Return
+                    MovementType = StockMovementTypes.SupplierReturn, // Supplier Return
                     ReferenceDocType = "PUR_RETURN",
                     ReferenceDocNo = returnNumber,
                     ReferenceDocId = nextReturnNo,

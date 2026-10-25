@@ -573,7 +573,7 @@ public class ProductController : BaseController
                     BranchNo = CurrentBranchNo,
                     ProductNo = productNo,
                     BatchNo = batchNo,
-                    MovementType = 2, // Opening Stock
+                    MovementType = StockMovementTypes.Opening, // Opening Stock
                     ReferenceDocType = "OPENING_STOCK",
                     ReferenceDocNo = $"OP-{CurrentBranchNo:D2}-{DateTime.UtcNow.Year}-{productNo:D4}",
                     ReferenceDocId = productNo,
@@ -822,7 +822,7 @@ public class ProductController : BaseController
                     BranchNo = CurrentBranchNo,
                     ProductNo = id,
                     BatchNo = batchNo.Value,
-                    MovementType = 4, // Stock Adjustment
+                    MovementType = StockMovementTypes.Adjustment, // Stock Adjustment
                     ReferenceDocType = "STOCK_ADJUSTMENT",
                     ReferenceDocNo = $"ADJ-{DateTime.UtcNow:yyyyMMddHHmmss}",
                     ReferenceDocId = id,

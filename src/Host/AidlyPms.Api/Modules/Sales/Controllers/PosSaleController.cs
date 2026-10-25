@@ -359,7 +359,7 @@ public class PosSaleController : BaseController
                     BranchNo = CurrentBranchNo,
                     ProductNo = item.ProductNo,
                     BatchNo = item.BatchNo,
-                    MovementType = 3, // Restock / Void
+                    MovementType = StockMovementTypes.VoidRestock, // Restock / Void
                     ReferenceDocType = "SALE_VOID",
                     ReferenceDocNo = invoice.SalesNumber ?? $"INV-{id}",
                     ReferenceDocId = id,

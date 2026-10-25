@@ -104,5 +104,13 @@ git -C sme-software-frontend push origin main
 - By default in production, background jobs are **enabled**.
 - Set environment variable `RUN_BACKGROUND_JOBS=false` (or configuration `"RUN_BACKGROUND_JOBS": "false"`) to explicitly disable background jobs (e.g. during integration testing or ad-hoc maintenance tasks).
 
+---
+
+### Rule 10: Scope, Credential Safety & CI Log Policy
+- **Scope Restriction**: All modifications are strictly scoped to Aidly PMS. Do NOT change Login, seed-defaults, demo users, or credentials under any circumstances.
+- **Credential Protection**: AI agents and developers must NEVER read credential stores, Windows Credential Manager, git credential helpers, secret vaults, or tokens.
+- **CI/CD Diagnostics**: If CI build or test logs are required to diagnose a pipeline failure, do not attempt to query remote CI runner environments or credential-backed APIs; ask the user to paste the CI logs directly.
+
+
 
 

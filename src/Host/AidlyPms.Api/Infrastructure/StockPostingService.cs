@@ -1,3 +1,4 @@
+using AidlyPms.Api.Common;
 using AidlyPms.Api.Modules.Products.Models;
 using Dapper;
 using Npgsql;
@@ -30,7 +31,7 @@ public class StockPostingService : IStockPostingService
     {
         if (entry.QtyPcs == 0) return;
 
-        var isSaleOutward = entry.QtyPcs < 0 && (entry.MovementType == 4 || entry.ReferenceDocType == "SALE_INVOICE");
+        var isSaleOutward = entry.QtyPcs < 0 && (entry.MovementType == StockMovementTypes.PosSale || entry.ReferenceDocType == "SALE_INVOICE");
 
         // If batch is not specified, resolve the active unexpired batch for this product (FEFO, excluding placeholders)
         if (!entry.BatchNo.HasValue || entry.BatchNo.Value <= 0)

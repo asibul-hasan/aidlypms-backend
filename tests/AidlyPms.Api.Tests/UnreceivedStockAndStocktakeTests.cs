@@ -411,9 +411,9 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 qty_pcs, unit_cost, balance_after_pcs, remarks, created_by_user_no, created_at
             ) VALUES (
                 nextval('seq_stock_movement_no'), @p, @b, @productNo, @realBatchNo,
-                1, 'PURCHASE', 'PO-INIT', 1,
+                @mvtType, 'PURCHASE', 'PO-INIT', 1,
                 5, 10, 5, 'Initial stock', @u, CURRENT_TIMESTAMP
-            );", new { p = TestPharmacyNo, b = TestBranchNo, productNo, realBatchNo, u = TestUserNo });
+            );", new { p = TestPharmacyNo, b = TestBranchNo, productNo, realBatchNo, mvtType = StockMovementTypes.PurchaseReceipt, u = TestUserNo });
 
         // Ensure out_of_stock_sale is enabled
         await conn.ExecuteAsync("UPDATE cfg_sale_configs SET out_of_stock_sale = TRUE WHERE pharmacy_no = @p;", new { p = TestPharmacyNo });
@@ -644,9 +644,9 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 qty_pcs, unit_cost, balance_after_pcs, remarks, created_by_user_no, created_at
             ) VALUES (
                 nextval('seq_stock_movement_no'), @p, @b, @prodNo, @batchNo,
-                1, 'PURCHASE', 'PO-ST-1', 1,
+                @mvtType, 'PURCHASE', 'PO-ST-1', 1,
                 20, 10, 20, 'Initial stock for ST', @u, CURRENT_TIMESTAMP
-            );", new { p = TestPharmacyNo, b = TestBranchNo, prodNo, batchNo, u = TestUserNo });
+            );", new { p = TestPharmacyNo, b = TestBranchNo, prodNo, batchNo, mvtType = StockMovementTypes.PurchaseReceipt, u = TestUserNo });
 
         var stocktakeController = new StocktakeController(
             _serviceProvider.GetRequiredService<IDbConnectionFactory>(),
@@ -900,9 +900,9 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 qty_pcs, unit_cost, balance_after_pcs, remarks, created_by_user_no, created_at
             ) VALUES (
                 nextval('seq_stock_movement_no'), @p, @b, @prodNo, @tamperedBatchNo,
-                1, 'PURCHASE', 'PO-TAMP', 1,
+                @mvtType, 'PURCHASE', 'PO-TAMP', 1,
                 10, 10, 10, 'Only 10 recorded', @u, CURRENT_TIMESTAMP
-            );", new { p = TestPharmacyNo, b = TestBranchNo, prodNo, tamperedBatchNo, u = TestUserNo });
+            );", new { p = TestPharmacyNo, b = TestBranchNo, prodNo, tamperedBatchNo, mvtType = StockMovementTypes.PurchaseReceipt, u = TestUserNo });
 
         var dirtyResult = await integrityService.CheckIntegrityAsync(conn, TestPharmacyNo, TestBranchNo);
         Assert.False(dirtyResult.IsClean);

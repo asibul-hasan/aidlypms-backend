@@ -85,7 +85,10 @@ FROM (
     HAVING SUM(qty_pcs) >= 0
 ) m
 WHERE b.batch_no = m.batch_no
-  AND b.total_quantity_pcs != m.sum_qty;
+  AND b.total_quantity_pcs != m.sum_qty
+  AND b.batch_number IN (
+      '' /* Template: list specific batch numbers here (e.g. 'BATCH-001', 'BATCH-002'). Empty by default so unedited execution affects 0 rows. */
+  );
 
 -- Verification query to review updated rows before committing:
 -- SELECT b.batch_no, b.batch_number, b.total_quantity_pcs, m.sum_qty
@@ -130,7 +133,7 @@ SELECT
     b.branch_no,
     b.product_no,
     b.batch_no,
-    2, -- MovementType 2: Opening Stock
+    1, -- MovementType 1: Opening Stock
     'OPENING_STOCK',
     'OP-IMPORT-' || b.batch_no,
     b.batch_no,
@@ -153,6 +156,77 @@ WHERE b.is_placeholder = FALSE
 -- FROM prod_product_batches b
 -- WHERE b.is_placeholder = FALSE
 --   AND NOT EXISTS (SELECT 1 FROM inv_stock_movement m WHERE m.batch_no = b.batch_no);
+
+-- Default is ROLLBACK for safety.
+-- To apply permanently: comment out 'ROLLBACK;' and uncomment 'COMMIT;'.
+ROLLBACK;
+-- COMMIT;
+
+
+-- ============================================================================
+-- PART 4: DIFFERENTIAL OPENING-MOVEMENT INSERT FOR PARTIALLY TRACKED BATCHES
+-- For batches whose ledger sum is lower than the batch quantity (total_quantity_pcs)
+-- and that have no opening or purchase movement recorded in inv_stock_movement,
+-- insert an opening movement for the differential: (batch quantity - ledger sum).
+-- ============================================================================
+BEGIN;
+
+INSERT INTO inv_stock_movement (
+    movement_no,
+    pharmacy_no,
+    branch_no,
+    product_no,
+    batch_no,
+    movement_type,
+    reference_doc_type,
+    reference_doc_no,
+    reference_doc_id,
+    qty_pcs,
+    unit_cost,
+    balance_after_pcs,
+    remarks,
+    created_by_user_no,
+    created_at
+)
+SELECT 
+    nextval('seq_stock_movement_no'),
+    b.pharmacy_no,
+    b.branch_no,
+    b.product_no,
+    b.batch_no,
+    1, -- MovementType 1: Opening Stock
+    'OPENING_STOCK',
+    'OP-DIFF-' || b.batch_no,
+    b.batch_no,
+    (b.total_quantity_pcs - COALESCE(m.sum_qty, 0)),
+    COALESCE(p.purchase_price_per_piece, CASE WHEN b.quantity_in_box > 0 THEN b.cost_per_box / b.quantity_in_box ELSE 0 END, 0),
+    b.total_quantity_pcs,
+    'Opening stock differential repair for batch ' || b.batch_number,
+    NULL,
+    NOW()
+FROM prod_product_batches b
+JOIN prod_products p ON b.product_no = p.product_no
+LEFT JOIN (
+    SELECT 
+        batch_no,
+        SUM(qty_pcs) AS sum_qty
+    FROM inv_stock_movement
+    WHERE batch_no IS NOT NULL
+    GROUP BY batch_no
+) m ON b.batch_no = m.batch_no
+WHERE b.is_placeholder = FALSE
+  AND b.total_quantity_pcs > COALESCE(m.sum_qty, 0)
+  AND NOT EXISTS (
+      SELECT 1 FROM inv_stock_movement sm
+      WHERE sm.batch_no = b.batch_no
+        AND (sm.movement_type IN (1, 2) OR sm.reference_doc_type IN ('OPENING_STOCK', 'PUR_INVOICE', 'PURCHASE'))
+  );
+
+-- Verification query to verify differential batches:
+-- SELECT b.batch_no, b.batch_number, b.total_quantity_pcs, COALESCE(m.sum_qty, 0) AS current_ledger_sum
+-- FROM prod_product_batches b
+-- LEFT JOIN (SELECT batch_no, SUM(qty_pcs) AS sum_qty FROM inv_stock_movement GROUP BY batch_no) m ON b.batch_no = m.batch_no
+-- WHERE b.is_placeholder = FALSE AND b.total_quantity_pcs > COALESCE(m.sum_qty, 0);
 
 -- Default is ROLLBACK for safety.
 -- To apply permanently: comment out 'ROLLBACK;' and uncomment 'COMMIT;'.

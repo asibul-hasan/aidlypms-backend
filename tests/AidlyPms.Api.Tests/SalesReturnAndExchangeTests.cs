@@ -120,13 +120,13 @@ public class SalesReturnAndExchangeTests
             BranchNo = 1,
             ProductNo = 1001,
             BatchNo = originalBatchNo,
-            MovementType = 3, // Customer Return (+)
+            MovementType = StockMovementTypes.CustomerReturn, // Customer Return (+)
             QtyPcs = returnQty,
             Remarks = $"Customer return restocked to batch {originalBatchNo}"
         };
 
         Assert.Equal(originalBatchNo, movement.BatchNo);
-        Assert.Equal((short)3, movement.MovementType);
+        Assert.Equal(StockMovementTypes.CustomerReturn, movement.MovementType);
         Assert.Equal(5, movement.QtyPcs);
     }
 

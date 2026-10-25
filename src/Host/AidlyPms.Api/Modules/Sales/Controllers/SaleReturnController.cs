@@ -363,7 +363,7 @@ public class SaleReturnController : BaseController
                         BranchNo = CurrentBranchNo,
                         ProductNo = origItem.ProductNo,
                         BatchNo = origItem.BatchNo.Value,
-                        MovementType = 3, // Customer Return (+)
+                        MovementType = StockMovementTypes.CustomerReturn, // Customer Return (+)
                         ReferenceDocType = "SALE_RETURN",
                         ReferenceDocNo = returnNumber,
                         ReferenceDocId = nextReturnNo,
@@ -1050,7 +1050,7 @@ public class SaleReturnController : BaseController
                         BranchNo = CurrentBranchNo,
                         ProductNo = origItem.ProductNo,
                         BatchNo = origItem.BatchNo.Value,
-                        MovementType = 3,
+                        MovementType = StockMovementTypes.CustomerReturn,
                         ReferenceDocType = "SALE_RETURN",
                         ReferenceDocNo = returnNumber,
                         ReferenceDocId = nextReturnNo,

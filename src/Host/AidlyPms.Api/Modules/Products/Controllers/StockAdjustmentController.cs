@@ -208,7 +208,7 @@ public class StockAdjustmentController : BaseController
                         BranchNo = CurrentBranchNo,
                         ProductNo = item.ProductNo,
                         BatchNo = item.BatchNo,
-                        MovementType = 7, // ADJUSTMENT
+                        MovementType = StockMovementTypes.Adjustment, // ADJUSTMENT
                         ReferenceDocType = "INV_ADJUSTMENT",
                         ReferenceDocNo = adjustmentNumber,
                         ReferenceDocId = adjustmentNo,

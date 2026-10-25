@@ -211,7 +211,7 @@ public class StockTransferController : BaseController
                     BranchNo = CurrentBranchNo,
                     ProductNo = item.ProductNo,
                     BatchNo = item.BatchNo,
-                    MovementType = 6, // TRANSFER OUT (-)
+                    MovementType = StockMovementTypes.TransferOut, // TRANSFER OUT (-)
                     ReferenceDocType = "INV_TRANSFER",
                     ReferenceDocNo = transferNumber,
                     ReferenceDocId = transferNo,
@@ -286,7 +286,7 @@ public class StockTransferController : BaseController
                     BranchNo = transfer.ToBranchNo,
                     ProductNo = item.ProductNo,
                     BatchNo = item.BatchNo,
-                    MovementType = 5, // TRANSFER IN (+)
+                    MovementType = StockMovementTypes.TransferIn, // TRANSFER IN (+)
                     ReferenceDocType = "INV_TRANSFER_RCV",
                     ReferenceDocNo = transfer.TransferNumber,
                     ReferenceDocId = transfer.TransferNo,

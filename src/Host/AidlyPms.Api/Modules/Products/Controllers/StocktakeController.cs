@@ -559,7 +559,7 @@ public class StocktakeController : BaseController
                         BranchNo = CurrentBranchNo,
                         ProductNo = vItem.ProductNo,
                         BatchNo = vItem.BatchNo,
-                        MovementType = 7, // Stock Adjustment
+                        MovementType = StockMovementTypes.StockTake, // Stock-Take
                         ReferenceDocType = "STOCKTAKE",
                         ReferenceDocNo = adjDocNumber,
                         ReferenceDocId = stocktakeNo,

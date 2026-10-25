@@ -1,3 +1,4 @@
+using AidlyPms.Api.Common;
 using AidlyPms.Api.Infrastructure;
 using AidlyPms.Api.Modules.Products.Models;
 using AidlyPms.Api.Modules.Sales.Models;
@@ -446,7 +447,7 @@ public class SalePostingEngine : ISalePostingEngine
                 BranchNo = branchNo,
                 ProductNo = item.ProductNo,
                 BatchNo = item.BatchNo,
-                MovementType = 4, // POS Sale (-)
+                MovementType = StockMovementTypes.PosSale, // POS Sale (-)
                 ReferenceDocType = "SALE_INVOICE",
                 ReferenceDocNo = salesNumber,
                 ReferenceDocId = saleInvoiceNo,

@@ -297,8 +297,8 @@ public class PurchaseInvoiceController : BaseController
                     },
                     transaction: tran);
 
-                // Append stock ledger (inv_stock_movement - type 1: Purchase or 2: Opening)
-                short mvtType = (payload.InventoryType ?? inv.InventoryType) == 2 ? (short)2 : (short)1;
+                // Append stock ledger (inv_stock_movement - Opening or PurchaseReceipt)
+                short mvtType = (payload.InventoryType ?? inv.InventoryType) == 2 ? StockMovementTypes.Opening : StockMovementTypes.PurchaseReceipt;
                 await _stockPosting.PostMovementAsync(conn, tran, new StockMovementEntry
                 {
                     PharmacyNo = CurrentPharmacyNo,
@@ -337,7 +337,7 @@ public class PurchaseInvoiceController : BaseController
                             BranchNo = CurrentBranchNo,
                             ProductNo = line.ProductNo,
                             BatchNo = batchNo,
-                            MovementType = 8, // SETTLEMENT
+                            MovementType = StockMovementTypes.Settlement,
                             ReferenceDocType = "SETTLEMENT",
                             ReferenceDocNo = inventoryNumber,
                             ReferenceDocId = nextInvoiceNo,
@@ -353,7 +353,7 @@ public class PurchaseInvoiceController : BaseController
                             BranchNo = CurrentBranchNo,
                             ProductNo = line.ProductNo,
                             BatchNo = placeholder.BatchNo,
-                            MovementType = 8, // SETTLEMENT
+                            MovementType = StockMovementTypes.Settlement,
                             ReferenceDocType = "SETTLEMENT",
                             ReferenceDocNo = inventoryNumber,
                             ReferenceDocId = nextInvoiceNo,
@@ -397,11 +397,18 @@ public class PurchaseInvoiceController : BaseController
             var paymentAccountNo = payload.PaymentAccountNo.GetValueOrDefault(0);
             if (paymentAccountNo <= 0)
             {
-                paymentAccountNo = (await conn.ExecuteScalarAsync<long?>(@"
+                var cashAccountNo = await conn.ExecuteScalarAsync<long?>(@"
                     SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code IN ('10101', '10905') AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                    ORDER BY (account_code = '10101') DESC LIMIT 1;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran)).GetValueOrDefault(1);
+                    WHERE account_code = '10101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+                    LIMIT 1;",
+                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
+
+                if (!cashAccountNo.HasValue || cashAccountNo.Value <= 0)
+                {
+                    return BadRequest("Cash account not configured");
+                }
+
+                paymentAccountNo = cashAccountNo.Value;
             }
 
             // Insert purchase header
