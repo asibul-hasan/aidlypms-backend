@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.14.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.12...v1.14.0) (2026-10-25)
+
+
+### 🚀 Features
+
+* **inventory:** standardize stock movement types and harden purchase cash account ([40e05e5](https://github.com/asibul-hasan/aidlypms-backend/commit/40e05e5e61b268b0259c0a2a962ed4669efe217b))
+
 ## [1.13.12](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.11...v1.13.12) (2026-10-24)
 
 
