@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.15.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.14.1...v1.15.0) (2026-10-25)
+
+
+### 🚀 Features
+
+* **sales:** add offline POS catalog snapshot, idempotency replay, and late sync posting ([d4400c9](https://github.com/asibul-hasan/aidlypms-backend/commit/d4400c907e3dc902556de5d56b24eb97949798e7))
+
 ## [1.14.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.14.0...v1.14.1) (2026-10-25)
 
 
