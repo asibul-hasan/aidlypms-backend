@@ -23,19 +23,25 @@ Before executing any push to remote (`origin main` or any feature branch):
 
 ---
 
-### Rule 2: Sub-Repository Awareness
+### Rule 2: Sub-Repository Awareness & Push Order
 `G:\aidlypms` contains two distinct Git repositories:
 - `aidlypms-backend/` (Backend .NET 10 Web API)
 - `sme-software-frontend/` (Frontend Angular Monorepo)
 
 Do not run git commands directly in `G:\aidlypms` root expecting a single repository. Always specify the repository:
 ```bash
-git -C aidlypms-backend pull --rebase origin main
-git -C aidlypms-backend push origin main
-
+# 1. Push frontend first
 git -C sme-software-frontend pull --rebase origin main
 git -C sme-software-frontend push origin main
+
+# 2. Push backend second
+git -C aidlypms-backend pull --rebase origin main
+git -C aidlypms-backend push origin main
 ```
+
+#### Mandatory Push Order (Frontend FIRST, Backend SECOND):
+- **Always push `sme-software-frontend` first, then push `aidlypms-backend`.**
+- **Why**: Step 5 of the backend GitHub Actions workflow clones the remote frontend repository's `main` branch to verify database migration and schema parity. If the backend is pushed first, its CI pipeline will execute against a frontend `main` that does not yet contain the new migration, causing the parity step to fail.
 
 ---
 
