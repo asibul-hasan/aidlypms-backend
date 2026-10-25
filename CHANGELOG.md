@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.14.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.14.0...v1.14.1) (2026-10-25)
+
+
+### 📝 Documentation
+
+* **rules:** document frontend-first push order in AGENTS.md ([1f52ed0](https://github.com/asibul-hasan/aidlypms-backend/commit/1f52ed0eb7ff4fbe2bb51a2a1a90655ad2805d4a))
+
 ## [1.14.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.13.12...v1.14.0) (2026-10-25)
 
 
