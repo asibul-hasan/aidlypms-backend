@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.16.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.15.2...v1.16.0) (2026-10-25)
+
+
+### 🚀 Features
+
+* **settings:** add default_pos_screen branch configuration and migration 12 ([08b935e](https://github.com/asibul-hasan/aidlypms-backend/commit/08b935e4a7cdf7c773f9e85eaaf5c360f5318548))
+
 ## [1.15.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.15.1...v1.15.2) (2026-10-25)
 
 
