@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.16.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.0...v1.16.1) (2026-10-25)
+
+
+### 🧪 Tests
+
+* **accounting:** add real chart payment resolution and cash drawer tests ([8522fa1](https://github.com/asibul-hasan/aidlypms-backend/commit/8522fa14ac1a08ebadcf454f927249e3fd3b5296))
+
 ## [1.16.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.15.2...v1.16.0) (2026-10-25)
 
 
