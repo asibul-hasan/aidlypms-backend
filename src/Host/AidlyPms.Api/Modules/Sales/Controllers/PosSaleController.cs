@@ -243,6 +243,27 @@ public class PosSaleController : BaseController
             }
         }
 
+        if (!payload.IdempotencyKey.HasValue && invoice.IdempotencyKey.HasValue)
+        {
+            payload.IdempotencyKey = invoice.IdempotencyKey;
+        }
+        if (!payload.IsOffline && invoice.IsOffline)
+        {
+            payload.IsOffline = invoice.IsOffline;
+        }
+        if (!payload.ClientCreatedAt.HasValue && invoice.ClientCreatedAt.HasValue)
+        {
+            payload.ClientCreatedAt = new DateTimeOffset(invoice.ClientCreatedAt.Value, TimeSpan.Zero);
+        }
+        if (string.IsNullOrWhiteSpace(payload.OfflineReceiptNo) && !string.IsNullOrWhiteSpace(invoice.OfflineReceiptNo))
+        {
+            payload.OfflineReceiptNo = invoice.OfflineReceiptNo;
+        }
+        if (!payload.OfflineClientTotal.HasValue && invoice.OfflineClientTotal.HasValue)
+        {
+            payload.OfflineClientTotal = invoice.OfflineClientTotal;
+        }
+
         string? payloadHash = null;
         if (payload.IdempotencyKey.HasValue)
         {
