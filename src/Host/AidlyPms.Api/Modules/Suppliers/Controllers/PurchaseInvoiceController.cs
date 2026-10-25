@@ -16,17 +16,20 @@ public class PurchaseInvoiceController : BaseController
     private readonly IDocumentNumberService _docNumService;
     private readonly IStockPostingService _stockPosting;
     private readonly ILedgerPostingService _ledgerPosting;
+    private readonly IPaymentAccountResolver _accountResolver;
 
     public PurchaseInvoiceController(
         IDbConnectionFactory db,
         IDocumentNumberService docNumService,
         IStockPostingService stockPosting,
-        ILedgerPostingService ledgerPosting)
+        ILedgerPostingService ledgerPosting,
+        IPaymentAccountResolver accountResolver)
     {
         _db = db;
         _docNumService = docNumService;
         _stockPosting = stockPosting;
         _ledgerPosting = ledgerPosting;
+        _accountResolver = accountResolver;
     }
 
     [HttpGet("invoices")]
@@ -395,20 +398,32 @@ public class PurchaseInvoiceController : BaseController
             var inventoryTypeVal = payload.InventoryType ?? inv.InventoryType;
             var supplierInvoiceNo = payload.SupplierInvoiceNo ?? inv.SupplierInvoiceNo;
             var paymentAccountNo = payload.PaymentAccountNo.GetValueOrDefault(0);
-            if (paymentAccountNo <= 0)
+            if (paidAmount > 0)
             {
-                var cashAccountNo = await conn.ExecuteScalarAsync<long?>(@"
-                    SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '10101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                    LIMIT 1;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
-
-                if (!cashAccountNo.HasValue || cashAccountNo.Value <= 0)
+                if (paymentAccountNo <= 0)
                 {
-                    return BadRequest("Cash account not configured");
+                    var paymentMethod = payload.PaymentMethod ?? 1;
+                    paymentAccountNo = await _accountResolver.ResolveAccountNoAsync(
+                        conn, tran, CurrentPharmacyNo, CurrentBranchNo, paymentMethod);
                 }
+                else
+                {
+                    var accountExists = await conn.ExecuteScalarAsync<bool>(@"
+                        SELECT EXISTS(
+                            SELECT 1 FROM acc_transaction_accounts
+                            WHERE account_no = @paymentAccountNo
+                              AND pharmacy_no = @CurrentPharmacyNo
+                              AND branch_no = @CurrentBranchNo
+                              AND is_active = TRUE
+                        );",
+                        new { paymentAccountNo, CurrentPharmacyNo, CurrentBranchNo },
+                        transaction: tran);
 
-                paymentAccountNo = cashAccountNo.Value;
+                    if (!accountExists)
+                    {
+                        return BadRequest("No account configured for this payment method. Add one in Accounts.");
+                    }
+                }
             }
 
             // Insert purchase header
@@ -633,6 +648,11 @@ public class PurchaseInvoiceController : BaseController
             };
 
             return OkResponse(savedInvoice, $"Purchase invoice {inventoryNumber} registered successfully.");
+        }
+        catch (PosSaleException posEx)
+        {
+            tran.Rollback();
+            return BadRequest(posEx.ErrorMessage);
         }
         catch
         {

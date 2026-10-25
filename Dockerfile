@@ -37,6 +37,7 @@ ENV HOME=/home/user \
 
 # Copy published application and ensure user (1000) owns it
 COPY --from=build --chown=1000:1000 /app/publish ./
+COPY --from=build --chown=1000:1000 /app/database ./database
 
 # Hugging Face Requirement: listen and expose port 7860
 EXPOSE 7860

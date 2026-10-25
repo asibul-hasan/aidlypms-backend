@@ -20,19 +20,22 @@ public class SaleReturnController : BaseController
     private readonly IStockPostingService _stockPosting;
     private readonly ILedgerPostingService _ledgerPosting;
     private readonly ISalePostingEngine _salePostingEngine;
+    private readonly IPaymentAccountResolver _accountResolver;
 
     public SaleReturnController(
         IDbConnectionFactory db,
         IDocumentNumberService docNumService,
         IStockPostingService stockPosting,
         ILedgerPostingService ledgerPosting,
-        ISalePostingEngine salePostingEngine)
+        ISalePostingEngine salePostingEngine,
+        IPaymentAccountResolver accountResolver)
     {
         _db = db;
         _docNumService = docNumService;
         _stockPosting = stockPosting;
         _ledgerPosting = ledgerPosting;
         _salePostingEngine = salePostingEngine;
+        _accountResolver = accountResolver;
     }
 
     [HttpGet("customer/returns")]
@@ -668,39 +671,12 @@ public class SaleReturnController : BaseController
             // Cr Cash / Bank / MFS account for disbursed refund
             if (cashPaidRefund > 0)
             {
-                var refundAccountCode = refundMethod switch
-                {
-                    2 => "10201",
-                    3 => "10202",
-                    4 => "10203",
-                    6 => "10205",
-                    _ => "10101"
-                };
-
-                var refundAcc = await conn.ExecuteScalarAsync<long?>(@"
-                    SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = @refundAccountCode AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                    LIMIT 1;",
-                    new { refundAccountCode, CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
-
-                if (!refundAcc.HasValue)
-                {
-                    refundAcc = await conn.ExecuteScalarAsync<long?>(@"
-                        SELECT account_no FROM acc_transaction_accounts
-                        WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-                          AND (account_name ILIKE '%Cash%' OR account_code LIKE '101%')
-                        LIMIT 1;",
-                        new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
-                }
-
-                if (!refundAcc.HasValue)
-                {
-                    throw new InvalidOperationException($"Refund disbursement account '{refundAccountCode}' is not configured for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
-                }
+                var refundAcc = await _accountResolver.ResolveAccountNoAsync(
+                    conn, tran, CurrentPharmacyNo, CurrentBranchNo, refundMethod);
 
                 journalEntry.Legs.Add(new LedgerLeg
                 {
-                    AccountNo = refundAcc.Value,
+                    AccountNo = refundAcc,
                     DebitAmount = 0,
                     CreditAmount = cashPaidRefund,
                     Narration = $"Refund disbursed via channel {refundMethod} for {returnNumber}"
@@ -832,6 +808,11 @@ public class SaleReturnController : BaseController
             };
 
             return OkResponse(savedReturn, $"Return {returnNumber} processed successfully.");
+        }
+        catch (PosSaleException posEx)
+        {
+            await tran.RollbackAsync();
+            return StatusCode(posEx.StatusCode, ApiResponse<SaleReturn>.Fail(posEx.ErrorCode, posEx.ErrorMessage));
         }
         catch
         {
@@ -1387,29 +1368,9 @@ public class SaleReturnController : BaseController
 
             if (excessRefundToCustomer > 0)
             {
-                var settlementAccountCode = (req.SettlementPaymentMethod ?? req.PaymentMethod) switch
-                {
-                    2 => "10201",
-                    3 => "10202",
-                    4 => "10203",
-                    5 => "10204",
-                    6 => "10205",
-                    _ => "10101"
-                };
-
-                var settlementAccNo = await conn.ExecuteScalarAsync<long?>(@"
-                    SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = @settlementAccountCode AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { settlementAccountCode, CurrentPharmacyNo, CurrentBranchNo }, transaction: tran)
-                    ?? await conn.ExecuteScalarAsync<long?>(@"
-                    SELECT account_no FROM acc_transaction_accounts
-                    WHERE account_code = '10101' AND pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-                    new { CurrentPharmacyNo, CurrentBranchNo }, transaction: tran);
-
-                if (!settlementAccNo.HasValue)
-                {
-                    throw new InvalidOperationException($"Settlement refund account '{settlementAccountCode}' or cash '10101' could not be resolved for pharmacy {CurrentPharmacyNo} branch {CurrentBranchNo}.");
-                }
+                var settlementMethod = req.SettlementPaymentMethod ?? req.PaymentMethod ?? 1;
+                var settlementAccNo = await _accountResolver.ResolveAccountNoAsync(
+                    conn, tran, CurrentPharmacyNo, CurrentBranchNo, settlementMethod);
 
                 // Disburse excess cash back or store credit to clear 10901 to exactly zero
                 var settlementJournal = new CompoundJournalEntry
@@ -1434,7 +1395,7 @@ public class SaleReturnController : BaseController
                         // Cr Settlement Account (Cash Drawer / Bank / MFS refund to customer)
                         new LedgerLeg
                         {
-                            AccountNo = settlementAccNo.Value,
+                            AccountNo = settlementAccNo,
                             DebitAmount = 0,
                             CreditAmount = excessRefundToCustomer,
                             Narration = $"Payment difference refund to customer on exchange {returnNumber}"
@@ -1500,6 +1461,11 @@ public class SaleReturnController : BaseController
             };
 
             return OkResponse(exchangeResult, successMessage);
+        }
+        catch (PosSaleException posEx)
+        {
+            await tran.RollbackAsync();
+            return StatusCode(posEx.StatusCode, ApiResponse<ExchangeResult>.Fail(posEx.ErrorCode, posEx.ErrorMessage));
         }
         catch
         {

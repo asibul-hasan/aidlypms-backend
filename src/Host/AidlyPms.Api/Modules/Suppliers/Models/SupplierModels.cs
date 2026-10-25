@@ -375,7 +375,10 @@ public class CreatePurchasePayload
     public decimal? PaidAmount { get; set; }
 
     [JsonPropertyName("payment_account_no")]
-    public long? PaymentAccountNo { get; set; } = 1; // Default Cash Drawer 10101
+    public long? PaymentAccountNo { get; set; }
+
+    [JsonPropertyName("payment_method")]
+    public short? PaymentMethod { get; set; }
 
     [JsonPropertyName("requisition_no")]
     public long? RequisitionNo { get; set; }

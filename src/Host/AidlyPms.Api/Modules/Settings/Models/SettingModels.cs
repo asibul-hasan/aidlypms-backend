@@ -58,6 +58,9 @@ public class CfgSaleConfig
     [JsonPropertyName("offline_max_age_hours")]
     public int OfflineMaxAgeHours { get; set; } = 72;
 
+    [JsonPropertyName("default_pos_screen")]
+    public string DefaultPosScreen { get; set; } = "screen1";
+
     [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

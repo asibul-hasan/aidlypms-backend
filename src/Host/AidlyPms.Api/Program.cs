@@ -17,6 +17,8 @@ builder.Services.AddScoped<IDocumentNumberService, DocumentNumberService>();
 builder.Services.AddScoped<ILedgerPostingService, LedgerPostingService>();
 builder.Services.AddScoped<IStockPostingService, StockPostingService>();
 builder.Services.AddScoped<ISalePostingEngine, SalePostingEngine>();
+builder.Services.AddScoped<IPaymentAccountResolver, PaymentAccountResolver>();
+builder.Services.AddScoped<IPharmacyChartSeeder, PharmacyChartSeeder>();
 builder.Services.AddScoped<IStockIntegrityService, StockIntegrityService>();
 builder.Services.AddSingleton<IExpiryMaintenanceService, ExpiryMaintenanceService>();
 

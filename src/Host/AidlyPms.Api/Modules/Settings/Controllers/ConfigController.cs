@@ -64,6 +64,7 @@ public class ConfigController : BaseController
                     business_type = @BusinessType,
                     offline_pos_enabled = @OfflinePosEnabled,
                     offline_max_age_hours = @OfflineMaxAgeHours,
+                    default_pos_screen = @DefaultPosScreen,
                     updated_at = NOW()
                 WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
                 new
@@ -82,6 +83,7 @@ public class ConfigController : BaseController
                     model.BusinessType,
                     model.OfflinePosEnabled,
                     model.OfflineMaxAgeHours,
+                    DefaultPosScreen = string.IsNullOrWhiteSpace(model.DefaultPosScreen) ? "screen1" : model.DefaultPosScreen,
                     CurrentPharmacyNo,
                     CurrentBranchNo
                 });
@@ -96,12 +98,12 @@ public class ConfigController : BaseController
                     sale_config_no, pharmacy_no, branch_no, cash_received, out_of_stock_sale,
                     allow_loss_sale, product_purchase_cost, stock_qty, company_name,
                     profit_margin, rak_number, opening_stock_percent, max_sale_discount_percent,
-                    is_max_discount_enabled, business_type, offline_pos_enabled, offline_max_age_hours, updated_at
+                    is_max_discount_enabled, business_type, offline_pos_enabled, offline_max_age_hours, default_pos_screen, updated_at
                 ) VALUES (
                     @NextNo, @CurrentPharmacyNo, @CurrentBranchNo, @CashReceived, @OutOfStockSale,
                     @AllowLossSale, @ProductPurchaseCost, @StockQty, @CompanyName,
                     @ProfitMargin, @RakNumber, @OpeningStockPercent, @MaxSaleDiscountPercent,
-                    @IsMaxDiscountEnabled, @BusinessType, @OfflinePosEnabled, @OfflineMaxAgeHours, NOW()
+                    @IsMaxDiscountEnabled, @BusinessType, @OfflinePosEnabled, @OfflineMaxAgeHours, @DefaultPosScreen, NOW()
                 );",
                 new
                 {
@@ -121,7 +123,8 @@ public class ConfigController : BaseController
                     model.IsMaxDiscountEnabled,
                     model.BusinessType,
                     model.OfflinePosEnabled,
-                    model.OfflineMaxAgeHours
+                    model.OfflineMaxAgeHours,
+                    DefaultPosScreen = string.IsNullOrWhiteSpace(model.DefaultPosScreen) ? "screen1" : model.DefaultPosScreen
                 });
         }
 

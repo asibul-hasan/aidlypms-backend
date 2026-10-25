@@ -210,20 +210,31 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             FROM sys_permissions
             ON CONFLICT DO NOTHING;
 
-            -- Setup chart of accounts
+            -- Setup chart of accounts (strictly matches schema.sql COA)
             INSERT INTO acc_transaction_accounts (
                 account_no, pharmacy_no, branch_no, account_category, account_code, account_name, account_type, bank_account_number, bank_name, current_balance, is_active, created_at, updated_at
             ) VALUES
-            (@p * 100 + 1, @p, @b, 1, '10101', 'Cash in Hand', 1, '', 'Main Cash Drawer', 100000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@p * 100 + 2, @p, @b, 4, '40101', 'Sales Revenue', 1, '', 'General Sales', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@p * 100 + 3, @p, @b, 2, '20201', 'Output VAT Payable', 1, '', 'Govt VAT', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@p * 100 + 4, @p, @b, 1, '10301', 'Customer Accounts Receivable', 1, '', 'Customer Dues', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@p * 100 + 5, @p, @b, 5, '50101', 'Cost of Goods Sold', 1, '', 'COGS', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@p * 100 + 6, @p, @b, 1, '10201', 'Inventory Asset', 1, '', 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@p * 100 + 7, @p, @b, 1, '10901', 'Return Credit Clearing Account', 1, '', 'Exchange Clearing', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@p * 100 + 8, @p, @b, 1, '10401', 'Merchandise Inventory Asset', 1, '', 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@p * 100 + 9, @p, @b, 4, '40102', 'Sales Returns and Allowances', 1, '', 'Returns', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@p * 100 + 10, @p, @b, 2, '20301', 'Customer Store Credit Liability', 1, '', 'Store Credit', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            (@p * 100 + 1, @p, @b, 1, '10101', 'Main Cash Drawer (Cash in Hand)', 1, NULL, NULL, 100000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 2, @p, @b, 1, '10201', 'Bank Current Account (Main)', 2, '2050123456789', 'Islami Bank Bangladesh Ltd.', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 3, @p, @b, 1, '10301', 'Accounts Receivable (Customer Due)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 4, @p, @b, 1, '10401', 'Merchandise Inventory Asset', 99, NULL, 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 5, @p, @b, 1, '10501', 'Input VAT Asset (Tax Advance)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 6, @p, @b, 2, '20101', 'Accounts Payable (Supplier Due)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 7, @p, @b, 2, '20201', 'Output VAT Payable (Tax Due)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 8, @p, @b, 3, '30101', 'Owner Capital & Retained Earnings', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 9, @p, @b, 4, '40101', 'Sales Revenue', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 10, @p, @b, 4, '40102', 'Sales Returns and Allowances', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 11, @p, @b, 5, '50101', 'Cost of Goods Sold (COGS)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 12, @p, @b, 5, '50201', 'General & Operating Expenses', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 13, @p, @b, 1, '10102', 'bKash Merchant Wallet', 4, '01700000002', 'bKash Merchant', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 14, @p, @b, 1, '10103', 'Nagad Merchant Wallet', 5, '01800000002', 'Nagad Merchant', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 15, @p, @b, 1, '10104', 'Card POS Settlement Account', 7, NULL, 'Card POS Settlement', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 16, @p, @b, 4, '40202', 'Rounding Adjustment Gain', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 17, @p, @b, 5, '50203', 'Rounding Adjustment Loss', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 18, @p, @b, 5, '50204', 'Cash Drawer Variance & Shortage', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 19, @p, @b, 4, '40203', 'Cash Drawer Variance & Overage', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 20, @p, @b, 1, '10901', 'Return Credit Clearing Account', 99, NULL, 'Exchange Clearing', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@p * 100 + 21, @p, @b, 2, '20301', 'Customer Store Credit Liability', 99, NULL, 'Store Credit', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (account_no) DO NOTHING;
 
             -- Sale config

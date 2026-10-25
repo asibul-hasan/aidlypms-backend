@@ -14,15 +14,18 @@ public class SupplierPaymentController : BaseController
     private readonly IDbConnectionFactory _db;
     private readonly IDocumentNumberService _docNumService;
     private readonly ILedgerPostingService _ledgerPosting;
+    private readonly IPaymentAccountResolver _accountResolver;
 
     public SupplierPaymentController(
         IDbConnectionFactory db,
         IDocumentNumberService docNumService,
-        ILedgerPostingService ledgerPosting)
+        ILedgerPostingService ledgerPosting,
+        IPaymentAccountResolver accountResolver)
     {
         _db = db;
         _docNumService = docNumService;
         _ledgerPosting = ledgerPosting;
+        _accountResolver = accountResolver;
     }
 
     [HttpGet("supplier-payments")]
@@ -101,7 +104,32 @@ public class SupplierPaymentController : BaseController
             if (supplier == null)
                 throw new InvalidOperationException($"Supplier #{payload.SupplierNo} not found in this pharmacy branch.");
 
-            var accountNo = payload.AccountNo > 0 ? payload.AccountNo : 1; // Default Cash Drawer 10101
+            long accountNo;
+            if (payload.AccountNo <= 0)
+            {
+                accountNo = await _accountResolver.ResolveAccountNoAsync(
+                    conn, tran, CurrentPharmacyNo, CurrentBranchNo, payload.PaymentMethod);
+            }
+            else
+            {
+                var accountExists = await conn.ExecuteScalarAsync<bool>(@"
+                    SELECT EXISTS(
+                        SELECT 1 FROM acc_transaction_accounts
+                        WHERE account_no = @AccountNo
+                          AND pharmacy_no = @CurrentPharmacyNo
+                          AND branch_no = @CurrentBranchNo
+                          AND is_active = TRUE
+                    );",
+                    new { payload.AccountNo, CurrentPharmacyNo, CurrentBranchNo },
+                    transaction: tran);
+
+                if (!accountExists)
+                {
+                    return FailResponse<PurSupplierPayment>("No account configured for this payment method. Add one in Accounts.", statusCode: 400);
+                }
+
+                accountNo = payload.AccountNo;
+            }
             var paymentNumber = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "SUPP_PAY");
 
             var nextPaymentNo = await conn.ExecuteScalarAsync<long>(
@@ -182,6 +210,11 @@ public class SupplierPaymentController : BaseController
 
             payload.SupplierName = supplier.Name;
             return OkResponse(payload, $"Supplier payment of ৳{payload.Amount} recorded successfully.");
+        }
+        catch (PosSaleException posEx)
+        {
+            tran.Rollback();
+            return FailResponse<PurSupplierPayment>(posEx.ErrorMessage, statusCode: posEx.StatusCode);
         }
         catch
         {

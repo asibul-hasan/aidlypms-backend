@@ -13,15 +13,18 @@ public class SalePostingEngine : ISalePostingEngine
     private readonly IDocumentNumberService _docNumService;
     private readonly IStockPostingService _stockPosting;
     private readonly ILedgerPostingService _ledgerPosting;
+    private readonly IPaymentAccountResolver _accountResolver;
 
     public SalePostingEngine(
         IDocumentNumberService docNumService,
         IStockPostingService stockPosting,
-        ILedgerPostingService ledgerPosting)
+        ILedgerPostingService ledgerPosting,
+        IPaymentAccountResolver accountResolver)
     {
         _docNumService = docNumService;
         _stockPosting = stockPosting;
         _ledgerPosting = ledgerPosting;
+        _accountResolver = accountResolver;
     }
 
     public async Task<SalePostingResult> ExecuteSaleAsync(
@@ -628,51 +631,9 @@ public class SalePostingEngine : ISalePostingEngine
             var paymentNo = await conn.ExecuteScalarAsync<long>(
                 "SELECT nextval('seq_sale_invoice_payment_no');", transaction: tran);
 
-            // Dynamic payment account resolution from payment_method and tenant, strictly ignoring client account_no
-            var resolvedAccountNo = pay.PaymentMethod switch
-                {
-                    1 => await conn.ExecuteScalarAsync<long?>(@"
-                        SELECT account_no FROM acc_transaction_accounts
-                        WHERE account_code = '10101' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran)
-                        ?? await conn.ExecuteScalarAsync<long?>(@"
-                        SELECT account_no FROM acc_transaction_accounts
-                        WHERE account_category = 1 AND pharmacy_no = @pharmacyNo
-                        ORDER BY (branch_no = @branchNo) DESC, account_no ASC LIMIT 1;",
-                        new { pharmacyNo, branchNo }, transaction: tran),
-                    2 => await conn.ExecuteScalarAsync<long?>(@"
-                        SELECT account_no FROM acc_transaction_accounts
-                        WHERE account_code = '10201' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran),
-                    3 => await conn.ExecuteScalarAsync<long?>(@"
-                        SELECT account_no FROM acc_transaction_accounts
-                        WHERE account_code = '10202' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran),
-                    4 => await conn.ExecuteScalarAsync<long?>(@"
-                        SELECT account_no FROM acc_transaction_accounts
-                        WHERE account_code = '10203' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran),
-                    6 => await conn.ExecuteScalarAsync<long?>(@"
-                        SELECT account_no FROM acc_transaction_accounts
-                        WHERE account_code = '10205' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran),
-                    9 => await conn.ExecuteScalarAsync<long?>(@"
-                        SELECT account_no FROM acc_transaction_accounts
-                        WHERE (account_code = '10901' OR account_name = 'Return Credit Clearing')
-                          AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran),
-                    _ => await conn.ExecuteScalarAsync<long?>(@"
-                        SELECT account_no FROM acc_transaction_accounts
-                        WHERE account_code = '10101' AND pharmacy_no = @pharmacyNo AND branch_no = @branchNo;",
-                        new { pharmacyNo, branchNo }, transaction: tran)
-                };
-
-            if (!resolvedAccountNo.HasValue)
-            {
-                throw new InvalidOperationException($"Could not resolve ledger account for payment method {pay.PaymentMethod} in pharmacy {pharmacyNo} branch {branchNo}. Please ensure the chart of accounts is configured.");
-            }
-
-            var accountNo = resolvedAccountNo.Value;
+            // Dynamic payment account resolution from payment_method and tenant using shared PaymentAccountResolver
+            var accountNo = await _accountResolver.ResolveAccountNoAsync(
+                conn, tran, pharmacyNo, branchNo, pay.PaymentMethod);
 
             pay.AccountNo = accountNo;
 

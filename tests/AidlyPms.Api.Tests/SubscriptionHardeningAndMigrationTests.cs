@@ -213,6 +213,18 @@ public class SubscriptionHardeningAndMigrationTests
     }
 
     [Fact]
+    public void EmbeddedMigrations_CountIsGreaterThanZero()
+    {
+        var assembly = typeof(DatabaseMigrationRunner).Assembly;
+        var resourceNames = assembly.GetManifestResourceNames()
+            .Where(r => r.StartsWith("AidlyPms.Api.Migrations.", StringComparison.OrdinalIgnoreCase) && r.EndsWith(".sql", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        Assert.NotEmpty(resourceNames);
+        Assert.True(resourceNames.Count > 0, $"Expected embedded migrations > 0, but found {resourceNames.Count}");
+    }
+
+    [Fact]
     public async Task DatabaseMigrationRunner_FailsFast_WhenMigrationFails_UnlessFailOpen()
     {
         // Arrange: Setup throwing DB factory

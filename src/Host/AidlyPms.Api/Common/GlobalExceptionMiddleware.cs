@@ -20,6 +20,22 @@ public class GlobalExceptionMiddleware
         {
             await _next(context);
         }
+        catch (PosSaleException posEx)
+        {
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = posEx.StatusCode;
+                context.Response.ContentType = "application/json";
+
+                var response = ApiResponse<object>.Fail(posEx.ErrorCode, posEx.ErrorMessage);
+                var json = JsonSerializer.Serialize(response, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                });
+
+                await context.Response.WriteAsync(json);
+            }
+        }
         catch (Exception ex)
         {
             var correlationId = context.TraceIdentifier;

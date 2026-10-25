@@ -72,7 +72,29 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+            dotnet-version: '10.0.x'
+
+      - name: Verify Embedded Migrations in API DLL
+        run: |
+          echo "Verifying embedded migrations in AidlyPms.Api.dll..."
+          dotnet build src/Host/AidlyPms.Api/AidlyPms.Api.csproj -c Release
+          MIGRATION_COUNT=$(python3 -c '
+          import re, sys, glob
+          dll_files = glob.glob("src/Host/AidlyPms.Api/bin/Release/net10.0/AidlyPms.Api.dll")
+          if not dll_files:
+              print("::error::AidlyPms.Api.dll not found!")
+              sys.exit(1)
+          with open(dll_files[0], "rb") as f:
+              content = f.read()
+              matches = set(re.findall(rb"AidlyPms\.Api\.Migrations\.[a-zA-Z0-9_\.]+\.sql", content))
+              print(len(matches))
+          ')
+          echo "Discovered $MIGRATION_COUNT embedded migrations in Release DLL."
+          if [ -z "$MIGRATION_COUNT" ] || [ "$MIGRATION_COUNT" -le 0 ]; then
+            echo "::error::Embedded migrations count is 0! Expected at least 1 embedded migration in AidlyPms.Api.dll."
+            exit 1
+          fi
+          echo "Embedded migrations check passed."
 
       - name: Run Integration Tests on throwaway PostgreSQL 16
         env:

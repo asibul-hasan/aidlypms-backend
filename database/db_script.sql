@@ -1111,6 +1111,7 @@ CREATE TABLE IF NOT EXISTS cfg_sale_configs (
     return_window_days INT NOT NULL DEFAULT 7,
     offline_pos_enabled BOOLEAN NOT NULL,
     offline_max_age_hours INT NOT NULL,
+    default_pos_screen VARCHAR(20) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_sale_config_branch UNIQUE (pharmacy_no, branch_no)
 );

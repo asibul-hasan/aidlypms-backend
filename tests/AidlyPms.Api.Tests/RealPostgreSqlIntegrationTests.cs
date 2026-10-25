@@ -87,6 +87,7 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
         services.AddScoped<ILedgerPostingService, LedgerPostingService>();
         services.AddScoped<IStockPostingService, StockPostingService>();
         services.AddScoped<ISalePostingEngine, SalePostingEngine>();
+        services.AddScoped<IPaymentAccountResolver, PaymentAccountResolver>();
         services.AddScoped<IStockIntegrityService, StockIntegrityService>();
 
         _serviceProvider = services.BuildServiceProvider();
@@ -200,11 +201,29 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                 account_no, pharmacy_no, branch_no, account_category, account_code,
                 account_name, account_type, bank_account_number, bank_name,
                 current_balance, is_active, created_at, updated_at
-            ) VALUES (
-                @pharmacyNo * 100 + 1, @pharmacyNo, @branchNo, 1, '10901',
-                'Return Credit Clearing Account', 1, '', 'Internal Clearing',
-                0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            ) ON CONFLICT (account_no) DO NOTHING;
+            ) VALUES 
+            (@pharmacyNo * 100 + 1, @pharmacyNo, @branchNo, 1, '10101', 'Main Cash Drawer (Cash in Hand)', 1, NULL, NULL, 100000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 2, @pharmacyNo, @branchNo, 1, '10201', 'Bank Current Account (Main)', 2, '2050123456789', 'Islami Bank Bangladesh Ltd.', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 3, @pharmacyNo, @branchNo, 1, '10301', 'Accounts Receivable (Customer Due)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 4, @pharmacyNo, @branchNo, 1, '10401', 'Merchandise Inventory Asset', 99, NULL, 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 5, @pharmacyNo, @branchNo, 1, '10501', 'Input VAT Asset (Tax Advance)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 6, @pharmacyNo, @branchNo, 2, '20101', 'Accounts Payable (Supplier Due)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 7, @pharmacyNo, @branchNo, 2, '20201', 'Output VAT Payable (Tax Due)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 8, @pharmacyNo, @branchNo, 3, '30101', 'Owner Capital & Retained Earnings', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 9, @pharmacyNo, @branchNo, 4, '40101', 'Sales Revenue', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 10, @pharmacyNo, @branchNo, 4, '40102', 'Sales Returns and Allowances', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 11, @pharmacyNo, @branchNo, 5, '50101', 'Cost of Goods Sold (COGS)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 12, @pharmacyNo, @branchNo, 5, '50201', 'General & Operating Expenses', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 13, @pharmacyNo, @branchNo, 1, '10102', 'bKash Merchant Wallet', 4, '01700000002', 'bKash Merchant', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 14, @pharmacyNo, @branchNo, 1, '10103', 'Nagad Merchant Wallet', 5, '01800000002', 'Nagad Merchant', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 15, @pharmacyNo, @branchNo, 1, '10104', 'Card POS Settlement Account', 7, NULL, 'Card POS Settlement', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 16, @pharmacyNo, @branchNo, 4, '40202', 'Rounding Adjustment Gain', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 17, @pharmacyNo, @branchNo, 5, '50203', 'Rounding Adjustment Loss', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 18, @pharmacyNo, @branchNo, 5, '50204', 'Cash Drawer Variance & Shortage', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 19, @pharmacyNo, @branchNo, 4, '40203', 'Cash Drawer Variance & Overage', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 20, @pharmacyNo, @branchNo, 1, '10901', 'Return Credit Clearing Account', 99, NULL, 'Exchange Clearing', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 21, @pharmacyNo, @branchNo, 2, '20301', 'Customer Store Credit Liability', 99, NULL, 'Store Credit', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (account_no) DO NOTHING;
 
             INSERT INTO cfg_sale_configs (
                 sale_config_no, pharmacy_no, branch_no, cash_received, out_of_stock_sale,
@@ -570,7 +589,8 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                 sp.GetRequiredService<IDocumentNumberService>(),
                 sp.GetRequiredService<IStockPostingService>(),
                 sp.GetRequiredService<ILedgerPostingService>(),
-                sp.GetRequiredService<ISalePostingEngine>()));
+                sp.GetRequiredService<ISalePostingEngine>(),
+                sp.GetRequiredService<IPaymentAccountResolver>()));
 
             var responseManager = await controllerManager.ProcessReturn(returnReq);
             var objectResult = Assert.IsType<ObjectResult>(responseManager.Result);
@@ -583,7 +603,8 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                 sp.GetRequiredService<IDocumentNumberService>(),
                 sp.GetRequiredService<IStockPostingService>(),
                 sp.GetRequiredService<ILedgerPostingService>(),
-                sp.GetRequiredService<ISalePostingEngine>()));
+                sp.GetRequiredService<ISalePostingEngine>(),
+                sp.GetRequiredService<IPaymentAccountResolver>()));
 
             var responseSalesman = await controllerSalesman.ProcessReturn(returnReq);
             var objectResultSalesman = Assert.IsType<ObjectResult>(responseSalesman.Result);

@@ -91,6 +91,7 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
         services.AddScoped<ILedgerPostingService, LedgerPostingService>();
         services.AddScoped<IStockPostingService, StockPostingService>();
         services.AddScoped<ISalePostingEngine, SalePostingEngine>();
+        services.AddScoped<IPaymentAccountResolver, PaymentAccountResolver>();
         services.AddScoped<IStockIntegrityService, StockIntegrityService>();
 
         _serviceProvider = services.BuildServiceProvider();
@@ -167,19 +168,27 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 account_name, account_type, bank_account_number, bank_name,
                 current_balance, is_active, created_at, updated_at
             ) VALUES 
-            (@pharmacyNo * 100 + 1, @pharmacyNo, @branchNo, 1, '10101', 'Cash in Hand', 1, '', 'Main Cash Drawer', 100000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 2, @pharmacyNo, @branchNo, 4, '40101', 'Sales Revenue', 1, '', 'General Sales', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 3, @pharmacyNo, @branchNo, 2, '20201', 'Output VAT Payable', 1, '', 'Govt VAT', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 4, @pharmacyNo, @branchNo, 1, '10301', 'Customer Accounts Receivable', 1, '', 'Customer Dues', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 5, @pharmacyNo, @branchNo, 5, '50101', 'Cost of Goods Sold', 1, '', 'COGS', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 6, @pharmacyNo, @branchNo, 1, '10201', 'Inventory Asset', 1, '', 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 7, @pharmacyNo, @branchNo, 1, '10901', 'Return Credit Clearing Account', 1, '', 'Exchange Clearing', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 8, @pharmacyNo, @branchNo, 1, '10401', 'Merchandise Inventory Asset', 1, '', 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 9, @pharmacyNo, @branchNo, 4, '40102', 'Sales Returns and Allowances', 1, '', 'Returns', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 10, @pharmacyNo, @branchNo, 2, '20301', 'Customer Store Credit Liability', 1, '', 'Store Credit', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 11, @pharmacyNo, @branchNo, 1, '10905', 'Default Cash Account', 1, '', 'Internal Cash Drawer', 50000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 12, @pharmacyNo, @branchNo, 2, '20101', 'Accounts Payable', 1, '', 'Supplier Payables', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@pharmacyNo * 100 + 13, @pharmacyNo, @branchNo, 1, '10501', 'Input VAT Asset', 1, '', 'Input VAT', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            (@pharmacyNo * 100 + 1, @pharmacyNo, @branchNo, 1, '10101', 'Main Cash Drawer (Cash in Hand)', 1, NULL, NULL, 100000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 2, @pharmacyNo, @branchNo, 1, '10201', 'Bank Current Account (Main)', 2, '2050123456789', 'Islami Bank Bangladesh Ltd.', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 3, @pharmacyNo, @branchNo, 1, '10301', 'Accounts Receivable (Customer Due)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 4, @pharmacyNo, @branchNo, 1, '10401', 'Merchandise Inventory Asset', 99, NULL, 'Pharmacy Inventory Stock', 500000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 5, @pharmacyNo, @branchNo, 1, '10501', 'Input VAT Asset (Tax Advance)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 6, @pharmacyNo, @branchNo, 2, '20101', 'Accounts Payable (Supplier Due)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 7, @pharmacyNo, @branchNo, 2, '20201', 'Output VAT Payable (Tax Due)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 8, @pharmacyNo, @branchNo, 3, '30101', 'Owner Capital & Retained Earnings', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 9, @pharmacyNo, @branchNo, 4, '40101', 'Sales Revenue', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 10, @pharmacyNo, @branchNo, 4, '40102', 'Sales Returns and Allowances', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 11, @pharmacyNo, @branchNo, 5, '50101', 'Cost of Goods Sold (COGS)', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 12, @pharmacyNo, @branchNo, 5, '50201', 'General & Operating Expenses', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 13, @pharmacyNo, @branchNo, 1, '10102', 'bKash Merchant Wallet', 4, '01700000002', 'bKash Merchant', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 14, @pharmacyNo, @branchNo, 1, '10103', 'Nagad Merchant Wallet', 5, '01800000002', 'Nagad Merchant', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 15, @pharmacyNo, @branchNo, 1, '10104', 'Card POS Settlement Account', 7, NULL, 'Card POS Settlement', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 16, @pharmacyNo, @branchNo, 4, '40202', 'Rounding Adjustment Gain', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 17, @pharmacyNo, @branchNo, 5, '50203', 'Rounding Adjustment Loss', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 18, @pharmacyNo, @branchNo, 5, '50204', 'Cash Drawer Variance & Shortage', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 19, @pharmacyNo, @branchNo, 4, '40203', 'Cash Drawer Variance & Overage', 99, NULL, NULL, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 20, @pharmacyNo, @branchNo, 1, '10901', 'Return Credit Clearing Account', 99, NULL, 'Exchange Clearing', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@pharmacyNo * 100 + 21, @pharmacyNo, @branchNo, 2, '20301', 'Customer Store Credit Liability', 99, NULL, 'Store Credit', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (account_no) DO NOTHING;
 
             INSERT INTO cfg_sale_configs (
@@ -477,7 +486,8 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
             _serviceProvider.GetRequiredService<IDbConnectionFactory>(),
             _serviceProvider.GetRequiredService<IDocumentNumberService>(),
             _serviceProvider.GetRequiredService<IStockPostingService>(),
-            _serviceProvider.GetRequiredService<ILedgerPostingService>());
+            _serviceProvider.GetRequiredService<ILedgerPostingService>(),
+            _serviceProvider.GetRequiredService<IPaymentAccountResolver>());
 
         purchaseController.ControllerContext = new ControllerContext
         {

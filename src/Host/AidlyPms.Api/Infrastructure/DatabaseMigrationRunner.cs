@@ -87,9 +87,11 @@ public static class DatabaseMigrationRunner
                 .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            logger.LogInformation("Discovered {Count} embedded database migrations.", resourceNames.Count);
+
             if (resourceNames.Count == 0)
             {
-                logger.LogInformation("No embedded database migrations discovered.");
+                logger.LogWarning("No embedded database migrations discovered.");
                 return;
             }
 
