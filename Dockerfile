@@ -10,7 +10,8 @@ COPY AidlyPms.slnx ./
 COPY src/Host/AidlyPms.Api/AidlyPms.Api.csproj ./src/Host/AidlyPms.Api/
 RUN dotnet restore src/Host/AidlyPms.Api/AidlyPms.Api.csproj
 
-# Copy source and publish release build
+# Copy database migrations (required for embedded resources in AidlyPms.Api.csproj) and source
+COPY database ./database
 COPY src ./src
 RUN dotnet publish src/Host/AidlyPms.Api/AidlyPms.Api.csproj -c Release -o /app/publish --no-restore
 
