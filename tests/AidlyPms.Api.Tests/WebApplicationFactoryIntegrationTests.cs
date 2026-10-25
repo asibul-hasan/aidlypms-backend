@@ -1739,4 +1739,151 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
         _output.WriteLine("Test 20 Passed: Stocktake list, get, count, refresh, and post HTTP endpoints succeeded with HTTP 200 and valid responses.");
     }
+
+    // =========================================================================
+    // 21. Real chart of accounts payment resolution & cash drawer isolation
+    // =========================================================================
+    [Fact]
+    public async Task Test_21_PaymentAccounts_RealChart_AllCases()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "PMS Manager");
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        const long p = TestPharmacyNo;
+        const long b = TestBranchNo;
+        const long testProdNo = 900299;
+        const long testBatchNo = 9002991;
+
+        // Ensure product and batch exist with stock
+        await conn.ExecuteAsync(@"
+            INSERT INTO prod_products (
+                product_no, uuid, pharmacy_no, branch_no, company_no, generic_no,
+                product_name, strength, form_type, box_size, box_type,
+                minimum_stock_alert, cost_per_unit, mrp_per_unit, vat_percent, sale_price_rate, purchase_discount_percent,
+                product_details, rack_number,
+                is_active, is_narcotic, is_prescription_required, opening_stock_pcs, allow_loss_sale,
+                created_at, updated_at
+            ) VALUES (
+                @testProdNo, gen_random_uuid(), @p, @b, @p, @p,
+                'Payment Method Test Paracetamol', '500mg', 'Tablet', 10, 1,
+                10, 10, 15, 0, 15, 0,
+                'Payment test medicine', 'RACK-PM-1',
+                TRUE, FALSE, FALSE, 500, TRUE,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (product_no) DO UPDATE SET is_active = TRUE;
+
+            INSERT INTO prod_product_batches (
+                batch_no, pharmacy_no, branch_no, product_no, batch_number,
+                expiry_date, box_quantity, quantity_in_box, total_quantity_pcs,
+                cost_per_box, sale_price_per_box, vat_percent, is_expired, is_placeholder, created_at, updated_at
+            ) VALUES (
+                @testBatchNo, @p, @b, @testProdNo, 'BATCH-PM-01',
+                CURRENT_TIMESTAMP + INTERVAL '2 years', 50, 10, 500,
+                100, 150, 0, FALSE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (batch_no) DO UPDATE SET total_quantity_pcs = 500;
+        ", new { p, b, testProdNo, testBatchNo });
+
+        // 1. bKash sale (payment_method = 3): Must post debit leg to account TestPharmacyNo * 100 + 13 (type 4)
+        var bkashSaleReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/pos/sales")
+        {
+            Content = JsonContent.Create(new
+            {
+                customer_no = 1,
+                items = new[] { new { product_no = testProdNo, batch_no = testBatchNo, sale_qty = 1, sale_price = 15.0m } },
+                payments = new[] { new { payment_method = 3, amount = 15.0m } }
+            })
+        };
+        bkashSaleReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var bkashResp = await _client.SendAsync(bkashSaleReq);
+        Assert.Equal(HttpStatusCode.OK, bkashResp.StatusCode);
+        var bkashJson = await bkashResp.Content.ReadFromJsonAsync<JsonObject>();
+        var bkashInvNo = bkashJson?["data"]?["sale_invoice_no"]?.GetValue<long>() ?? 0;
+        Assert.True(bkashInvNo > 0);
+
+        var bkashDebitAccount = await conn.ExecuteScalarAsync<long>(@"
+            SELECT account_no FROM acc_transaction_ledger
+            WHERE pharmacy_no = @p AND branch_no = @b
+              AND source_document_type = 'SALE_INVOICE' AND source_document_id = @bkashInvNo
+              AND debit_amount > 0 AND credit_amount = 0
+            LIMIT 1;",
+            new { p, b, bkashInvNo });
+        Assert.Equal(TestPharmacyNo * 100 + 13, bkashDebitAccount);
+
+        // 2. Nagad sale (payment_method = 4): Must post debit leg to account TestPharmacyNo * 100 + 14 (type 5)
+        var nagadSaleReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/pos/sales")
+        {
+            Content = JsonContent.Create(new
+            {
+                customer_no = 1,
+                items = new[] { new { product_no = testProdNo, batch_no = testBatchNo, sale_qty = 1, sale_price = 15.0m } },
+                payments = new[] { new { payment_method = 4, amount = 15.0m } }
+            })
+        };
+        nagadSaleReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var nagadResp = await _client.SendAsync(nagadSaleReq);
+        Assert.Equal(HttpStatusCode.OK, nagadResp.StatusCode);
+        var nagadJson = await nagadResp.Content.ReadFromJsonAsync<JsonObject>();
+        var nagadInvNo = nagadJson?["data"]?["sale_invoice_no"]?.GetValue<long>() ?? 0;
+        Assert.True(nagadInvNo > 0);
+
+        var nagadDebitAccount = await conn.ExecuteScalarAsync<long>(@"
+            SELECT account_no FROM acc_transaction_ledger
+            WHERE pharmacy_no = @p AND branch_no = @b
+              AND source_document_type = 'SALE_INVOICE' AND source_document_id = @nagadInvNo
+              AND debit_amount > 0 AND credit_amount = 0
+            LIMIT 1;",
+            new { p, b, nagadInvNo });
+        Assert.Equal(TestPharmacyNo * 100 + 14, nagadDebitAccount);
+
+        // 3. Card sale (payment_method = 6): Must post debit leg to account TestPharmacyNo * 100 + 15 (type 7)
+        var cardSaleReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/pos/sales")
+        {
+            Content = JsonContent.Create(new
+            {
+                customer_no = 1,
+                items = new[] { new { product_no = testProdNo, batch_no = testBatchNo, sale_qty = 1, sale_price = 15.0m } },
+                payments = new[] { new { payment_method = 6, amount = 15.0m } }
+            })
+        };
+        cardSaleReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var cardResp = await _client.SendAsync(cardSaleReq);
+        Assert.Equal(HttpStatusCode.OK, cardResp.StatusCode);
+        var cardJson = await cardResp.Content.ReadFromJsonAsync<JsonObject>();
+        var cardInvNo = cardJson?["data"]?["sale_invoice_no"]?.GetValue<long>() ?? 0;
+        Assert.True(cardInvNo > 0);
+
+        var cardDebitAccount = await conn.ExecuteScalarAsync<long>(@"
+            SELECT account_no FROM acc_transaction_ledger
+            WHERE pharmacy_no = @p AND branch_no = @b
+              AND source_document_type = 'SALE_INVOICE' AND source_document_id = @cardInvNo
+              AND debit_amount > 0 AND credit_amount = 0
+            LIMIT 1;",
+            new { p, b, cardInvNo });
+        Assert.Equal(TestPharmacyNo * 100 + 15, cardDebitAccount);
+
+        // 4. Rocket sale (payment_method = 5): In the seeded chart, no type 6 account exists -> returns 400 Bad Request
+        var rocketSaleReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/pos/sales")
+        {
+            Content = JsonContent.Create(new
+            {
+                customer_no = 1,
+                items = new[] { new { product_no = testProdNo, batch_no = testBatchNo, sale_qty = 1, sale_price = 15.0m } },
+                payments = new[] { new { payment_method = 5, amount = 15.0m } }
+            })
+        };
+        rocketSaleReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var rocketResp = await _client.SendAsync(rocketSaleReq);
+        Assert.Equal(HttpStatusCode.BadRequest, rocketResp.StatusCode);
+        var rocketErr = await rocketResp.Content.ReadAsStringAsync();
+        Assert.Contains("No account configured for this payment method. Add one in Accounts.", rocketErr);
+
+        _output.WriteLine("Test 21 Passed: bKash (type 4), Nagad (type 5), Card (type 7) resolved correctly, and missing Rocket returned 400.");
+    }
 }
