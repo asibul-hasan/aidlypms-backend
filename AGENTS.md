@@ -105,17 +105,26 @@ git -C aidlypms-backend push origin main
 
 ---
 
-### Rule 9: Background Jobs Configuration (`RUN_BACKGROUND_JOBS`)
+### Rule 9: Offline POS Plain Sales Architecture & Safety Guarantees
+- **Pure Pharmacy Plain Sales Offline**: Offline selling is strictly limited to new plain sales (Cash, Card, MFS, Split, Customer Due) using cached products, batches, and customers (or Walking Customer). Returns, exchanges, voids, purchases, inventory transfers, and new customer registration are strictly blocked when offline.
+- **Clinical Safety Restrictions**: Any product flagged as narcotic (`is_narcotic = TRUE`), prescription-required (`is_prescription_required = TRUE`), or belonging to POM/NARCOTIC drug schedules is strictly prohibited from offline checkout to prevent regulatory non-compliance.
+- **Server Authority & Late Sync**: The server recomputes and decides all final item pricing, taxes, and total amounts (`price_variance = server_total - offline_client_total`). If an offline sale was created during a shift/date whose cash closer is already committed, the sale is posted with `sale_timestamp = UtcNow` and marked `late_sync = TRUE` without mutating historical closed cashbooks.
+- **Idempotency & Replay Protection**: Every offline sale carries a client-generated UUID `idempotency_key` and SHA256 payload hash (`uq_sale_invoices_idempotency`). Replaying the identical transaction safely returns the original invoice (`200 OK`, `idempotent_replay = TRUE`) with zero duplicate stock movements or GL postings. Mismatched payloads return `409 Conflict`.
+
+---
+
+### Rule 10: Background Jobs Configuration (`RUN_BACKGROUND_JOBS`)
 - `ExpiryMaintenanceService` runs daily at 00:01 Asia/Dhaka (with an initial sweep on startup) to mark passed batches as expired using PostgreSQL advisory locking (`pg_try_advisory_lock(7421098)`).
 - By default in production, background jobs are **enabled**.
 - Set environment variable `RUN_BACKGROUND_JOBS=false` (or configuration `"RUN_BACKGROUND_JOBS": "false"`) to explicitly disable background jobs (e.g. during integration testing or ad-hoc maintenance tasks).
 
 ---
 
-### Rule 10: Scope, Credential Safety & CI Log Policy
+### Rule 11: Scope, Credential Safety & CI Log Policy
 - **Scope Restriction**: All modifications are strictly scoped to Aidly PMS. Do NOT change Login, seed-defaults, demo users, or credentials under any circumstances.
 - **Credential Protection**: AI agents and developers must NEVER read credential stores, Windows Credential Manager, git credential helpers, secret vaults, or tokens.
 - **CI/CD Diagnostics**: If CI build or test logs are required to diagnose a pipeline failure, do not attempt to query remote CI runner environments or credential-backed APIs; ask the user to paste the CI logs directly.
+
 
 
 

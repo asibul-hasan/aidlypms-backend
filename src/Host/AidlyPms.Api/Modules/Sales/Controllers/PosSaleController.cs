@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using AidlyPms.Api.Common;
 using AidlyPms.Api.Common.Database;
 using AidlyPms.Api.Infrastructure;
@@ -177,6 +179,30 @@ public class PosSaleController : BaseController
         return OkResponse(invoice);
     }
 
+    private static string ComputePayloadHash(CreateSalePayload payload)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"cust:{payload.CustomerNo}|mode:{payload.SaleMode}|paym:{payload.Invoice?.PaymentMethod}|willpay:{payload.CustomerWillPay}|due:{payload.DueAmount}|discT:{payload.DiscountType}|discV:{payload.DiscountValue}|items:");
+        if (payload.Items != null)
+        {
+            foreach (var it in payload.Items.OrderBy(i => i.ProductNo).ThenBy(i => i.BatchNo).ThenBy(i => i.SaleQty))
+            {
+                sb.Append($"[{it.ProductNo},{it.BatchNo},{it.SaleQty},{it.UnitSalePrice:F2},{it.DiscountAmount:F2}]");
+            }
+        }
+        if (payload.Payments != null)
+        {
+            sb.Append("|payments:");
+            foreach (var p in payload.Payments.OrderBy(x => x.PaymentMethod).ThenBy(x => x.Amount))
+            {
+                sb.Append($"[{p.PaymentMethod},{p.Amount:F2}]");
+            }
+        }
+        using var sha256 = SHA256.Create();
+        var bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
     [HttpPost]
     public async Task<ActionResult<ApiResponse<SaleInvoice>>> CreateSale([FromBody] CreateSalePayload payload)
     {
@@ -217,6 +243,56 @@ public class PosSaleController : BaseController
             }
         }
 
+        string? payloadHash = null;
+        if (payload.IdempotencyKey.HasValue)
+        {
+            payloadHash = ComputePayloadHash(payload);
+
+            await using var checkConn = await _db.CreateOpenConnectionAsync();
+            var existing = await checkConn.QueryFirstOrDefaultAsync<SaleInvoice>(@"
+                SELECT * FROM sale_invoices
+                WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND idempotency_key = @Key;",
+                new { CurrentPharmacyNo, CurrentBranchNo, Key = payload.IdempotencyKey.Value });
+
+            if (existing != null)
+            {
+                if (!string.Equals(existing.IdempotencyPayloadHash, payloadHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(StatusCodes.Status409Conflict, ApiResponse<SaleInvoice>.Fail(
+                        "idempotency_conflict",
+                        "Idempotency conflict: A sale with this key already exists with different payload details."));
+                }
+
+                const string itemsSql = @"
+                    SELECT 
+                        i.*, p.product_name, b.batch_number,
+                        COALESCE((
+                            SELECT SUM(ri.return_qty)
+                            FROM sale_return_items ri
+                            JOIN sale_returns r ON ri.sale_return_no = r.sale_return_no
+                            WHERE ri.sale_invoice_item_no = i.sale_invoice_item_no AND r.return_status != 3
+                        ), 0) AS already_returned_qty
+                    FROM sale_invoice_items i
+                    JOIN prod_products p ON i.product_no = p.product_no
+                    LEFT JOIN prod_product_batches b ON i.batch_no = b.batch_no
+                    WHERE i.sale_invoice_no = @invoiceNo;";
+
+                existing.Items = (await checkConn.QueryAsync<SaleInvoiceItem>(itemsSql, new { invoiceNo = existing.SaleInvoiceNo })).AsList();
+
+                const string paymentsSql = @"
+                    SELECT 
+                        sale_payment_no, pharmacy_no, branch_no, sale_invoice_no,
+                        account_no, payment_method, amount, gateway_reference, created_at
+                    FROM sale_invoice_payments
+                    WHERE sale_invoice_no = @invoiceNo;";
+
+                existing.Payments = (await checkConn.QueryAsync<SaleInvoicePayment>(paymentsSql, new { invoiceNo = existing.SaleInvoiceNo })).AsList();
+                existing.IdempotentReplay = true;
+
+                return OkResponse(existing, $"Sale {existing.SalesNumber} already processed (idempotent replay).");
+            }
+        }
+
         await using var conn = await _db.CreateOpenConnectionAsync();
         await using var tran = await conn.BeginTransactionAsync();
 
@@ -229,13 +305,50 @@ public class PosSaleController : BaseController
                 UserNo = CurrentUserNo,
                 Invoice = invoice,
                 Items = payload.Items,
-                Payments = payload.Payments
+                Payments = payload.Payments,
+                IdempotencyKey = payload.IdempotencyKey,
+                IdempotencyPayloadHash = payloadHash,
+                IsOffline = payload.IsOffline || invoice.IsOffline,
+                ClientCreatedAt = payload.ClientCreatedAt,
+                OfflineReceiptNo = payload.OfflineReceiptNo ?? invoice.OfflineReceiptNo,
+                OfflineClientTotal = payload.OfflineClientTotal ?? invoice.OfflineClientTotal
             };
 
             var result = await _salePostingEngine.ExecuteSaleAsync(conn, tran, postRequest);
             await tran.CommitAsync();
 
             return OkResponse(result.Invoice, $"Sale {result.SalesNumber} posted successfully.");
+        }
+        catch (PosSaleException posEx)
+        {
+            await tran.RollbackAsync();
+            return StatusCode(posEx.StatusCode, ApiResponse<SaleInvoice>.Fail(posEx.ErrorCode, posEx.ErrorMessage));
+        }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == "23505" && ex.ConstraintName?.Contains("idempotency") == true)
+        {
+            await tran.RollbackAsync();
+            if (payload.IdempotencyKey.HasValue)
+            {
+                await using var reloadConn = await _db.CreateOpenConnectionAsync();
+                var existing = await reloadConn.QueryFirstOrDefaultAsync<SaleInvoice>(@"
+                    SELECT * FROM sale_invoices
+                    WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND idempotency_key = @Key;",
+                    new { CurrentPharmacyNo, CurrentBranchNo, Key = payload.IdempotencyKey.Value });
+
+                if (existing != null)
+                {
+                    if (!string.Equals(existing.IdempotencyPayloadHash, payloadHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return StatusCode(StatusCodes.Status409Conflict, ApiResponse<SaleInvoice>.Fail(
+                            "idempotency_conflict",
+                            "Idempotency conflict: A sale with this key already exists with different payload details."));
+                    }
+
+                    existing.IdempotentReplay = true;
+                    return OkResponse(existing, $"Sale {existing.SalesNumber} already processed (idempotent replay).");
+                }
+            }
+            throw;
         }
         catch
         {
@@ -708,6 +821,178 @@ public class PosSaleController : BaseController
             await tran.RollbackAsync();
             throw;
         }
+    }
+
+    [HttpGet("/api/v1/pos/catalog-snapshot")]
+    [HttpGet("catalog-snapshot")]
+    public async Task<ActionResult<ApiResponse<PosCatalogSnapshotDto>>> GetCatalogSnapshot(
+        [FromQuery] DateTime? updatedAfter = null,
+        [FromQuery] int pageIndex = 1,
+        [FromQuery] int pageSize = 2000)
+    {
+        pageSize = Math.Clamp(pageSize, 1, 2000);
+        var offset = (pageIndex - 1) * pageSize;
+
+        await using var conn = await _db.CreateOpenConnectionAsync();
+
+        var config = await conn.QueryFirstOrDefaultAsync<CfgSaleConfig>(@"
+            SELECT * FROM cfg_sale_configs
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
+            new { CurrentPharmacyNo, CurrentBranchNo }) ?? new CfgSaleConfig
+            {
+                PharmacyNo = CurrentPharmacyNo,
+                BranchNo = CurrentBranchNo
+            };
+
+        const string productsSql = @"
+            SELECT p.product_no, p.product_name, g.generic_name, c.company_name,
+                   p.strength, NULL AS form_type, p.barcode_value,
+                   p.quantity_per_box AS box_size, p.sale_price_per_piece AS unit_price,
+                   p.sale_price_per_piece AS mrp, p.purchase_price_per_piece AS purchase_price,
+                   0.0 AS vat_percent, p.is_narcotic, p.is_prescription_required, p.is_active, p.updated_at
+            FROM prod_products p
+            LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
+            LEFT JOIN prod_companies c ON p.company_no = c.company_no
+            WHERE p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo
+              AND p.is_active = TRUE
+              AND (@updatedAfter::timestamptz IS NULL OR p.updated_at >= @updatedAfter::timestamptz)
+            ORDER BY p.product_name ASC
+            OFFSET @offset LIMIT @pageSize;";
+
+        var products = (await conn.QueryAsync<SnapshotProductDto>(productsSql, new
+        {
+            CurrentPharmacyNo,
+            CurrentBranchNo,
+            updatedAfter,
+            offset,
+            pageSize
+        })).AsList();
+
+        const string batchesSql = @"
+            SELECT b.batch_no, b.product_no, b.batch_number, b.expiry_date,
+                   CASE WHEN b.quantity_in_box > 0 THEN ROUND(b.cost_per_box / b.quantity_in_box, 4) ELSE 0 END AS cost_price,
+                   CASE WHEN b.quantity_in_box > 0 THEN ROUND(b.sale_price_per_box / b.quantity_in_box, 4) ELSE 0 END AS sale_price,
+                   CASE WHEN b.quantity_in_box > 0 THEN ROUND(b.sale_price_per_box / b.quantity_in_box, 4) ELSE 0 END AS mrp,
+                   b.total_quantity_pcs AS available_qty,
+                   b.box_quantity AS box_qty,
+                   p.rak_number,
+                   b.updated_at
+            FROM prod_product_batches b
+            JOIN prod_products p ON b.product_no = p.product_no AND b.pharmacy_no = p.pharmacy_no
+            WHERE b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo
+              AND b.is_placeholder = FALSE
+              AND b.is_expired = FALSE
+              AND b.expiry_date >= CURRENT_DATE
+              AND b.total_quantity_pcs > 0
+              AND (@updatedAfter::timestamptz IS NULL OR b.updated_at >= @updatedAfter::timestamptz)
+            ORDER BY b.expiry_date ASC, b.batch_no ASC;";
+
+        var batches = (await conn.QueryAsync<SnapshotBatchDto>(batchesSql, new
+        {
+            CurrentPharmacyNo,
+            CurrentBranchNo,
+            updatedAfter
+        })).AsList();
+
+        const string customersSql = @"
+            SELECT customer_no, name AS customer_name, phone, address, current_due, loyalty_points, updated_at
+            FROM cust_customers
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
+              AND is_active = TRUE
+            ORDER BY updated_at DESC
+            LIMIT 500;";
+
+        var customers = (await conn.QueryAsync<SnapshotCustomerDto>(customersSql, new
+        {
+            CurrentPharmacyNo,
+            CurrentBranchNo
+        })).AsList();
+
+        var snapshot = new PosCatalogSnapshotDto
+        {
+            ServerTimeUtc = DateTimeOffset.UtcNow,
+            SnapshotVersion = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(),
+            Config = config,
+            Products = products,
+            Batches = batches,
+            Customers = customers
+        };
+
+        return OkResponse(snapshot);
+    }
+
+    [HttpGet("/api/v1/pos/offline-sales")]
+    [HttpGet("offline-sales")]
+    public async Task<ActionResult<ApiResponse<PagedResult<SaleInvoice>>>> GetOfflineSales(
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null,
+        [FromQuery] int pageIndex = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        pageSize = Math.Clamp(pageSize, 1, 200);
+        (startDate, endDate) = DateHelper.NormalizeDateRange(startDate, endDate);
+        await using var conn = await _db.CreateOpenConnectionAsync();
+        var offset = (pageIndex - 1) * pageSize;
+
+        const string countSql = @"
+            SELECT COUNT(*)
+            FROM sale_invoices s
+            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+              AND s.is_offline = TRUE
+              AND ((s.price_variance IS NOT NULL AND s.price_variance <> 0) OR s.late_sync = TRUE)
+              AND (@startDate::timestamptz IS NULL OR s.sale_timestamp >= @startDate::timestamptz)
+              AND (@endDate::timestamptz IS NULL OR s.sale_timestamp <= @endDate::timestamptz);";
+
+        var total = await conn.ExecuteScalarAsync<int>(countSql, new
+        {
+            CurrentPharmacyNo,
+            CurrentBranchNo,
+            startDate,
+            endDate
+        });
+
+        const string dataSql = @"
+            SELECT 
+                s.sale_invoice_no, s.uuid, s.pharmacy_no, s.branch_no, s.customer_no,
+                s.prescription_no, s.prescription_image_url, s.sales_number, s.sale_mode,
+                s.total_items, s.gross_total_price, s.discount_type, s.discount_value,
+                s.card_commission_percent, s.card_commission_amount, s.net_amount,
+                s.vat_amount, s.round_off_amount, s.final_price, s.approximate_profit,
+                s.customer_will_pay, s.change_amount, s.due_amount, s.payment_method,
+                s.document_status, s.cash_received_status, s.received_by_user_no,
+                s.salesman_user_no, s.is_quick_printed, s.sale_timestamp,
+                s.is_offline, s.client_created_at, s.offline_receipt_no, s.offline_client_total,
+                s.price_variance, s.late_sync, s.idempotency_key, s.idempotency_payload_hash,
+                s.created_at, s.updated_at,
+                c.name AS customer_name,
+                c.phone AS customer_phone
+            FROM sale_invoices s
+            LEFT JOIN cust_customers c ON s.customer_no = c.customer_no
+            WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
+              AND s.is_offline = TRUE
+              AND ((s.price_variance IS NOT NULL AND s.price_variance <> 0) OR s.late_sync = TRUE)
+              AND (@startDate::timestamptz IS NULL OR s.sale_timestamp >= @startDate::timestamptz)
+              AND (@endDate::timestamptz IS NULL OR s.sale_timestamp <= @endDate::timestamptz)
+            ORDER BY s.sale_timestamp DESC
+            OFFSET @offset LIMIT @pageSize;";
+
+        var items = (await conn.QueryAsync<SaleInvoice>(dataSql, new
+        {
+            CurrentPharmacyNo,
+            CurrentBranchNo,
+            startDate,
+            endDate,
+            offset,
+            pageSize
+        })).AsList();
+
+        return PagedResponse(new PagedResult<SaleInvoice>
+        {
+            Items = items,
+            Total = total,
+            PageIndex = pageIndex,
+            PageSize = pageSize
+        });
     }
 }
 

@@ -60,8 +60,81 @@ public class SalePostingEngine : ISalePostingEngine
         decimal totalVat = 0;
         decimal totalCogs = 0;
 
+        var isOffline = request.IsOffline || invoice.IsOffline;
+        bool lateSync = false;
+        DateTime saleTimestamp;
+        DateTime? clientCreatedAtUtc = null;
+
+        if (isOffline)
+        {
+            if (saleConfig?.OfflinePosEnabled != true)
+            {
+                throw new PosSaleException("offline_pos_disabled",
+                    "Offline POS sales are disabled for this branch in settings.",
+                    StatusCodes.Status400BadRequest);
+            }
+
+            var clientCreatedAt = request.ClientCreatedAt ?? (invoice.ClientCreatedAt.HasValue
+                ? new DateTimeOffset(invoice.ClientCreatedAt.Value, TimeSpan.Zero)
+                : (DateTimeOffset?)null);
+
+            if (!clientCreatedAt.HasValue)
+            {
+                throw new PosSaleException("client_created_at_required",
+                    "Client timestamp is required for offline sales.",
+                    StatusCodes.Status400BadRequest);
+            }
+
+            if (clientCreatedAt.Value > DateTimeOffset.UtcNow.AddMinutes(5))
+            {
+                throw new PosSaleException("future_timestamp",
+                    "Client timestamp cannot be in the future (exceeds 5 minutes threshold).",
+                    StatusCodes.Status400BadRequest);
+            }
+
+            var maxAgeHours = saleConfig.OfflineMaxAgeHours > 0 ? saleConfig.OfflineMaxAgeHours : 72;
+            if (clientCreatedAt.Value < DateTimeOffset.UtcNow.AddHours(-maxAgeHours))
+            {
+                throw new PosSaleException("offline_sale_too_old",
+                    $"Offline sale exceeds maximum age limit of {maxAgeHours} hours.",
+                    StatusCodes.Status400BadRequest);
+            }
+
+            clientCreatedAtUtc = clientCreatedAt.Value.UtcDateTime;
+
+            // Check if cash shift for that Dhaka date has been closed
+            var dhakaDateTime = TimeZoneInfo.ConvertTime(clientCreatedAt.Value, DateHelper.DhakaTimeZone);
+            var dhakaDate = DateOnly.FromDateTime(dhakaDateTime.DateTime);
+
+            var isShiftClosed = await conn.ExecuteScalarAsync<bool>(@"
+                SELECT EXISTS (
+                    SELECT 1 FROM cash_closers
+                    WHERE pharmacy_no = @pharmacyNo
+                      AND branch_no = @branchNo
+                      AND closing_date >= @closingDate
+                );",
+                new { pharmacyNo, branchNo, closingDate = dhakaDate.ToDateTime(TimeOnly.MinValue) },
+                transaction: tran);
+
+            if (isShiftClosed)
+            {
+                lateSync = true;
+                saleTimestamp = DateTime.UtcNow;
+            }
+            else
+            {
+                lateSync = false;
+                saleTimestamp = clientCreatedAt.Value.UtcDateTime;
+            }
+        }
+        else
+        {
+            isOffline = false;
+            lateSync = false;
+            saleTimestamp = DateTime.UtcNow;
+        }
+
         var processedItems = new List<SaleInvoiceItem>();
-        var saleTimestamp = invoice.SaleTimestamp != default ? invoice.SaleTimestamp : DateTime.UtcNow;
 
         foreach (var line in items)
         {
@@ -96,6 +169,14 @@ public class SalePostingEngine : ISalePostingEngine
             if (product == null)
             {
                 throw new InvalidOperationException($"Product #{line.ProductNo} not found in this pharmacy branch.");
+            }
+
+            // Offline check: Narcotic/Rx items are strictly prohibited offline
+            if (isOffline && (product.IsNarcotic || product.IsPrescriptionRequired))
+            {
+                throw new PosSaleException("offline_not_allowed",
+                    $"Offline sale of narcotic or prescription-required medicine '{product.ProductName}' is prohibited. Needs internet.",
+                    StatusCodes.Status400BadRequest);
             }
 
             // Item 3: Prescription check on POS sale - PrescriptionNo must exist in doc_prescriptions for the same pharmacy.
@@ -177,8 +258,9 @@ public class SalePostingEngine : ISalePostingEngine
 
             if (qtyPcs > totalRealAvailable && !allowOutOfStock)
             {
-                throw new InvalidOperationException(
-                    $"Medicine '{product.ProductName}' has insufficient stock (available: {totalRealAvailable} pcs, requested: {qtyPcs} pcs), and out-of-stock sales are disabled in settings.");
+                throw new PosSaleException("insufficient_stock",
+                    $"Medicine '{product.ProductName}' has insufficient stock (available: {totalRealAvailable} pcs, requested: {qtyPcs} pcs), and out-of-stock sales are disabled in settings.",
+                    StatusCodes.Status409Conflict);
             }
 
             // Split needed quantity across real batches (FEFO) and placeholder (remainder)
@@ -369,6 +451,14 @@ public class SalePostingEngine : ISalePostingEngine
         var totalItemsCount = processedItems.Count;
         var approxProfit = finalPrice - totalCogs;
 
+        var offlineClientTotal = request.OfflineClientTotal ?? invoice.OfflineClientTotal;
+        var priceVariance = (isOffline && offlineClientTotal.HasValue)
+            ? Math.Round(finalPrice - offlineClientTotal.Value, 4)
+            : (isOffline ? 0m : (decimal?)null);
+        var offlineReceiptNo = request.OfflineReceiptNo ?? invoice.OfflineReceiptNo;
+        var idempotencyKey = request.IdempotencyKey ?? invoice.IdempotencyKey;
+        var idempotencyPayloadHash = request.IdempotencyPayloadHash ?? invoice.IdempotencyPayloadHash;
+
         const string insertInvoiceSql = @"
             INSERT INTO sale_invoices (
                 sale_invoice_no, uuid, pharmacy_no, branch_no, customer_no,
@@ -379,7 +469,9 @@ public class SalePostingEngine : ISalePostingEngine
                 customer_will_pay, change_amount, due_amount, payment_method,
                 document_status, cash_received_status, received_by_user_no,
                 salesman_user_no, is_quick_printed, exchange_of_return_no,
-                sale_timestamp, created_at, updated_at
+                sale_timestamp, is_offline, client_created_at, offline_receipt_no,
+                offline_client_total, price_variance, late_sync, idempotency_key,
+                idempotency_payload_hash, created_at, updated_at
             ) VALUES (
                 @saleInvoiceNo, gen_random_uuid(), @pharmacyNo, @branchNo, @CustomerNo,
                 @PrescriptionNo, @PrescriptionImageUrl, @salesNumber, @SaleMode,
@@ -389,7 +481,9 @@ public class SalePostingEngine : ISalePostingEngine
                 @customerWillPay, @changeAmount, @dueAmount, @PaymentMethod,
                 2, @CashReceivedStatus, @userNo,
                 @userNo, @IsQuickPrinted, @ExchangeOfReturnNo,
-                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                @saleTimestamp, @isOffline, @clientCreatedAtUtc, @offlineReceiptNo,
+                @offlineClientTotal, @priceVariance, @lateSync, @idempotencyKey,
+                @idempotencyPayloadHash, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );";
 
         await conn.ExecuteAsync(insertInvoiceSql, new
@@ -420,7 +514,16 @@ public class SalePostingEngine : ISalePostingEngine
             CashReceivedStatus = invoice.CashReceivedStatus > 0 ? invoice.CashReceivedStatus : (short)1,
             userNo,
             invoice.IsQuickPrinted,
-            ExchangeOfReturnNo = request.ExchangeOfReturnNo
+            ExchangeOfReturnNo = request.ExchangeOfReturnNo,
+            saleTimestamp,
+            isOffline,
+            clientCreatedAtUtc,
+            offlineReceiptNo,
+            offlineClientTotal,
+            priceVariance,
+            lateSync,
+            idempotencyKey,
+            idempotencyPayloadHash
         }, transaction: tran);
 
         // Insert items and stock deduction
@@ -525,11 +628,8 @@ public class SalePostingEngine : ISalePostingEngine
             var paymentNo = await conn.ExecuteScalarAsync<long>(
                 "SELECT nextval('seq_sale_invoice_payment_no');", transaction: tran);
 
-            // If account_no is not provided or <= 0, resolve account dynamically
-            var accountNo = pay.AccountNo;
-            if (accountNo <= 0)
-            {
-                var resolvedAccountNo = pay.PaymentMethod switch
+            // Dynamic payment account resolution from payment_method and tenant, strictly ignoring client account_no
+            var resolvedAccountNo = pay.PaymentMethod switch
                 {
                     1 => await conn.ExecuteScalarAsync<long?>(@"
                         SELECT account_no FROM acc_transaction_accounts
@@ -567,13 +667,12 @@ public class SalePostingEngine : ISalePostingEngine
                         new { pharmacyNo, branchNo }, transaction: tran)
                 };
 
-                if (!resolvedAccountNo.HasValue)
-                {
-                    throw new InvalidOperationException($"Could not resolve ledger account for payment method {pay.PaymentMethod} in pharmacy {pharmacyNo} branch {branchNo}. Please ensure the chart of accounts is configured.");
-                }
-
-                accountNo = resolvedAccountNo.Value;
+            if (!resolvedAccountNo.HasValue)
+            {
+                throw new InvalidOperationException($"Could not resolve ledger account for payment method {pay.PaymentMethod} in pharmacy {pharmacyNo} branch {branchNo}. Please ensure the chart of accounts is configured.");
             }
+
+            var accountNo = resolvedAccountNo.Value;
 
             pay.AccountNo = accountNo;
 
@@ -857,6 +956,15 @@ public class SalePostingEngine : ISalePostingEngine
         invoice.ApproximateProfit = approxProfit;
         invoice.TotalItems = totalItemsCount;
         invoice.DocumentStatus = 2;
+        invoice.SaleTimestamp = saleTimestamp;
+        invoice.IsOffline = isOffline;
+        invoice.ClientCreatedAt = clientCreatedAtUtc;
+        invoice.OfflineReceiptNo = offlineReceiptNo;
+        invoice.OfflineClientTotal = offlineClientTotal;
+        invoice.PriceVariance = priceVariance;
+        invoice.LateSync = lateSync;
+        invoice.IdempotencyKey = idempotencyKey;
+        invoice.IdempotencyPayloadHash = idempotencyPayloadHash;
         invoice.Items = processedItems;
         invoice.Payments = recordedPayments;
 

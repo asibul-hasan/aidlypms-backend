@@ -186,13 +186,15 @@ public class UnreceivedStockAndStocktakeTests : IAsyncLifetime
                 sale_config_no, pharmacy_no, branch_no, cash_received, out_of_stock_sale,
                 allow_loss_sale, product_purchase_cost, stock_qty, company_name,
                 profit_margin, rak_number, opening_stock_percent, max_sale_discount_percent,
-                is_max_discount_enabled, business_type, return_window_days, updated_at
+                is_max_discount_enabled, business_type, return_window_days,
+                offline_pos_enabled, offline_max_age_hours, updated_at
             ) VALUES (
                 @pharmacyNo, @pharmacyNo, @branchNo, TRUE, TRUE,
                 TRUE, TRUE, TRUE, TRUE,
                 TRUE, TRUE, 0, 10,
-                FALSE, 1, 7, CURRENT_TIMESTAMP
-            ) ON CONFLICT (pharmacy_no, branch_no) DO UPDATE SET out_of_stock_sale = TRUE;
+                FALSE, 1, 7,
+                TRUE, 72, CURRENT_TIMESTAMP
+            ) ON CONFLICT (pharmacy_no, branch_no) DO UPDATE SET out_of_stock_sale = TRUE, offline_pos_enabled = TRUE, offline_max_age_hours = 72;
         ", new { pharmacyNo, branchNo, userNo });
     }
 

@@ -52,6 +52,12 @@ public class CfgSaleConfig
     [JsonPropertyName("return_window_days")]
     public int ReturnWindowDays { get; set; } = 7;
 
+    [JsonPropertyName("offline_pos_enabled")]
+    public bool OfflinePosEnabled { get; set; } = false;
+
+    [JsonPropertyName("offline_max_age_hours")]
+    public int OfflineMaxAgeHours { get; set; } = 72;
+
     [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

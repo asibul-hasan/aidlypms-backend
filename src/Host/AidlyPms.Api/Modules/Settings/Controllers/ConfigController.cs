@@ -62,6 +62,8 @@ public class ConfigController : BaseController
                     max_sale_discount_percent = @MaxSaleDiscountPercent,
                     is_max_discount_enabled = @IsMaxDiscountEnabled,
                     business_type = @BusinessType,
+                    offline_pos_enabled = @OfflinePosEnabled,
+                    offline_max_age_hours = @OfflineMaxAgeHours,
                     updated_at = NOW()
                 WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
                 new
@@ -78,6 +80,8 @@ public class ConfigController : BaseController
                     model.MaxSaleDiscountPercent,
                     model.IsMaxDiscountEnabled,
                     model.BusinessType,
+                    model.OfflinePosEnabled,
+                    model.OfflineMaxAgeHours,
                     CurrentPharmacyNo,
                     CurrentBranchNo
                 });
@@ -92,12 +96,12 @@ public class ConfigController : BaseController
                     sale_config_no, pharmacy_no, branch_no, cash_received, out_of_stock_sale,
                     allow_loss_sale, product_purchase_cost, stock_qty, company_name,
                     profit_margin, rak_number, opening_stock_percent, max_sale_discount_percent,
-                    is_max_discount_enabled, business_type, updated_at
+                    is_max_discount_enabled, business_type, offline_pos_enabled, offline_max_age_hours, updated_at
                 ) VALUES (
                     @NextNo, @CurrentPharmacyNo, @CurrentBranchNo, @CashReceived, @OutOfStockSale,
                     @AllowLossSale, @ProductPurchaseCost, @StockQty, @CompanyName,
                     @ProfitMargin, @RakNumber, @OpeningStockPercent, @MaxSaleDiscountPercent,
-                    @IsMaxDiscountEnabled, @BusinessType, NOW()
+                    @IsMaxDiscountEnabled, @BusinessType, @OfflinePosEnabled, @OfflineMaxAgeHours, NOW()
                 );",
                 new
                 {
@@ -115,7 +119,9 @@ public class ConfigController : BaseController
                     model.OpeningStockPercent,
                     model.MaxSaleDiscountPercent,
                     model.IsMaxDiscountEnabled,
-                    model.BusinessType
+                    model.BusinessType,
+                    model.OfflinePosEnabled,
+                    model.OfflineMaxAgeHours
                 });
         }
 

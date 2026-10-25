@@ -12,6 +12,12 @@ public class SalePostingRequest
     public List<SaleInvoiceItem> Items { get; set; } = new();
     public List<SaleInvoicePayment>? Payments { get; set; }
     public long? ExchangeOfReturnNo { get; set; }
+    public Guid? IdempotencyKey { get; set; }
+    public string? IdempotencyPayloadHash { get; set; }
+    public bool IsOffline { get; set; }
+    public DateTimeOffset? ClientCreatedAt { get; set; }
+    public string? OfflineReceiptNo { get; set; }
+    public decimal? OfflineClientTotal { get; set; }
 }
 
 public class SalePostingResult

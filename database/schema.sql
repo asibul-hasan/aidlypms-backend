@@ -716,6 +716,14 @@ CREATE TABLE IF NOT EXISTS sale_invoices (
     is_quick_printed BOOLEAN NOT NULL,
     exchange_of_return_no BIGINT,
     sale_timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+    is_offline BOOLEAN NOT NULL,
+    client_created_at TIMESTAMP WITH TIME ZONE,
+    offline_receipt_no VARCHAR(100),
+    offline_client_total NUMERIC(18, 4),
+    price_variance NUMERIC(18, 4),
+    late_sync BOOLEAN NOT NULL,
+    idempotency_key UUID,
+    idempotency_payload_hash VARCHAR(64),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_sale_number UNIQUE (pharmacy_no, branch_no, sales_number)
@@ -1101,6 +1109,8 @@ CREATE TABLE IF NOT EXISTS cfg_sale_configs (
     is_max_discount_enabled BOOLEAN NOT NULL,
     business_type SMALLINT NOT NULL,
     return_window_days INT NOT NULL DEFAULT 7,
+    offline_pos_enabled BOOLEAN NOT NULL,
+    offline_max_age_hours INT NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT uq_sale_config_branch UNIQUE (pharmacy_no, branch_no)
 );
@@ -1248,6 +1258,8 @@ CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_invoice ON sale_invoice_items(
 CREATE INDEX IF NOT EXISTS idx_sale_invoice_items_product ON sale_invoice_items(product_no);
 CREATE INDEX IF NOT EXISTS idx_sale_invoice_payments_invoice ON sale_invoice_payments(sale_invoice_no);
 CREATE INDEX IF NOT EXISTS idx_sale_invoice_payments_account ON sale_invoice_payments(pharmacy_no, branch_no, account_no);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sale_invoices_idempotency ON sale_invoices (pharmacy_no, branch_no, idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sale_invoices_offline_review ON sale_invoices (pharmacy_no, branch_no, is_offline, sale_timestamp DESC) WHERE is_offline = TRUE;
 
 -- Sales Returns
 CREATE INDEX IF NOT EXISTS idx_sale_returns_lookup ON sale_returns(pharmacy_no, branch_no, return_date DESC);

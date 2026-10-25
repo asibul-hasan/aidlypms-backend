@@ -98,6 +98,33 @@ public class SaleInvoice
     [JsonPropertyName("sale_timestamp")]
     public DateTime SaleTimestamp { get; set; } = DateTime.UtcNow;
 
+    [JsonPropertyName("is_offline")]
+    public bool IsOffline { get; set; }
+
+    [JsonPropertyName("client_created_at")]
+    public DateTime? ClientCreatedAt { get; set; }
+
+    [JsonPropertyName("offline_receipt_no")]
+    public string? OfflineReceiptNo { get; set; }
+
+    [JsonPropertyName("offline_client_total")]
+    public decimal? OfflineClientTotal { get; set; }
+
+    [JsonPropertyName("price_variance")]
+    public decimal? PriceVariance { get; set; }
+
+    [JsonPropertyName("late_sync")]
+    public bool LateSync { get; set; }
+
+    [JsonPropertyName("idempotency_key")]
+    public Guid? IdempotencyKey { get; set; }
+
+    [JsonPropertyName("idempotency_payload_hash")]
+    public string? IdempotencyPayloadHash { get; set; }
+
+    [JsonPropertyName("idempotent_replay")]
+    public bool IdempotentReplay { get; set; }
+
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -320,6 +347,153 @@ public class CreateSalePayload
 
     [JsonPropertyName("payment")]
     public SaleInvoicePayment? Payment { get; set; }
+
+    [JsonPropertyName("idempotency_key")]
+    public Guid? IdempotencyKey { get; set; }
+
+    [JsonPropertyName("is_offline")]
+    public bool IsOffline { get; set; }
+
+    [JsonPropertyName("client_created_at")]
+    public DateTimeOffset? ClientCreatedAt { get; set; }
+
+    [JsonPropertyName("offline_receipt_no")]
+    public string? OfflineReceiptNo { get; set; }
+
+    [JsonPropertyName("offline_client_total")]
+    public decimal? OfflineClientTotal { get; set; }
+}
+
+public class PosCatalogSnapshotDto
+{
+    [JsonPropertyName("server_time_utc")]
+    public DateTimeOffset ServerTimeUtc { get; set; } = DateTimeOffset.UtcNow;
+
+    [JsonPropertyName("snapshot_version")]
+    public string SnapshotVersion { get; set; } = string.Empty;
+
+    [JsonPropertyName("config")]
+    public Settings.Models.CfgSaleConfig Config { get; set; } = new();
+
+    [JsonPropertyName("products")]
+    public List<SnapshotProductDto> Products { get; set; } = new();
+
+    [JsonPropertyName("batches")]
+    public List<SnapshotBatchDto> Batches { get; set; } = new();
+
+    [JsonPropertyName("customers")]
+    public List<SnapshotCustomerDto> Customers { get; set; } = new();
+}
+
+public class SnapshotProductDto
+{
+    [JsonPropertyName("product_no")]
+    public long ProductNo { get; set; }
+
+    [JsonPropertyName("product_name")]
+    public string ProductName { get; set; } = string.Empty;
+
+    [JsonPropertyName("generic_name")]
+    public string? GenericName { get; set; }
+
+    [JsonPropertyName("company_name")]
+    public string? CompanyName { get; set; }
+
+    [JsonPropertyName("strength")]
+    public string? Strength { get; set; }
+
+    [JsonPropertyName("form_type")]
+    public string? FormType { get; set; }
+
+    [JsonPropertyName("barcode_value")]
+    public string? BarcodeValue { get; set; }
+
+    [JsonPropertyName("box_size")]
+    public int BoxSize { get; set; } = 1;
+
+    [JsonPropertyName("unit_price")]
+    public decimal UnitPrice { get; set; }
+
+    [JsonPropertyName("mrp")]
+    public decimal Mrp { get; set; }
+
+    [JsonPropertyName("purchase_price")]
+    public decimal PurchasePrice { get; set; }
+
+    [JsonPropertyName("vat_percent")]
+    public decimal VatPercent { get; set; }
+
+    [JsonPropertyName("is_narcotic")]
+    public bool IsNarcotic { get; set; }
+
+    [JsonPropertyName("is_prescription_required")]
+    public bool IsPrescriptionRequired { get; set; }
+
+    [JsonPropertyName("is_active")]
+    public bool IsActive { get; set; } = true;
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class SnapshotBatchDto
+{
+    [JsonPropertyName("batch_no")]
+    public long BatchNo { get; set; }
+
+    [JsonPropertyName("product_no")]
+    public long ProductNo { get; set; }
+
+    [JsonPropertyName("batch_number")]
+    public string BatchNumber { get; set; } = string.Empty;
+
+    [JsonPropertyName("expiry_date")]
+    public DateTime ExpiryDate { get; set; }
+
+    [JsonPropertyName("cost_price")]
+    public decimal CostPrice { get; set; }
+
+    [JsonPropertyName("sale_price")]
+    public decimal SalePrice { get; set; }
+
+    [JsonPropertyName("mrp")]
+    public decimal Mrp { get; set; }
+
+    [JsonPropertyName("available_qty")]
+    public int AvailableQty { get; set; }
+
+    [JsonPropertyName("box_qty")]
+    public int BoxQty { get; set; }
+
+    [JsonPropertyName("rack_number")]
+    public string? RackNumber { get; set; }
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class SnapshotCustomerDto
+{
+    [JsonPropertyName("customer_no")]
+    public long CustomerNo { get; set; }
+
+    [JsonPropertyName("customer_name")]
+    public string CustomerName { get; set; } = string.Empty;
+
+    [JsonPropertyName("phone")]
+    public string? Phone { get; set; }
+
+    [JsonPropertyName("address")]
+    public string? Address { get; set; }
+
+    [JsonPropertyName("current_due")]
+    public decimal CurrentDue { get; set; }
+
+    [JsonPropertyName("loyalty_points")]
+    public int LoyaltyPoints { get; set; }
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; set; }
 }
 
 public class SaleReturn

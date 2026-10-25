@@ -210,13 +210,15 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                 sale_config_no, pharmacy_no, branch_no, cash_received, out_of_stock_sale,
                 allow_loss_sale, product_purchase_cost, stock_qty, company_name,
                 profit_margin, rak_number, opening_stock_percent, max_sale_discount_percent,
-                is_max_discount_enabled, business_type, return_window_days, updated_at
+                is_max_discount_enabled, business_type, return_window_days,
+                offline_pos_enabled, offline_max_age_hours, updated_at
             ) VALUES (
                 @pharmacyNo, @pharmacyNo, @branchNo, TRUE, TRUE,
                 TRUE, TRUE, TRUE, TRUE,
                 TRUE, TRUE, 0, 10,
-                FALSE, 1, 7, CURRENT_TIMESTAMP
-            ) ON CONFLICT (pharmacy_no, branch_no) DO UPDATE SET out_of_stock_sale = TRUE;
+                FALSE, 1, 7,
+                TRUE, 72, CURRENT_TIMESTAMP
+            ) ON CONFLICT (pharmacy_no, branch_no) DO UPDATE SET out_of_stock_sale = TRUE, offline_pos_enabled = TRUE, offline_max_age_hours = 72;
         ", new { pharmacyNo, branchNo, userNo });
     }
 
@@ -528,14 +530,16 @@ public class RealPostgreSqlIntegrationTests : IAsyncLifetime
                     card_commission_percent, card_commission_amount,
                     net_amount, vat_amount, round_off_amount, final_price, approximate_profit,
                     due_amount, payment_method, customer_will_pay, change_amount,
-                    document_status, cash_received_status, is_quick_printed, sale_timestamp, created_at, updated_at
+                    document_status, cash_received_status, is_quick_printed, sale_timestamp,
+                    is_offline, late_sync, created_at, updated_at
                 ) VALUES (
                     @invoiceNo, gen_random_uuid(), @TestPharmacyNo, @TestBranchNo, NULL, 'INV-TEST-NARCOTIC-9001',
                     1, 1, 15.0, 1, 0,
                     0, 0,
                     15.0, 0, 0, 15.0, 5.0,
                     0, 1, 15.0, 0,
-                    2, 2, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    2, 2, FALSE, CURRENT_TIMESTAMP,
+                    FALSE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 ) ON CONFLICT (sale_invoice_no) DO UPDATE SET document_status = 2;
 
                 INSERT INTO sale_invoice_items (
