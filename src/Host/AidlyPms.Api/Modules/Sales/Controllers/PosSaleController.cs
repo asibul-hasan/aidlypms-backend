@@ -82,7 +82,11 @@ public class PosSaleController : BaseController
                 s.salesman_user_no, s.is_quick_printed, s.sale_timestamp,
                 s.created_at, s.updated_at,
                 c.name AS customer_name,
-                c.phone AS customer_phone
+                c.phone AS customer_phone,
+                EXISTS (
+                    SELECT 1 FROM sale_returns sr
+                    WHERE sr.sale_invoice_no = s.sale_invoice_no AND sr.return_status = 2
+                ) AS is_returned
             FROM sale_invoices s
             LEFT JOIN cust_customers c ON s.customer_no = c.customer_no
             WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo

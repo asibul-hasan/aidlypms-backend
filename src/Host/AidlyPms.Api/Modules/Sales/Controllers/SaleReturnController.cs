@@ -43,27 +43,45 @@ public class SaleReturnController : BaseController
     public async Task<ActionResult<ApiResponse<PagedResult<SaleReturn>>>> GetReturns(
         [FromQuery] QueryFilter filter,
         [FromQuery] string? search,
-        [FromQuery] long? customerNo)
+        [FromQuery] long? customerNo,
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null)
     {
+        (startDate, endDate) = DateHelper.NormalizeDateRange(startDate, endDate);
         using var conn = _db.CreateConnection();
         var sql = @"
-            SELECT r.*, c.name AS customer_name
+            SELECT r.*, c.name AS customer_name, c.phone AS customer_phone
             FROM sale_returns r
             LEFT JOIN cust_customers c ON r.customer_no = c.customer_no
             WHERE r.pharmacy_no = @CurrentPharmacyNo AND r.branch_no = @CurrentBranchNo";
 
         var countSql = @"
             SELECT COUNT(1) FROM sale_returns r
+            LEFT JOIN cust_customers c ON r.customer_no = c.customer_no
             WHERE r.pharmacy_no = @CurrentPharmacyNo AND r.branch_no = @CurrentBranchNo";
 
         var p = new DynamicParameters();
         p.Add("CurrentPharmacyNo", CurrentPharmacyNo);
         p.Add("CurrentBranchNo", CurrentBranchNo);
 
+        if (startDate.HasValue)
+        {
+            sql += " AND r.return_date >= @StartDate";
+            countSql += " AND r.return_date >= @StartDate";
+            p.Add("StartDate", startDate.Value);
+        }
+
+        if (endDate.HasValue)
+        {
+            sql += " AND r.return_date <= @EndDate";
+            countSql += " AND r.return_date <= @EndDate";
+            p.Add("EndDate", endDate.Value);
+        }
+
         if (!string.IsNullOrWhiteSpace(search))
         {
-            sql += " AND (r.return_invoice_no ILIKE @Search OR r.original_invoice_no ILIKE @Search)";
-            countSql += " AND (r.return_invoice_no ILIKE @Search OR r.original_invoice_no ILIKE @Search)";
+            sql += " AND (r.return_invoice_no ILIKE @Search OR r.original_invoice_no ILIKE @Search OR c.name ILIKE @Search OR c.phone ILIKE @Search)";
+            countSql += " AND (r.return_invoice_no ILIKE @Search OR r.original_invoice_no ILIKE @Search OR c.name ILIKE @Search OR c.phone ILIKE @Search)";
             p.Add("Search", $"%{search.Trim()}%");
         }
 
@@ -91,7 +109,7 @@ public class SaleReturnController : BaseController
     {
         using var conn = _db.CreateConnection();
         var ret = await conn.QuerySingleOrDefaultAsync<SaleReturn>(@"
-            SELECT r.*, c.name AS customer_name
+            SELECT r.*, c.name AS customer_name, c.phone AS customer_phone
             FROM sale_returns r
             LEFT JOIN cust_customers c ON r.customer_no = c.customer_no
             WHERE r.sale_return_no = @Id AND r.pharmacy_no = @CurrentPharmacyNo AND r.branch_no = @CurrentBranchNo;",
@@ -131,7 +149,7 @@ public class SaleReturnController : BaseController
             if (req.IdempotencyKey.HasValue)
             {
                 var existingReturn = await conn.QuerySingleOrDefaultAsync<SaleReturn>(@"
-                    SELECT r.*, c.name AS customer_name
+                    SELECT r.*, c.name AS customer_name, c.phone AS customer_phone
                     FROM sale_returns r
                     LEFT JOIN cust_customers c ON r.customer_no = c.customer_no
                     WHERE r.idempotency_key = @IdempotencyKey

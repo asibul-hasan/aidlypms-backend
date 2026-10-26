@@ -138,6 +138,9 @@ public class SaleInvoice
     [JsonPropertyName("customer_phone")]
     public string? CustomerPhone { get; set; }
 
+    [JsonPropertyName("is_returned")]
+    public bool IsReturned { get; set; }
+
     [JsonPropertyName("items")]
     public List<SaleInvoiceItem>? Items { get; set; }
 
@@ -570,6 +573,9 @@ public class SaleReturn
     // Joined
     [JsonPropertyName("customer_name")]
     public string? CustomerName { get; set; }
+
+    [JsonPropertyName("customer_phone")]
+    public string? CustomerPhone { get; set; }
 
     [JsonPropertyName("items")]
     public List<SaleReturnItem>? Items { get; set; }
