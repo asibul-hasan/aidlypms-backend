@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.16.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.3...v1.16.4) (2026-10-26)
+
+
+### 🧪 Tests
+
+* **cfg:** align cfg_sale_configs seed with default_pos_screen column in tests ([c17d7b5](https://github.com/asibul-hasan/aidlypms-backend/commit/c17d7b5d5167427b518b451c36b8a6b0a689e324))
+
 ## [1.16.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.2...v1.16.3) (2026-10-26)
 
 
