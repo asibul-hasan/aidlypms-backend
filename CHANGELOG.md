@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.16.6](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.5...v1.16.6) (2026-10-26)
+
+
+### 🐛 Bug Fixes
+
+* **sys:** enforce AuthenticatedOnly on sys migrations and align test seed columns ([139fb32](https://github.com/asibul-hasan/aidlypms-backend/commit/139fb321c735f4efe7a69cf88d93efbebe9e929a))
+
 ## [1.16.5](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.4...v1.16.5) (2026-10-26)
 
 
