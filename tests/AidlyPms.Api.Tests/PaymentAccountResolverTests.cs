@@ -69,13 +69,17 @@ public class PaymentAccountResolverTests : IAsyncLifetime
 
         // Seed pharmacy & branch
         await conn.ExecuteAsync(@"
-            INSERT INTO sys_pharmacies (pharmacy_no, pharmacy_name, bin_number, drug_license_no, is_active, created_at, updated_at)
-            VALUES (@p, 'Resolver Test Pharmacy', '123456789', 'DL-TEST-001', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT (pharmacy_no) DO NOTHING;
+            INSERT INTO sys_pharmacies (
+                pharmacy_no, uuid, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
+            ) VALUES (
+                @p, gen_random_uuid(), 'Resolver Test Pharmacy', '01700000000', 'test@example.com', 'Test Address', 'Dhaka', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (pharmacy_no) DO NOTHING;
 
-            INSERT INTO sys_branches (branch_no, pharmacy_no, branch_name, is_head_office, is_active, created_at, updated_at)
-            VALUES (@b, @p, 'Resolver Main Branch', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT (branch_no) DO NOTHING;
+            INSERT INTO sys_branches (
+                branch_no, uuid, pharmacy_no, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
+            ) VALUES (
+                @b, gen_random_uuid(), @p, 'Resolver Main Branch', '01700000000', 'test@example.com', 'Branch Address', 'Dhaka', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (branch_no) DO NOTHING;
         ", new { p, b });
 
         // Seed the REAL standard chart matching schema.sql (accounts 1..21)
@@ -275,9 +279,13 @@ public class PaymentAccountResolverTests : IAsyncLifetime
 
         // Seed customer
         await conn.ExecuteAsync(@"
-            INSERT INTO cust_customers (customer_no, pharmacy_no, branch_no, name, phone, is_active, created_at, updated_at)
-            VALUES (@p * 10, @p, @b, 'Drawer Test Customer', '01911111111', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT (customer_no) DO NOTHING;
+            INSERT INTO cust_customers (
+                customer_no, uuid, pharmacy_no, branch_no, name, phone, customer_type, discount_percent,
+                has_due, current_due, advance_balance, is_loyalty_member, loyalty_points, is_active, created_at, updated_at
+            ) VALUES (
+                @p * 10, gen_random_uuid(), @p, @b, 'Drawer Test Customer', '01911111111', 1, 0,
+                FALSE, 0, 0, FALSE, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (customer_no) DO NOTHING;
         ", new { p, b });
 
         // Insert two sale invoices today: one paid in Cash (৳500), one paid in bKash (৳300)
@@ -286,18 +294,20 @@ public class PaymentAccountResolverTests : IAsyncLifetime
 
         await conn.ExecuteAsync(@"
             INSERT INTO sale_invoices (
-                sale_invoice_no, pharmacy_no, branch_no, customer_no, sales_number,
-                gross_total_price, final_price, total_tax, total_discount,
-                customer_will_pay, paid_amount, due_amount, change_amount,
-                payment_method, document_status, sale_timestamp, created_at, updated_at
+                sale_invoice_no, uuid, pharmacy_no, branch_no, customer_no, sales_number, sale_mode,
+                total_items, gross_total_price, discount_type, discount_value,
+                card_commission_percent, card_commission_amount, net_amount, vat_amount, round_off_amount,
+                final_price, approximate_profit, customer_will_pay, change_amount, due_amount,
+                payment_method, document_status, cash_received_status, is_quick_printed,
+                is_offline, late_sync, sale_timestamp, created_at, updated_at
             ) VALUES
-            (@saleNo1, @p, @b, @p * 10, 'INV-CASH-001', 500, 500, 0, 0, 500, 500, 0, 0, 1, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-            (@saleNo2, @p, @b, @p * 10, 'INV-BKASH-001', 300, 300, 0, 0, 300, 300, 0, 0, 3, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+            (@saleNo1, gen_random_uuid(), @p, @b, @p * 10, 'INV-CASH-001', 1, 1, 500, 1, 0, 0, 0, 500, 0, 0, 500, 50, 500, 0, 0, 1, 2, 2, FALSE, FALSE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            (@saleNo2, gen_random_uuid(), @p, @b, @p * 10, 'INV-BKASH-001', 1, 1, 300, 1, 0, 0, 0, 300, 0, 0, 300, 30, 300, 0, 0, 3, 2, 2, FALSE, FALSE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
-            INSERT INTO sale_invoice_payments (sale_invoice_payment_no, sale_invoice_no, payment_method, amount, account_no)
+            INSERT INTO sale_invoice_payments (sale_payment_no, pharmacy_no, branch_no, sale_invoice_no, payment_method, amount, account_no, created_at)
             VALUES
-            (nextval('seq_sale_invoice_payment_no'), @saleNo1, 1, 500, @p * 100 + 1),
-            (nextval('seq_sale_invoice_payment_no'), @saleNo2, 3, 300, @p * 100 + 13);
+            (nextval('seq_sale_invoice_payment_no'), @p, @b, @saleNo1, 1, 500, @p * 100 + 1, CURRENT_TIMESTAMP),
+            (nextval('seq_sale_invoice_payment_no'), @p, @b, @saleNo2, 3, 300, @p * 100 + 13, CURRENT_TIMESTAMP);
         ", new { saleNo1, saleNo2, p, b });
 
         // Query the cash sales payment sum used by CashCloserController
@@ -344,13 +354,17 @@ public class PaymentAccountResolverTests : IAsyncLifetime
         const long newB = TestBranchNo + 88;
 
         await conn.ExecuteAsync(@"
-            INSERT INTO sys_pharmacies (pharmacy_no, pharmacy_name, bin_number, drug_license_no, is_active, created_at, updated_at)
-            VALUES (@newP, 'Brand New Pharmacy', '999999999', 'DL-NEW-001', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT (pharmacy_no) DO NOTHING;
+            INSERT INTO sys_pharmacies (
+                pharmacy_no, uuid, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
+            ) VALUES (
+                @newP, gen_random_uuid(), 'Brand New Pharmacy', '01700000088', 'test88@example.com', 'Test Address', 'Dhaka', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (pharmacy_no) DO NOTHING;
 
-            INSERT INTO sys_branches (branch_no, pharmacy_no, branch_name, is_head_office, is_active, created_at, updated_at)
-            VALUES (@newB, @newP, 'Brand New Main Branch', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT (branch_no) DO NOTHING;
+            INSERT INTO sys_branches (
+                branch_no, uuid, pharmacy_no, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
+            ) VALUES (
+                @newB, gen_random_uuid(), @newP, 'Brand New Main Branch', '01700000088', 'test88@example.com', 'Branch Address', 'Dhaka', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (branch_no) DO NOTHING;
         ", new { newP, newB });
 
         await seeder.SeedDefaultChartForPharmacyAsync(conn, null, newP, newB);
