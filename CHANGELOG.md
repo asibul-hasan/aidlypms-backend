@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.16.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.1...v1.16.2) (2026-10-26)
+
+
+### 🐛 Bug Fixes
+
+* **pos:** resolve DateTimeOffset timezone offset exception on offline sales ([69d4c37](https://github.com/asibul-hasan/aidlypms-backend/commit/69d4c371fab001c6d3cd2ddb02b41960e31c2fca))
+
 ## [1.16.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.0...v1.16.1) (2026-10-25)
 
 
