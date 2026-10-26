@@ -288,10 +288,10 @@ public class PosSaleController : BaseController
                     SELECT 
                         i.*, p.product_name, b.batch_number,
                         COALESCE((
-                            SELECT SUM(ri.return_qty)
+                            SELECT SUM(ri.total_qty_pcs)
                             FROM sale_return_items ri
                             JOIN sale_returns r ON ri.sale_return_no = r.sale_return_no
-                            WHERE ri.sale_invoice_item_no = i.sale_invoice_item_no AND r.return_status != 3
+                            WHERE ri.sale_invoice_item_no = i.sale_invoice_item_no AND r.return_status = 2
                         ), 0) AS already_returned_qty
                     FROM sale_invoice_items i
                     JOIN prod_products p ON i.product_no = p.product_no
@@ -866,7 +866,7 @@ public class PosSaleController : BaseController
             };
 
         const string productsSql = @"
-            SELECT p.product_no, p.product_name, g.generic_name, c.company_name,
+            SELECT p.product_no, p.product_name, g.name AS generic_name, c.name AS company_name,
                    p.strength, NULL AS form_type, p.barcode_value,
                    p.quantity_per_box AS box_size, p.sale_price_per_piece AS unit_price,
                    p.sale_price_per_piece AS mrp, p.purchase_price_per_piece AS purchase_price,
