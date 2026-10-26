@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.17.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.7...v1.17.0) (2026-10-26)
+
+
+### 🚀 Features
+
+* **sales:** add is_returned flag to sale invoices and enhance return filters ([70921a4](https://github.com/asibul-hasan/aidlypms-backend/commit/70921a4a5f7138ebf2b936906d1bf5f753c1c266))
+
 ## [1.16.7](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.6...v1.16.7) (2026-10-26)
 
 
