@@ -1761,22 +1761,28 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         const long testProdNo = 900299;
         const long testBatchNo = 9002991;
 
-        // Ensure product and batch exist with stock
+        // Ensure customer, product and batch exist with stock
         await conn.ExecuteAsync(@"
-            INSERT INTO prod_products (
-                product_no, uuid, pharmacy_no, branch_no, company_no, generic_no,
-                product_name, strength, form_type, box_size, box_type,
-                minimum_stock_alert, cost_per_unit, mrp_per_unit, vat_percent, sale_price_rate, purchase_discount_percent,
-                product_details, rack_number,
-                is_active, is_narcotic, is_prescription_required, opening_stock_pcs, allow_loss_sale,
-                created_at, updated_at
+            INSERT INTO cust_customers (
+                customer_no, uuid, pharmacy_no, branch_no, name, phone, customer_type, discount_percent,
+                has_due, current_due, advance_balance, is_loyalty_member, loyalty_points, is_active, created_at, updated_at
             ) VALUES (
-                @testProdNo, gen_random_uuid(), @p, @b, @p, @p,
-                'Payment Method Test Paracetamol', '500mg', 'Tablet', 10, 1,
-                10, 10, 15, 0, 15, 0,
-                'Payment test medicine', 'RACK-PM-1',
-                TRUE, FALSE, FALSE, 500, TRUE,
-                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                1, gen_random_uuid(), @p, @b, 'Test Customer 1', '01700000001', 1, 0,
+                FALSE, 0, 0, FALSE, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (customer_no) DO NOTHING;
+
+            INSERT INTO prod_products (
+                product_no, uuid, pharmacy_no, branch_no, company_no, generic_no, product_name,
+                medicine_type, unit_type, quantity_per_box,
+                cost_per_box, sale_price_per_box, avg_purchase_price_per_piece, purchase_price_per_piece, sale_price_per_piece,
+                wholesale_price_per_box, wholesale_price_per_piece,
+                is_medicine, is_prescription_required, is_narcotic, min_stock_qty_pcs, is_active, created_at, updated_at
+            ) VALUES (
+                @testProdNo, gen_random_uuid(), @p, @b, @p, @p, 'Payment Method Test Paracetamol',
+                1, 1, 10,
+                100.00, 150.00, 10.00, 10.00, 15.00,
+                150.00, 15.00,
+                TRUE, FALSE, FALSE, 10, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (product_no) DO UPDATE SET is_active = TRUE;
 
             INSERT INTO prod_product_batches (

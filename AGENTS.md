@@ -113,17 +113,76 @@ git -C aidlypms-backend push origin main
 
 ---
 
-### Rule 10: Background Jobs Configuration (`RUN_BACKGROUND_JOBS`)
-- `ExpiryMaintenanceService` runs daily at 00:01 Asia/Dhaka (with an initial sweep on startup) to mark passed batches as expired using PostgreSQL advisory locking (`pg_try_advisory_lock(7421098)`).
-- By default in production, background jobs are **enabled**.
-- Set environment variable `RUN_BACKGROUND_JOBS=false` (or configuration `"RUN_BACKGROUND_JOBS": "false"`) to explicitly disable background jobs (e.g. during integration testing or ad-hoc maintenance tasks).
-
----
-
-### Rule 11: Scope, Credential Safety & CI Log Policy
+### Rule 10: Scope, Credential Safety & CI Log Policy
 - **Scope Restriction**: All modifications are strictly scoped to Aidly PMS. Do NOT change Login, seed-defaults, demo users, or credentials under any circumstances.
 - **Credential Protection**: AI agents and developers must NEVER read credential stores, Windows Credential Manager, git credential helpers, secret vaults, or tokens.
 - **CI/CD Diagnostics**: If CI build or test logs are required to diagnose a pipeline failure, do not attempt to query remote CI runner environments or credential-backed APIs; ask the user to paste the CI logs directly.
+
+---
+
+## How to Add a Screen (DB-Driven RBAC Architecture)
+
+To add a new screen or form to Aidly PMS while adhering to DB-driven menus, permissions, and CI parity gates, follow this mandatory 4-step checklist:
+
+### 1. Database Migration & Seed Parity
+1. Create identical migrations in both repositories:
+   - `aidlypms-backend/database/migrations/YYYYMMDD_HH_add_screen_xyz.sql`
+   - `sme-software-frontend/apps/aidlyPms/database/migrations/YYYYMMDD_HH_add_screen_xyz.sql`
+2. Insert the screen into `sys_menus` under its parent submodule (`parent_menu_no`):
+   ```sql
+   INSERT INTO sys_menus (menu_no, menu_code, title, title_bn, path, route, icon, parent_menu_no, order_no, menu_type, status, created_at, updated_at)
+   SELECT nextval('seq_sys_menus_pk'), 'MOD_1234', 'Screen Title', 'বাংলা শিরোনাম', '/route/path', '/route/path', 'icon-name',
+          (SELECT menu_no FROM sys_menus WHERE menu_code = 'SUB_MODULE_CODE'), 10, 'SCREEN', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+   WHERE NOT EXISTS (SELECT 1 FROM sys_menus WHERE menu_code = 'MOD_1234');
+   ```
+3. Grant permissions in `sys_role_menu_permissions` to existing manager/admin roles.
+4. Keep `schema.sql` and `db_script.sql` in both repositories strictly in sync.
+
+### 2. Backend Controller Annotation
+1. Annotate the API controller or endpoint with `[RequireMenu("MOD_1234")]`:
+   ```csharp
+   [ApiController]
+   [Route("api/v1/[controller]")]
+   [RequireMenu("MOD_1234")]
+   public class MyNewFeatureController : BaseController
+   ```
+2. For high-impact operational writes (e.g. sale return, invoice void, price change, shift close, stock adjustment, user management, role management), also require the relevant special permission attribute: `[RequirePermission("special.code")]`.
+3. Every public endpoint must be annotated with `[RequireMenu]`, `[RequirePermission]`, `[AllowAnonymous]`, or `[AuthenticatedOnly]`. The reflection test (`MenuAndRolePermissionsTests`) will fail CI if any action is unannotated.
+
+### 3. Frontend Route Registry & Guard
+1. Register screen metadata in `SYSTEM_SCREENS` in `apps/aidlyPms/src/app/core/config/menu.config.ts`:
+   ```ts
+   {
+     form_id: 'MOD_1234',
+     title: 'Screen Title',
+     type: 'Main Screen',
+     route: '/route/path',
+     permission_code: 'MOD_1234',
+     description: 'Functional description of the screen.',
+     is_in_sidebar: true,
+   }
+   ```
+2. Add the route in `apps/aidlyPms/src/app/app.routes.ts`:
+   ```ts
+   { path: 'route/path', component: MyComponent, canActivate: [menuGuard], data: { menuCode: 'MOD_1234' } },
+   ```
+3. Control UI element visibility/interaction inside components using directives:
+   - Menu actions: `*appMenuAction="'MOD_1234:create'"` (or `:edit`, `:delete`, `:view`)
+   - Special permissions: `*appHasPermission="'special.code'"`
+
+### 4. Verification Gates
+Run all verification gates before committing:
+```bash
+# 1. Verify schema, migration, and menu route parity (100% required)
+npm --prefix sme-software-frontend run verify:pms-schema
+
+# 2. Verify backend reflection test & business unit tests
+export PATH="$HOME/.dotnet:$PATH"
+dotnet test aidlypms-backend/tests/AidlyPms.Api.Tests/AidlyPms.Api.Tests.csproj
+
+# 3. Verify Angular production build
+npm --prefix sme-software-frontend run build:pms -- --configuration production
+```
 
 
 

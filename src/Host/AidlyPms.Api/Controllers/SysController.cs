@@ -9,7 +9,7 @@ namespace AidlyPms.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/sys")]
-[AllowAnonymous]
+[AuthenticatedOnly]
 public class SysController : ControllerBase
 {
     private readonly IDbConnectionFactory _db;
