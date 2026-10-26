@@ -66,6 +66,22 @@ public static class DateHelper
         return DateTime.SpecifyKind(date.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
     }
 
+    public static DateTimeOffset ToUtcOffset(DateTime dt)
+    {
+        var utcDt = dt.Kind switch
+        {
+            DateTimeKind.Utc => dt,
+            DateTimeKind.Local => dt.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+        };
+        return new DateTimeOffset(utcDt, TimeSpan.Zero);
+    }
+
+    public static DateTimeOffset? ToUtcOffset(DateTime? dt)
+    {
+        return dt.HasValue ? ToUtcOffset(dt.Value) : null;
+    }
+
     public static readonly TimeZoneInfo DhakaTimeZone = ResolveDhakaTimeZone();
 
     private static TimeZoneInfo ResolveDhakaTimeZone()

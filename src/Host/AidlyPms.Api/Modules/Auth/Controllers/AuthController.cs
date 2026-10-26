@@ -157,7 +157,10 @@ public class AuthController : BaseController
             };
         }
 
-        // 5. Generate JWT token
+        // 5. Build user menu tree, special permissions, and is_full_access
+        var (menuTree, specialPermissions, isFullAccess) = await BuildUserAccessAsync(conn, pharmacyNo, roleNo, (string?)user.role_name);
+
+        // 6. Generate JWT token
         var token = GenerateJwtToken((long)user.user_no, pharmacyNo, branchNo, roleNo,
             $"{user.first_name} {user.last_name}", (string?)user.role_name);
 
@@ -175,20 +178,26 @@ public class AuthController : BaseController
             Email = user.email,
             Gender = user.gender,
             IsActive = user.is_active ?? true,
-            Permissions = permissions
+            Permissions = specialPermissions,
+            Menu = menuTree,
+            IsFullAccess = isFullAccess
         };
 
         var response = new LoginResponse
         {
             Token = token,
             User = userDto,
-            Branch = branch
+            Branch = branch,
+            Menu = menuTree,
+            Permissions = specialPermissions,
+            IsFullAccess = isFullAccess
         };
 
         return OkResponse(response, $"Welcome back, {userDto.FirstName}!");
     }
 
     [HttpGet("me")]
+    [AuthenticatedOnly]
     public async Task<ActionResult<ApiResponse<AuthUserDto>>> GetCurrentUser()
     {
         if (CurrentUserNo <= 0)
@@ -212,12 +221,8 @@ public class AuthController : BaseController
             return NotFoundResponse<AuthUserDto>("User not found.");
         }
 
-        var permissions = (await conn.QueryAsync<string>(@"
-            SELECT p.code
-            FROM sys_role_permissions rp
-            JOIN sys_permissions p ON rp.permission_no = p.permission_no
-            WHERE rp.role_no = @RoleNo;",
-            new { RoleNo = (long)user.role_no })).ToList();
+        var (menuTree, specialPermissions, isFullAccess) = await BuildUserAccessAsync(
+            conn, (long)user.pharmacy_no, (long)user.role_no, (string?)user.role_name);
 
         var userDto = new AuthUserDto
         {
@@ -233,10 +238,169 @@ public class AuthController : BaseController
             Email = user.email,
             Gender = user.gender,
             IsActive = user.is_active ?? true,
-            Permissions = permissions
+            Permissions = specialPermissions,
+            Menu = menuTree,
+            IsFullAccess = isFullAccess
         };
 
         return OkResponse(userDto);
+    }
+
+    private static readonly HashSet<string> SpecialPermissionCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sale.return", "void", "stock.adjust", "price.edit", "cash.close", "user.manage", "role.manage"
+    };
+
+    public static async Task<(List<AidlyPms.Api.Modules.Roles.Models.SysMenu> MenuTree, List<string> Permissions, bool IsFullAccess)> BuildUserAccessAsync(
+        System.Data.IDbConnection conn, long pharmacyNo, long roleNo, string? roleName)
+    {
+        var isFullAccess = roleNo == 9 ||
+                           string.Equals(roleName, "PMS Manager", StringComparison.OrdinalIgnoreCase);
+
+        if (!isFullAccess && roleNo > 0)
+        {
+            var dbRoleAlias = await conn.ExecuteScalarAsync<string>(@"
+                SELECT alias FROM sys_roles WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo;",
+                new { RoleNo = roleNo, PharmacyNo = pharmacyNo });
+            if (string.Equals(dbRoleAlias, "PMS Manager", StringComparison.OrdinalIgnoreCase))
+            {
+                isFullAccess = true;
+            }
+        }
+
+        // 1. Special permissions (the 7 non-menu action codes)
+        List<string> specialPermissions;
+        if (isFullAccess)
+        {
+            specialPermissions = SpecialPermissionCodes.OrderBy(x => x).ToList();
+        }
+        else
+        {
+            var rawPerms = (await conn.QueryAsync<string>(@"
+                SELECT p.code
+                FROM sys_role_permissions rp
+                JOIN sys_permissions p ON rp.permission_no = p.permission_no
+                WHERE rp.role_no = @RoleNo
+                  AND (rp.pharmacy_no = @PharmacyNo OR rp.pharmacy_no = 1);",
+                new { RoleNo = roleNo, PharmacyNo = pharmacyNo })).ToList();
+
+            specialPermissions = rawPerms.Where(p => SpecialPermissionCodes.Contains(p)).Distinct().OrderBy(x => x).ToList();
+        }
+
+        // 2. Fetch all active menus
+        var allMenus = (await conn.QueryAsync<AidlyPms.Api.Modules.Roles.Models.SysMenu>(@"
+            SELECT menu_no, menu_code, title, title_bn, path, route, icon, parent_menu_no, order_no, menu_type, status, created_at, updated_at
+            FROM sys_menus
+            WHERE status = TRUE
+            ORDER BY order_no ASC;")).ToList();
+
+        // 3. Permissions mapping
+        Dictionary<long, AidlyPms.Api.Modules.Roles.Models.MenuPermissionsDto> permsMap;
+        if (isFullAccess)
+        {
+            permsMap = allMenus.ToDictionary(m => m.MenuNo, m => new AidlyPms.Api.Modules.Roles.Models.MenuPermissionsDto
+            {
+                View = true,
+                Create = true,
+                Edit = true,
+                Delete = true
+            });
+        }
+        else
+        {
+            var grants = (await conn.QueryAsync<(long MenuNo, bool CanView, bool CanCreate, bool CanEdit, bool CanDelete)>(@"
+                SELECT menu_no, can_view, can_create, can_edit, can_delete
+                FROM sys_role_menu_permissions
+                WHERE role_no = @RoleNo
+                  AND (pharmacy_no = @PharmacyNo OR pharmacy_no = 1);",
+                new { RoleNo = roleNo, PharmacyNo = pharmacyNo })).ToList();
+
+            permsMap = grants.ToDictionary(g => g.MenuNo, g => new AidlyPms.Api.Modules.Roles.Models.MenuPermissionsDto
+            {
+                View = g.CanView,
+                Create = g.CanCreate,
+                Edit = g.CanEdit,
+                Delete = g.CanDelete
+            });
+        }
+
+        // Attach permissions to all menu objects
+        foreach (var menu in allMenus)
+        {
+            if (permsMap.TryGetValue(menu.MenuNo, out var p))
+            {
+                menu.Permissions = p;
+            }
+            else
+            {
+                menu.Permissions = new AidlyPms.Api.Modules.Roles.Models.MenuPermissionsDto { View = false, Create = false, Edit = false, Delete = false };
+            }
+        }
+
+        // Build tree
+        var menuById = allMenus.ToDictionary(m => m.MenuNo, m => new AidlyPms.Api.Modules.Roles.Models.SysMenu
+        {
+            MenuNo = m.MenuNo,
+            MenuCode = m.MenuCode,
+            Title = m.Title,
+            TitleBn = m.TitleBn,
+            Path = m.Path,
+            Route = m.Route,
+            Icon = m.Icon,
+            ParentMenuNo = m.ParentMenuNo,
+            OrderNo = m.OrderNo,
+            MenuType = m.MenuType,
+            Status = m.Status,
+            Permissions = m.Permissions,
+            CreatedAt = m.CreatedAt,
+            UpdatedAt = m.UpdatedAt,
+            Children = new List<AidlyPms.Api.Modules.Roles.Models.SysMenu>()
+        });
+
+        foreach (var m in allMenus)
+        {
+            if (m.ParentMenuNo.HasValue && menuById.TryGetValue(m.ParentMenuNo.Value, out var parentNode))
+            {
+                parentNode.Children!.Add(menuById[m.MenuNo]);
+            }
+        }
+
+        // Visibility filter: node is visible if it can be viewed or any child is visible
+        bool IsNodeVisible(AidlyPms.Api.Modules.Roles.Models.SysMenu node)
+        {
+            if (isFullAccess) return true;
+            if (node.Permissions?.View == true) return true;
+            if (node.Children != null && node.Children.Any(IsNodeVisible))
+            {
+                if (node.Permissions != null) node.Permissions.View = true;
+                return true;
+            }
+            return false;
+        }
+
+        void PruneInvisibleChildren(AidlyPms.Api.Modules.Roles.Models.SysMenu node)
+        {
+            if (node.Children == null) return;
+            node.Children = node.Children.Where(IsNodeVisible).OrderBy(c => c.OrderNo).ToList();
+            foreach (var child in node.Children)
+            {
+                PruneInvisibleChildren(child);
+            }
+        }
+
+        var roots = allMenus
+            .Where(m => !m.ParentMenuNo.HasValue)
+            .Select(m => menuById[m.MenuNo])
+            .Where(IsNodeVisible)
+            .OrderBy(m => m.OrderNo)
+            .ToList();
+
+        foreach (var root in roots)
+        {
+            PruneInvisibleChildren(root);
+        }
+
+        return (roots, specialPermissions, isFullAccess);
     }
 
     [HttpPost("seed-defaults")]

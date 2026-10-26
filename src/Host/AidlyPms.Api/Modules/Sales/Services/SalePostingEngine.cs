@@ -78,7 +78,7 @@ public class SalePostingEngine : ISalePostingEngine
             }
 
             var clientCreatedAt = request.ClientCreatedAt ?? (invoice.ClientCreatedAt.HasValue
-                ? new DateTimeOffset(invoice.ClientCreatedAt.Value, TimeSpan.Zero)
+                ? DateHelper.ToUtcOffset(invoice.ClientCreatedAt.Value)
                 : (DateTimeOffset?)null);
 
             if (!clientCreatedAt.HasValue)

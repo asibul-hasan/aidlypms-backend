@@ -253,7 +253,7 @@ public class PosSaleController : BaseController
         }
         if (!payload.ClientCreatedAt.HasValue && invoice.ClientCreatedAt.HasValue)
         {
-            payload.ClientCreatedAt = new DateTimeOffset(invoice.ClientCreatedAt.Value, TimeSpan.Zero);
+            payload.ClientCreatedAt = DateHelper.ToUtcOffset(invoice.ClientCreatedAt.Value);
         }
         if (string.IsNullOrWhiteSpace(payload.OfflineReceiptNo) && !string.IsNullOrWhiteSpace(invoice.OfflineReceiptNo))
         {

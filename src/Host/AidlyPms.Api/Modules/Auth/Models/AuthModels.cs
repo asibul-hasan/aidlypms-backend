@@ -54,6 +54,12 @@ public class AuthUserDto
 
     [JsonPropertyName("permissions")]
     public List<string> Permissions { get; set; } = new();
+
+    [JsonPropertyName("menu")]
+    public List<AidlyPms.Api.Modules.Roles.Models.SysMenu> Menu { get; set; } = new();
+
+    [JsonPropertyName("is_full_access")]
+    public bool IsFullAccess { get; set; }
 }
 
 public class BranchDto
@@ -93,4 +99,13 @@ public class LoginResponse
 
     [JsonPropertyName("branch")]
     public BranchDto Branch { get; set; } = null!;
+
+    [JsonPropertyName("menu")]
+    public List<AidlyPms.Api.Modules.Roles.Models.SysMenu> Menu { get; set; } = new();
+
+    [JsonPropertyName("permissions")]
+    public List<string> Permissions { get; set; } = new();
+
+    [JsonPropertyName("is_full_access")]
+    public bool IsFullAccess { get; set; }
 }

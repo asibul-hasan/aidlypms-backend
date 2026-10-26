@@ -116,11 +116,15 @@ CREATE TABLE IF NOT EXISTS sys_branches (
 -- Application System Menus (Global Definition, No Company/Org Fields)
 CREATE TABLE IF NOT EXISTS sys_menus (
     menu_no BIGINT PRIMARY KEY,
+    menu_code VARCHAR(50) UNIQUE NOT NULL,
     title VARCHAR(150) NOT NULL,
+    title_bn VARCHAR(255) NOT NULL,
     path VARCHAR(255),
+    route VARCHAR(255),
     icon VARCHAR(100),
     parent_menu_no BIGINT REFERENCES sys_menus(menu_no) ON DELETE SET NULL,
     order_no INT NOT NULL,
+    menu_type VARCHAR(20) NOT NULL,
     status BOOLEAN NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL

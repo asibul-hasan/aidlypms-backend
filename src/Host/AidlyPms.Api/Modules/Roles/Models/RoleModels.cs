@@ -110,16 +110,40 @@ public class SysUser
     public string? RoleName { get; set; }
 }
 
+public class MenuPermissionsDto
+{
+    [JsonPropertyName("view")]
+    public bool View { get; set; }
+
+    [JsonPropertyName("create")]
+    public bool Create { get; set; }
+
+    [JsonPropertyName("edit")]
+    public bool Edit { get; set; }
+
+    [JsonPropertyName("delete")]
+    public bool Delete { get; set; }
+}
+
 public class SysMenu
 {
     [JsonPropertyName("menu_no")]
     public long MenuNo { get; set; }
 
+    [JsonPropertyName("menu_code")]
+    public string MenuCode { get; set; } = string.Empty;
+
     [JsonPropertyName("title")]
     public string Title { get; set; } = string.Empty;
 
+    [JsonPropertyName("title_bn")]
+    public string TitleBn { get; set; } = string.Empty;
+
     [JsonPropertyName("path")]
     public string? Path { get; set; }
+
+    [JsonPropertyName("route")]
+    public string? Route { get; set; }
 
     [JsonPropertyName("icon")]
     public string? Icon { get; set; }
@@ -133,8 +157,14 @@ public class SysMenu
     [JsonPropertyName("order_no")]
     public int OrderNo { get; set; } = 1;
 
+    [JsonPropertyName("menu_type")]
+    public string MenuType { get; set; } = "SCREEN";
+
     [JsonPropertyName("status")]
     public bool Status { get; set; } = true;
+
+    [JsonPropertyName("permissions")]
+    public MenuPermissionsDto? Permissions { get; set; }
 
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -184,11 +214,20 @@ public class RoleMenuPermissionItemDto
     [JsonPropertyName("menu_no")]
     public long MenuNo { get; set; }
 
+    [JsonPropertyName("menu_code")]
+    public string MenuCode { get; set; } = string.Empty;
+
     [JsonPropertyName("title")]
     public string Title { get; set; } = string.Empty;
 
+    [JsonPropertyName("title_bn")]
+    public string TitleBn { get; set; } = string.Empty;
+
     [JsonPropertyName("path")]
     public string? Path { get; set; }
+
+    [JsonPropertyName("route")]
+    public string? Route { get; set; }
 
     [JsonPropertyName("icon")]
     public string? Icon { get; set; }
@@ -201,6 +240,9 @@ public class RoleMenuPermissionItemDto
 
     [JsonPropertyName("order_no")]
     public int OrderNo { get; set; }
+
+    [JsonPropertyName("menu_type")]
+    public string MenuType { get; set; } = "SCREEN";
 
     [JsonPropertyName("can_view")]
     public bool CanView { get; set; }
