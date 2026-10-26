@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Dashboard.Controllers;
 
 [Route("api/v1/reports")]
-[RequirePermission("PMS-Report-Module")]
+[RequireMenu("DASH_2302", "DASH_2303", "PROD_1611")]
 public class ReportController : BaseController
 {
     private readonly IDbConnectionFactory _db;

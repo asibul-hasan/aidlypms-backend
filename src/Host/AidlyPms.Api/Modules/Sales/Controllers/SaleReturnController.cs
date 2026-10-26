@@ -12,7 +12,7 @@ using Npgsql;
 namespace AidlyPms.Api.Modules.Sales.Controllers;
 
 [Route("api/v1")]
-[RequirePermission("PMS-Sale-Module")]
+[RequireMenu("SALE_1403", "SALE_1409")]
 public class SaleReturnController : BaseController
 {
     private readonly IDbConnectionFactory _db;

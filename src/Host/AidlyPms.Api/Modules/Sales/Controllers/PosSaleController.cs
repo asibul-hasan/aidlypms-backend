@@ -13,7 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Sales.Controllers;
 
 [Route("api/v1/pos/sales")]
-[RequirePermission("PMS-Sale-Module")]
+[RequireMenu("SALE_1401", "SALE_1402", "SALE_1410", "SALE_1411")]
 public class PosSaleController : BaseController
 {
     private readonly IDbConnectionFactory _db;

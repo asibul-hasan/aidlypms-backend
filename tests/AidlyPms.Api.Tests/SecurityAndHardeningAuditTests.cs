@@ -511,10 +511,11 @@ public class SecurityAndHardeningAuditTests
 
             if (hasWriteEndpoint)
             {
+                var menuAttr = controller.GetCustomAttribute<RequireMenuAttribute>();
                 var permAttr = controller.GetCustomAttribute<RequirePermissionAttribute>();
-                Assert.NotNull(permAttr);
-                Assert.False(string.IsNullOrWhiteSpace(permAttr.PermissionCode),
-                    $"Controller {controller.Name} has write endpoints but missing PermissionCode on [RequirePermission].");
+                var authOnly = controller.GetCustomAttribute<AuthenticatedOnlyAttribute>();
+                Assert.True(menuAttr != null || permAttr != null || authOnly != null,
+                    $"Controller {controller.Name} has write endpoints but missing [RequireMenu], [RequirePermission], or [AuthenticatedOnly].");
             }
         }
     }

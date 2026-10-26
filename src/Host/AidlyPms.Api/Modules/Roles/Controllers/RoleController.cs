@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Roles.Controllers;
 
 [Route("api/v1/role")]
-[RequirePermission("Role-Module")]
+[RequireMenu("ROLE_1901", "ROLE_1903")]
 public class RoleController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -44,8 +44,8 @@ public class RoleController : BaseController
                 SELECT p.code
                 FROM sys_role_permissions rp
                 JOIN sys_permissions p ON rp.permission_no = p.permission_no
-                WHERE rp.role_no = @RoleNo;",
-                new { role.RoleNo })).ToList();
+                WHERE rp.role_no = @RoleNo AND rp.pharmacy_no = @CurrentPharmacyNo;",
+                new { role.RoleNo, CurrentPharmacyNo })).ToList();
 
             role.Permissions = perms;
         }
@@ -69,8 +69,8 @@ public class RoleController : BaseController
             SELECT p.code
             FROM sys_role_permissions rp
             JOIN sys_permissions p ON rp.permission_no = p.permission_no
-            WHERE rp.role_no = @Id;",
-            new { Id = id })).ToList();
+            WHERE rp.role_no = @Id AND rp.pharmacy_no = @CurrentPharmacyNo;",
+            new { Id = id, CurrentPharmacyNo })).ToList();
 
         role.Permissions = perms;
         return OkResponse(role);
@@ -89,6 +89,44 @@ public class RoleController : BaseController
 
         try
         {
+            var isManager = await IsCallerManagerAsync(conn, tran);
+
+            // Validate permissions
+            if (model.Permissions != null && model.Permissions.Count > 0)
+            {
+                var validCodes = (await conn.QueryAsync<string>(
+                    "SELECT code FROM sys_permissions WHERE code = ANY(@Codes);",
+                    new { Codes = model.Permissions.ToArray() }, transaction: tran))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var code in model.Permissions)
+                {
+                    if (!validCodes.Contains(code))
+                    {
+                        return FailResponse<SysRole>($"Unknown permission code '{code}'.", statusCode: 400);
+                    }
+                }
+
+                if (!isManager)
+                {
+                    var callerPerms = (await conn.QueryAsync<string>(@"
+                        SELECT p.code
+                        FROM sys_role_permissions rp
+                        JOIN sys_permissions p ON rp.permission_no = p.permission_no
+                        WHERE rp.role_no = @RoleNo AND rp.pharmacy_no = @PharmacyNo;",
+                        new { RoleNo = CurrentRoleNo, PharmacyNo = CurrentPharmacyNo }, transaction: tran))
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var code in model.Permissions)
+                    {
+                        if (!callerPerms.Contains(code))
+                        {
+                            return FailResponse<SysRole>($"Privilege rule: Cannot grant permission '{code}' not held by caller.", statusCode: 403);
+                        }
+                    }
+                }
+            }
+
             var exists = await conn.ExecuteScalarAsync<bool>(@"
                 SELECT EXISTS(
                     SELECT 1 FROM sys_roles
@@ -159,6 +197,8 @@ public class RoleController : BaseController
 
         try
         {
+            var isManager = await IsCallerManagerAsync(conn, tran);
+
             var existing = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
                 SELECT * FROM sys_roles
                 WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
@@ -167,6 +207,41 @@ public class RoleController : BaseController
 
             if (existing == null)
                 return FailResponse<SysRole>("Role not found.", statusCode: 404);
+
+            if (model.Permissions != null && model.Permissions.Count > 0)
+            {
+                var validCodes = (await conn.QueryAsync<string>(
+                    "SELECT code FROM sys_permissions WHERE code = ANY(@Codes);",
+                    new { Codes = model.Permissions.ToArray() }, transaction: tran))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var code in model.Permissions)
+                {
+                    if (!validCodes.Contains(code))
+                    {
+                        return FailResponse<SysRole>($"Unknown permission code '{code}'.", statusCode: 400);
+                    }
+                }
+
+                if (!isManager)
+                {
+                    var callerPerms = (await conn.QueryAsync<string>(@"
+                        SELECT p.code
+                        FROM sys_role_permissions rp
+                        JOIN sys_permissions p ON rp.permission_no = p.permission_no
+                        WHERE rp.role_no = @RoleNo AND rp.pharmacy_no = @PharmacyNo;",
+                        new { RoleNo = CurrentRoleNo, PharmacyNo = CurrentPharmacyNo }, transaction: tran))
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var code in model.Permissions)
+                    {
+                        if (!callerPerms.Contains(code))
+                        {
+                            return FailResponse<SysRole>($"Privilege rule: Cannot grant permission '{code}' not held by caller.", statusCode: 403);
+                        }
+                    }
+                }
+            }
 
             existing.RoleName = !string.IsNullOrWhiteSpace(model.RoleName) ? model.RoleName : (!string.IsNullOrWhiteSpace(model.Alias) ? model.Alias : existing.RoleName);
             existing.Alias = !string.IsNullOrWhiteSpace(model.Alias) ? model.Alias : (!string.IsNullOrWhiteSpace(model.RoleName) ? model.RoleName : existing.Alias);
@@ -183,8 +258,8 @@ public class RoleController : BaseController
             if (model.Permissions != null)
             {
                 await conn.ExecuteAsync(
-                    "DELETE FROM sys_role_permissions WHERE role_no = @Id;",
-                    new { Id = id }, transaction: tran);
+                    "DELETE FROM sys_role_permissions WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
+                    new { Id = id, CurrentPharmacyNo }, transaction: tran);
 
                 foreach (var code in model.Permissions)
                 {
@@ -220,14 +295,18 @@ public class RoleController : BaseController
     public async Task<ActionResult<ApiResponse<bool>>> DeleteRole(long id)
     {
         using var conn = _db.CreateConnection();
-        var isSystem = await conn.ExecuteScalarAsync<bool>(@"
-            SELECT is_system FROM sys_roles WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
+        var role = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
+            SELECT * FROM sys_roles WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
             new { Id = id, CurrentPharmacyNo });
 
-        if (isSystem)
+        if (role == null)
+            return NotFoundResponse<bool>("Role not found.");
+
+        if (role.IsSystem)
             return FailResponse<bool>("System roles cannot be deleted.");
 
-        await conn.ExecuteAsync("DELETE FROM sys_role_permissions WHERE role_no = @Id;", new { Id = id });
+        await conn.ExecuteAsync("DELETE FROM sys_role_permissions WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;", new { Id = id, CurrentPharmacyNo });
+        await conn.ExecuteAsync("DELETE FROM sys_role_menu_permissions WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;", new { Id = id, CurrentPharmacyNo });
         var rows = await conn.ExecuteAsync(@"
             DELETE FROM sys_roles
             WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
@@ -253,12 +332,16 @@ public class RoleController : BaseController
         var sql = @"
             SELECT 
                 m.menu_no,
+                m.menu_code,
                 m.title,
+                m.title_bn,
                 m.path,
+                m.route,
                 m.icon,
                 m.parent_menu_no,
                 p.title AS parent_title,
                 m.order_no,
+                m.menu_type,
                 COALESCE(rmp.can_view, FALSE) AS can_view,
                 COALESCE(rmp.can_create, FALSE) AS can_create,
                 COALESCE(rmp.can_edit, FALSE) AS can_edit,
@@ -293,38 +376,91 @@ public class RoleController : BaseController
             if (role == null)
                 return FailResponse<bool>("Role not found in current pharmacy.", statusCode: 404);
 
+            var isManager = await IsCallerManagerAsync(conn, tran);
+
+            if (items != null && items.Count > 0)
+            {
+                // Validate all menu_no exist in sys_menus
+                var menuNos = items.Select(x => x.MenuNo).Distinct().ToArray();
+                var validMenuNos = (await conn.QueryAsync<long>(
+                    "SELECT menu_no FROM sys_menus WHERE menu_no = ANY(@MenuNos);",
+                    new { MenuNos = menuNos }, transaction: tran)).ToHashSet();
+
+                foreach (var item in items)
+                {
+                    if (!validMenuNos.Contains(item.MenuNo))
+                    {
+                        return FailResponse<bool>($"Unknown menu_no {item.MenuNo}.", statusCode: 400);
+                    }
+
+                    // Normalize: create, edit, delete imply view
+                    if (item.CanCreate || item.CanEdit || item.CanDelete)
+                    {
+                        item.CanView = true;
+                    }
+                }
+
+                // Privilege rule: non-manager cannot grant grants they do not hold
+                if (!isManager)
+                {
+                    var callerGrants = (await conn.QueryAsync<(long MenuNo, bool CanView, bool CanCreate, bool CanEdit, bool CanDelete)>(@"
+                        SELECT menu_no, can_view, can_create, can_edit, can_delete
+                        FROM sys_role_menu_permissions
+                        WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo AND menu_no = ANY(@MenuNos);",
+                        new { RoleNo = CurrentRoleNo, PharmacyNo = CurrentPharmacyNo, MenuNos = menuNos },
+                        transaction: tran))
+                        .ToDictionary(g => g.MenuNo);
+
+                    foreach (var item in items)
+                    {
+                        callerGrants.TryGetValue(item.MenuNo, out var cg);
+                        if (item.CanView && !cg.CanView)
+                            return FailResponse<bool>($"Privilege rule: Cannot grant View on menu {item.MenuNo} not held by caller.", statusCode: 403);
+                        if (item.CanCreate && !cg.CanCreate)
+                            return FailResponse<bool>($"Privilege rule: Cannot grant Create on menu {item.MenuNo} not held by caller.", statusCode: 403);
+                        if (item.CanEdit && !cg.CanEdit)
+                            return FailResponse<bool>($"Privilege rule: Cannot grant Edit on menu {item.MenuNo} not held by caller.", statusCode: 403);
+                        if (item.CanDelete && !cg.CanDelete)
+                            return FailResponse<bool>($"Privilege rule: Cannot grant Delete on menu {item.MenuNo} not held by caller.", statusCode: 403);
+                    }
+                }
+            }
+
             var now = DateTime.UtcNow;
 
-            foreach (var item in items)
+            if (items != null)
             {
-                var upsertSql = @"
-                    INSERT INTO sys_role_menu_permissions (
-                        role_menu_perm_no, pharmacy_no, role_no, menu_no,
-                        can_view, can_create, can_edit, can_delete,
-                        created_at, updated_at
-                    ) VALUES (
-                        nextval('seq_role_menu_perm_no'), @CurrentPharmacyNo, @roleNo, @MenuNo,
-                        @CanView, @CanCreate, @CanEdit, @CanDelete,
-                        @Now, @Now
-                    )
-                    ON CONFLICT (pharmacy_no, role_no, menu_no) DO UPDATE SET
-                        can_view = EXCLUDED.can_view,
-                        can_create = EXCLUDED.can_create,
-                        can_edit = EXCLUDED.can_edit,
-                        can_delete = EXCLUDED.can_delete,
-                        updated_at = EXCLUDED.updated_at;";
-
-                await conn.ExecuteAsync(upsertSql, new
+                foreach (var item in items)
                 {
-                    CurrentPharmacyNo,
-                    roleNo,
-                    item.MenuNo,
-                    item.CanView,
-                    item.CanCreate,
-                    item.CanEdit,
-                    item.CanDelete,
-                    Now = now
-                }, transaction: tran);
+                    var upsertSql = @"
+                        INSERT INTO sys_role_menu_permissions (
+                            role_menu_perm_no, pharmacy_no, role_no, menu_no,
+                            can_view, can_create, can_edit, can_delete,
+                            created_at, updated_at
+                        ) VALUES (
+                            nextval('seq_role_menu_perm_no'), @CurrentPharmacyNo, @roleNo, @MenuNo,
+                            @CanView, @CanCreate, @CanEdit, @CanDelete,
+                            @Now, @Now
+                        )
+                        ON CONFLICT (pharmacy_no, role_no, menu_no) DO UPDATE SET
+                            can_view = EXCLUDED.can_view,
+                            can_create = EXCLUDED.can_create,
+                            can_edit = EXCLUDED.can_edit,
+                            can_delete = EXCLUDED.can_delete,
+                            updated_at = EXCLUDED.updated_at;";
+
+                    await conn.ExecuteAsync(upsertSql, new
+                    {
+                        CurrentPharmacyNo,
+                        roleNo,
+                        item.MenuNo,
+                        item.CanView,
+                        item.CanCreate,
+                        item.CanEdit,
+                        item.CanDelete,
+                        Now = now
+                    }, transaction: tran);
+                }
             }
 
             tran.Commit();
@@ -338,18 +474,23 @@ public class RoleController : BaseController
     }
 
     [HttpGet("my-menu-permissions")]
+    [AuthenticatedOnly]
     public async Task<ActionResult<ApiResponse<List<RoleMenuPermissionItemDto>>>> GetMyMenuPermissions()
     {
         using var conn = _db.CreateConnection();
         var sql = @"
             SELECT 
                 m.menu_no,
+                m.menu_code,
                 m.title,
+                m.title_bn,
                 m.path,
+                m.route,
                 m.icon,
                 m.parent_menu_no,
                 p.title AS parent_title,
                 m.order_no,
+                m.menu_type,
                 COALESCE(rmp.can_view, FALSE) AS can_view,
                 COALESCE(rmp.can_create, FALSE) AS can_create,
                 COALESCE(rmp.can_edit, FALSE) AS can_edit,
@@ -365,5 +506,19 @@ public class RoleController : BaseController
 
         var perms = (await conn.QueryAsync<RoleMenuPermissionItemDto>(sql, new { CurrentRoleNo, CurrentPharmacyNo })).ToList();
         return OkResponse(perms);
+    }
+
+    private async Task<bool> IsCallerManagerAsync(System.Data.IDbConnection conn, System.Data.IDbTransaction? tran = null)
+    {
+        if (CurrentRoleNo == 9) return true;
+        if (CurrentRoleNo > 0)
+        {
+            return await conn.ExecuteScalarAsync<bool>(@"
+                SELECT EXISTS(
+                    SELECT 1 FROM sys_roles
+                    WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo AND (alias = 'PMS Manager' OR role_name = 'PMS Manager')
+                );", new { RoleNo = CurrentRoleNo, PharmacyNo = CurrentPharmacyNo }, transaction: tran);
+        }
+        return false;
     }
 }

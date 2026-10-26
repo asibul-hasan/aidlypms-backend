@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Dashboard.Controllers;
 
 [Route("api/v1/dashboard")]
+[RequireMenu("DASH_2301")]
 public class DashboardController : BaseController
 {
     private readonly IDbConnectionFactory _db;

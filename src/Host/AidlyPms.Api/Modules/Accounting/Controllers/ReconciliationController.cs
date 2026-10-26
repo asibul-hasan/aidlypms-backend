@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Accounting.Controllers;
 
 [Route("api/v1")]
-[RequirePermission("PMS-Reconciliation-Module")]
+[RequireMenu("CASH_1203", "CASH_1204")]
 public class ReconciliationController : BaseController
 {
     private readonly IDbConnectionFactory _db;

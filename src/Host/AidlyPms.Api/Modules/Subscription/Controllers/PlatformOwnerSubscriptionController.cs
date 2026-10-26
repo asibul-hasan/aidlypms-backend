@@ -11,6 +11,7 @@ namespace AidlyPms.Api.Modules.Subscription.Controllers;
 
 [ApiController]
 [Route("api/v1/owner/subscriptions")]
+[AuthenticatedOnly]
 public class PlatformOwnerSubscriptionController : ControllerBase
 {
     private readonly IDbConnectionFactory _db;

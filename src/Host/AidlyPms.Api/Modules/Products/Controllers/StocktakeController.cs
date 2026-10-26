@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/inv/stocktakes")]
-[RequirePermission("PMS-Product-Module")]
+[RequireMenu("PROD_1612")]
 public class StocktakeController : BaseController
 {
     private readonly IDbConnectionFactory _db;

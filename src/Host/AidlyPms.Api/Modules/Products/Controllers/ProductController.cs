@@ -9,7 +9,7 @@ using Npgsql;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/prod/products")]
-[RequirePermission("PMS-Product-Module")]
+[RequireMenu("PROD_1601", "PROD_1602", "SALE_1401", "PUR_1503")]
 public class ProductController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -699,7 +699,6 @@ public class ProductController : BaseController
     }
 
     [HttpDelete("{id:long}")]
-    [RequirePermission("PMS-Product-Module")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteProduct(long id, [FromBody] SoftDeleteRequest? request)
     {
         if (string.IsNullOrWhiteSpace(request?.Reason))

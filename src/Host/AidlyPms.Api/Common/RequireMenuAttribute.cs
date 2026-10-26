@@ -29,6 +29,13 @@ public class RequireMenuAttribute : Attribute, IAsyncActionFilter
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
+        // Allow anonymous or authenticated-only endpoints to bypass menu checks
+        if (context.ActionDescriptor.EndpointMetadata.Any(em => em is Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute || em is AuthenticatedOnlyAttribute))
+        {
+            await next();
+            return;
+        }
+
         var tenant = context.HttpContext.RequestServices.GetRequiredService<ITenantContext>();
         var db = context.HttpContext.RequestServices.GetRequiredService<IDbConnectionFactory>();
 
@@ -93,7 +100,7 @@ public class RequireMenuAttribute : Attribute, IAsyncActionFilter
                 FROM sys_role_menu_permissions rmp
                 JOIN sys_menus m ON rmp.menu_no = m.menu_no
                 WHERE rmp.role_no = @RoleNo
-                  AND (rmp.pharmacy_no = @PharmacyNo OR rmp.pharmacy_no = 1)
+                  AND rmp.pharmacy_no = @PharmacyNo
                   AND m.menu_code = ANY(@MenuCodes)
                   AND (
                       (@Op = 1 AND rmp.can_view = TRUE) OR

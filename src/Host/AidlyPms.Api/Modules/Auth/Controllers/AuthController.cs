@@ -281,7 +281,7 @@ public class AuthController : BaseController
                 FROM sys_role_permissions rp
                 JOIN sys_permissions p ON rp.permission_no = p.permission_no
                 WHERE rp.role_no = @RoleNo
-                  AND (rp.pharmacy_no = @PharmacyNo OR rp.pharmacy_no = 1);",
+                  AND rp.pharmacy_no = @PharmacyNo;",
                 new { RoleNo = roleNo, PharmacyNo = pharmacyNo })).ToList();
 
             specialPermissions = rawPerms.Where(p => SpecialPermissionCodes.Contains(p)).Distinct().OrderBy(x => x).ToList();
@@ -312,7 +312,7 @@ public class AuthController : BaseController
                 SELECT menu_no, can_view, can_create, can_edit, can_delete
                 FROM sys_role_menu_permissions
                 WHERE role_no = @RoleNo
-                  AND (pharmacy_no = @PharmacyNo OR pharmacy_no = 1);",
+                  AND pharmacy_no = @PharmacyNo;",
                 new { RoleNo = roleNo, PharmacyNo = pharmacyNo })).ToList();
 
             permsMap = grants.ToDictionary(g => g.MenuNo, g => new AidlyPms.Api.Modules.Roles.Models.MenuPermissionsDto

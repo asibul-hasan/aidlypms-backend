@@ -61,6 +61,7 @@ public class LedgerStatementRow
 }
 
 [Route("api/v1/acc")]
+[RequireMenu("ACC_1101", "DASH_2303")]
 public class FinancialReportController : BaseController
 {
     private readonly IDbConnectionFactory _db;

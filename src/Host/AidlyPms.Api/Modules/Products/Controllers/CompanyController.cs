@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/prod/companies")]
-[RequirePermission("POS-Shop-Company-Module")]
+[RequireMenu("PROD_1603", "PROD_1604", "PROD_1601", "PUR_1503")]
 public class CompanyController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -96,7 +96,6 @@ public class CompanyController : BaseController
     }
 
     [HttpDelete("{id:long}")]
-    [RequirePermission("POS-Shop-Company-Module")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteCompany(long id, [FromBody] SoftDeleteRequest? request)
     {
         if (string.IsNullOrWhiteSpace(request?.Reason))

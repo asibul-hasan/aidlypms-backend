@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Doctors.Controllers;
 
 [Route("api/v1/doc")]
-[RequirePermission("PMS-Customer-Module")]
+[RequireMenu("DOC_1701", "DOC_1702", "DOC_1703", "SALE_1401")]
 public class DoctorController : BaseController
 {
     private readonly IDbConnectionFactory _db;

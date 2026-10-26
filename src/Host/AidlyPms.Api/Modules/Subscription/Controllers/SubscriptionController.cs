@@ -8,7 +8,7 @@ using Microsoft.Extensions.Configuration;
 namespace AidlyPms.Api.Modules.Subscription.Controllers;
 
 [Route("api/v1/sub")]
-[RequirePermission("Pharmacy-Module")]
+[RequireMenu("SUB_2101")]
 public class SubscriptionController : BaseController
 {
     private readonly IDbConnectionFactory _db;

@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Customers.Controllers;
 
 [Route("api/v1/cust/customers")]
-[RequirePermission("PMS-Customer-Module")]
+[RequireMenu("CUST_1407", "CUST_1408", "SALE_1401")]
 public class CustomerController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -219,7 +219,6 @@ public class CustomerController : BaseController
     }
 
     [HttpDelete("{id:long}")]
-    [RequirePermission("PMS-Customer-Module")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteCustomer(long id, [FromBody] SoftDeleteRequest? request)
     {
         if (string.IsNullOrWhiteSpace(request?.Reason))

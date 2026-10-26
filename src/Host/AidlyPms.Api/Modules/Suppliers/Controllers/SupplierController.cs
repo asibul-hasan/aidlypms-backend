@@ -8,7 +8,7 @@ namespace AidlyPms.Api.Modules.Suppliers.Controllers;
 
 [Route("api/v1/supp/suppliers")]
 [Route("api/v1/pur/suppliers")]
-[RequirePermission("PMS-Vendor-Module")]
+[RequireMenu("SUPP_1501", "SUPP_1502", "PUR_1503")]
 public class SupplierController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -173,7 +173,6 @@ public class SupplierController : BaseController
     }
 
     [HttpDelete("{id:long}")]
-    [RequirePermission("PMS-Vendor-Module")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteSupplier(long id, [FromBody] SoftDeleteRequest? request)
     {
         if (string.IsNullOrWhiteSpace(request?.Reason))

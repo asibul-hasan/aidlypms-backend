@@ -2,12 +2,14 @@ using AidlyPms.Api.Common;
 using AidlyPms.Api.Common.Database;
 using AidlyPms.Api.Infrastructure;
 using Dapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AidlyPms.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/sys")]
+[AllowAnonymous]
 public class SysController : ControllerBase
 {
     private readonly IDbConnectionFactory _db;

@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Suppliers.Controllers;
 
 [Route("api/v1/pur")]
-[RequirePermission("PMS-Vendor-Module")]
+[RequireMenu("SUPP_1501")]
 public class SupplierPaymentController : BaseController
 {
     private readonly IDbConnectionFactory _db;

@@ -89,7 +89,7 @@ public class UpdateRequisitionStatusRequest
 }
 
 [Route("api/v1/prod/requisitions")]
-[RequirePermission("PMS-Requisition-Module")]
+[RequireMenu("PROD_1607", "PROD_1608", "PROD_1609")]
 public class RequisitionController : BaseController
 {
     private readonly IDbConnectionFactory _db;

@@ -12,6 +12,7 @@ using Microsoft.IdentityModel.Tokens;
 namespace AidlyPms.Api.Modules.Branches.Controllers;
 
 [Route("api/v1/sys")]
+[RequireMenu("PHAR_2201")]
 public class BranchController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -24,6 +25,7 @@ public class BranchController : BaseController
     }
 
     [HttpGet("pharmacies")]
+    [AuthenticatedOnly]
     public async Task<ActionResult<ApiResponse<List<SysPharmacy>>>> GetPharmacies()
     {
         using var conn = _db.CreateConnection();
@@ -36,6 +38,7 @@ public class BranchController : BaseController
     }
 
     [HttpGet("branches")]
+    [AuthenticatedOnly]
     public async Task<ActionResult<ApiResponse<List<SysBranch>>>> GetBranches()
     {
         using var conn = _db.CreateConnection();
@@ -51,6 +54,7 @@ public class BranchController : BaseController
     }
 
     [HttpPost("switch-branch")]
+    [AuthenticatedOnly]
     public async Task<ActionResult<ApiResponse<SwitchBranchResponse>>> SwitchBranch([FromBody] SwitchBranchRequest request)
     {
         if (CurrentUserNo <= 0)

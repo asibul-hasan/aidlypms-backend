@@ -42,6 +42,7 @@ public class MenuController : BaseController
     }
 
     [HttpGet]
+    [AuthenticatedOnly]
     public async Task<ActionResult<ApiResponse<List<SysMenu>>>> GetMenus([FromQuery] bool? activeOnly)
     {
         using var conn = _db.CreateConnection();
@@ -71,6 +72,7 @@ public class MenuController : BaseController
     }
 
     [HttpGet("tree")]
+    [AuthenticatedOnly]
     public async Task<ActionResult<ApiResponse<List<SysMenu>>>> GetMenuTree()
     {
         using var conn = _db.CreateConnection();
@@ -113,6 +115,7 @@ public class MenuController : BaseController
     }
 
     [HttpGet("{id}")]
+    [AuthenticatedOnly]
     public async Task<ActionResult<ApiResponse<SysMenu>>> GetMenuById(long id)
     {
         using var conn = _db.CreateConnection();

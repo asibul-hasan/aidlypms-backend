@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/inv/batches")]
+[RequireMenu("PROD_1601", "PROD_1610", "SALE_1401", "PUR_1503")]
 public class BatchController : BaseController
 {
     private readonly IDbConnectionFactory _db;

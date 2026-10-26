@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Cash.Controllers;
 
 [Route("api/v1/cash")]
-[RequirePermission("Account-Module")]
+[RequireMenu("CASH_1201")]
 public class CashCloserController : BaseController
 {
     private readonly IDbConnectionFactory _db;

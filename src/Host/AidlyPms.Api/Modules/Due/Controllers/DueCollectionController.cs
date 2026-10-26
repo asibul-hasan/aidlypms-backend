@@ -91,7 +91,7 @@ public class CollectDueRequestDto
 }
 
 [Route("api/v1")]
-[RequirePermission("PMS-Customer-Module")]
+[RequireMenu("DUE_1301", "DUE_1302")]
 public class DueCollectionController : BaseController
 {
     private readonly IDbConnectionFactory _db;

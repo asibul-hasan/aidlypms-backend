@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/prod/generics")]
-[RequirePermission("POS-Shop-Generic-Module")]
+[RequireMenu("PROD_1605", "PROD_1606", "PROD_1601")]
 public class GenericController : BaseController
 {
     private readonly IDbConnectionFactory _db;
@@ -96,7 +96,6 @@ public class GenericController : BaseController
     }
 
     [HttpDelete("{id:long}")]
-    [RequirePermission("POS-Shop-Generic-Module")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteGeneric(long id, [FromBody] SoftDeleteRequest? request)
     {
         if (string.IsNullOrWhiteSpace(request?.Reason))

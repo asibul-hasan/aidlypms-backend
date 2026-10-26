@@ -18,6 +18,13 @@ public class RequirePermissionAttribute : Attribute, IAsyncActionFilter
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
+        // Allow anonymous endpoints to bypass
+        if (context.ActionDescriptor.EndpointMetadata.Any(em => em is Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute))
+        {
+            await next();
+            return;
+        }
+
         var tenant = context.HttpContext.RequestServices.GetRequiredService<ITenantContext>();
         var db = context.HttpContext.RequestServices.GetRequiredService<IDbConnectionFactory>();
 
@@ -48,7 +55,7 @@ public class RequirePermissionAttribute : Attribute, IAsyncActionFilter
             var isManager = await conn.ExecuteScalarAsync<bool>(@"
                 SELECT EXISTS(
                     SELECT 1 FROM sys_roles
-                    WHERE role_no = @RoleNo AND alias = 'PMS Manager'
+                    WHERE role_no = @RoleNo AND (alias = 'PMS Manager' OR role_name = 'PMS Manager')
                 );",
                 new { RoleNo = roleNo });
 
@@ -59,14 +66,14 @@ public class RequirePermissionAttribute : Attribute, IAsyncActionFilter
             }
         }
 
-        // Check if role has the specific permission in sys_role_permissions (tenant pharmacy or global default 1)
+        // Check if role has the specific permission in sys_role_permissions for this tenant
         var hasPermission = await conn.ExecuteScalarAsync<bool>(@"
             SELECT EXISTS(
                 SELECT 1
                 FROM sys_role_permissions rp
                 JOIN sys_permissions p ON rp.permission_no = p.permission_no
                 WHERE rp.role_no = @RoleNo
-                  AND (rp.pharmacy_no = @PharmacyNo OR rp.pharmacy_no = 1)
+                  AND rp.pharmacy_no = @PharmacyNo
                   AND p.code = @PermissionCode
             );",
             new { RoleNo = roleNo, PharmacyNo = pharmacyNo, PermissionCode = _permissionCode });

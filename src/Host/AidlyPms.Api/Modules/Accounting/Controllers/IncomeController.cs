@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Accounting.Controllers;
 
 [Route("api/v1/acc")]
-[RequirePermission("PMS-Income-Module")]
+[RequireMenu("ACC_1106")]
 public class IncomeController : BaseController
 {
     private readonly IDbConnectionFactory _db;

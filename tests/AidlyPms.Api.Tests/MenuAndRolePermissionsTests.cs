@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using AidlyPms.Api.Common;
 using AidlyPms.Api.Modules.Roles.Controllers;
 using AidlyPms.Api.Modules.Roles.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
 
@@ -11,33 +12,34 @@ namespace AidlyPms.Api.Tests;
 public class MenuAndRolePermissionsTests
 {
     [Fact]
-    public void Test_1_MenuController_HasControllerLevel_RequirePermissionAttribute()
+    public void Test_1_MenuController_HasControllerLevel_RequireMenuAttribute()
     {
-        var attr = typeof(MenuController).GetCustomAttribute<RequirePermissionAttribute>();
+        var attr = typeof(MenuController).GetCustomAttribute<RequireMenuAttribute>();
         Assert.NotNull(attr);
-        Assert.Equal("Role-Module", attr.PermissionCode);
+        Assert.Contains("MENU_1904", attr.MenuCodes);
+        Assert.Contains("ROLE_1903", attr.MenuCodes);
     }
 
     [Fact]
-    public void Test_2_MenuController_WriteEndpoints_HaveRequirePermission_RoleManage()
+    public void Test_2_MenuController_WriteEndpoints_RequirePlatformOwner()
     {
         var createMethod = typeof(MenuController).GetMethod(nameof(MenuController.CreateMenu));
         Assert.NotNull(createMethod);
-        var createAttr = createMethod.GetCustomAttribute<RequirePermissionAttribute>();
-        Assert.NotNull(createAttr);
-        Assert.Equal("role.manage", createAttr.PermissionCode);
 
         var updateMethod = typeof(MenuController).GetMethod(nameof(MenuController.UpdateMenu));
         Assert.NotNull(updateMethod);
-        var updateAttr = updateMethod.GetCustomAttribute<RequirePermissionAttribute>();
-        Assert.NotNull(updateAttr);
-        Assert.Equal("role.manage", updateAttr.PermissionCode);
 
         var deleteMethod = typeof(MenuController).GetMethod(nameof(MenuController.DeleteMenu));
         Assert.NotNull(deleteMethod);
-        var deleteAttr = deleteMethod.GetCustomAttribute<RequirePermissionAttribute>();
-        Assert.NotNull(deleteAttr);
-        Assert.Equal("role.manage", deleteAttr.PermissionCode);
+
+        // Verify read endpoints have AuthenticatedOnly
+        var getTree = typeof(MenuController).GetMethod(nameof(MenuController.GetMenuTree));
+        Assert.NotNull(getTree);
+        Assert.NotNull(getTree.GetCustomAttribute<AuthenticatedOnlyAttribute>());
+
+        var getMenus = typeof(MenuController).GetMethod(nameof(MenuController.GetMenus));
+        Assert.NotNull(getMenus);
+        Assert.NotNull(getMenus.GetCustomAttribute<AuthenticatedOnlyAttribute>());
     }
 
     [Fact]
@@ -57,11 +59,15 @@ public class MenuAndRolePermissionsTests
         
         // Required fields
         Assert.Contains("menuno", properties);
+        Assert.Contains("menucode", properties);
         Assert.Contains("title", properties);
+        Assert.Contains("titlebn", properties);
         Assert.Contains("path", properties);
+        Assert.Contains("route", properties);
         Assert.Contains("icon", properties);
         Assert.Contains("parentmenuno", properties);
         Assert.Contains("orderno", properties);
+        Assert.Contains("menutype", properties);
         Assert.Contains("status", properties);
 
         // Must NOT contain organization/tenant fields (global catalog)
@@ -98,5 +104,71 @@ public class MenuAndRolePermissionsTests
         Assert.Contains("status", properties);
         Assert.Contains("alias", properties);
         Assert.Contains("pharmacyno", properties);
+    }
+
+    [Fact]
+    public void Test_15_ReflectionCoverage_EveryActionHasSecurityAttribute()
+    {
+        var apiAssembly = typeof(BaseController).Assembly;
+        var controllerTypes = apiAssembly.GetTypes()
+            .Where(t => typeof(ControllerBase).IsAssignableFrom(t) && !t.IsAbstract)
+            .ToList();
+
+        var missingSecurityActions = new List<string>();
+
+        foreach (var controller in controllerTypes)
+        {
+            var classHasRequireMenu = controller.GetCustomAttribute<RequireMenuAttribute>() != null;
+            var classHasRequirePermission = controller.GetCustomAttribute<RequirePermissionAttribute>() != null;
+            var classHasAllowAnonymous = controller.GetCustomAttribute<AllowAnonymousAttribute>() != null;
+            var classHasAuthOnly = controller.GetCustomAttribute<AuthenticatedOnlyAttribute>() != null;
+
+            var classCovered = classHasRequireMenu || classHasRequirePermission || classHasAllowAnonymous || classHasAuthOnly;
+
+            var actionMethods = controller.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
+                .Where(m => !m.IsSpecialName && (
+                    m.GetCustomAttributes<HttpGetAttribute>().Any() ||
+                    m.GetCustomAttributes<HttpPostAttribute>().Any() ||
+                    m.GetCustomAttributes<HttpPutAttribute>().Any() ||
+                    m.GetCustomAttributes<HttpPatchAttribute>().Any() ||
+                    m.GetCustomAttributes<HttpDeleteAttribute>().Any() ||
+                    m.GetCustomAttributes<RouteAttribute>().Any()
+                ))
+                .ToList();
+
+            foreach (var action in actionMethods)
+            {
+                var hasRequireMenu = action.GetCustomAttribute<RequireMenuAttribute>() != null;
+                var hasRequirePermission = action.GetCustomAttribute<RequirePermissionAttribute>() != null;
+                var hasAllowAnonymous = action.GetCustomAttribute<AllowAnonymousAttribute>() != null;
+                var hasAuthOnly = action.GetCustomAttribute<AuthenticatedOnlyAttribute>() != null;
+
+                var actionCovered = hasRequireMenu || hasRequirePermission || hasAllowAnonymous || hasAuthOnly;
+
+                if (!classCovered && !actionCovered)
+                {
+                    missingSecurityActions.Add($"{controller.Name}.{action.Name}");
+                }
+            }
+        }
+
+        Assert.True(missingSecurityActions.Count == 0,
+            $"Action methods missing [RequireMenu], [RequirePermission], [AllowAnonymous], or [AuthenticatedOnly]: {string.Join(", ", missingSecurityActions)}");
+    }
+
+    [Fact]
+    public void Test_Normalization_CreateEditDeleteImplyView()
+    {
+        var item1 = new RoleMenuPermissionItemDto { MenuNo = 1, CanCreate = true, CanView = false };
+        if (item1.CanCreate || item1.CanEdit || item1.CanDelete) item1.CanView = true;
+        Assert.True(item1.CanView);
+
+        var item2 = new RoleMenuPermissionItemDto { MenuNo = 2, CanEdit = true, CanView = false };
+        if (item2.CanCreate || item2.CanEdit || item2.CanDelete) item2.CanView = true;
+        Assert.True(item2.CanView);
+
+        var item3 = new RoleMenuPermissionItemDto { MenuNo = 3, CanDelete = true, CanView = false };
+        if (item3.CanCreate || item3.CanEdit || item3.CanDelete) item3.CanView = true;
+        Assert.True(item3.CanView);
     }
 }

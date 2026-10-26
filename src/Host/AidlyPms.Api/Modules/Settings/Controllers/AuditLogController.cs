@@ -48,7 +48,7 @@ public class AuditLogDto
 
 [Route("api/v1/audit/logs")]
 [Route("api/v1/sys/audit-logs")]
-[RequirePermission("Pharmacy-Module")]
+[RequireMenu("SETT_2006")]
 public class AuditLogController : BaseController
 {
     private readonly IDbConnectionFactory _db;

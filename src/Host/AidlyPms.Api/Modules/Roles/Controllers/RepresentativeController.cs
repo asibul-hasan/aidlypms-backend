@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Roles.Controllers;
 
 [Route("api/v1")]
-[RequirePermission("Role-Module")]
+[RequireMenu("REP_1801", "REP_1802")]
 public class RepresentativeController : BaseController
 {
     private readonly IDbConnectionFactory _db;

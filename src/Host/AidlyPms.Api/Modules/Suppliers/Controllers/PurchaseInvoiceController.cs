@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Suppliers.Controllers;
 
 [Route("api/v1/pur")]
-[RequirePermission("PMS-Vendor-Module")]
+[RequireMenu("PUR_1503", "PUR_1504", "PUR_1509")]
 public class PurchaseInvoiceController : BaseController
 {
     private readonly IDbConnectionFactory _db;

@@ -12,6 +12,7 @@ using Microsoft.Extensions.Configuration;
 namespace AidlyPms.Api.Modules.Subscription.Controllers;
 
 [ApiController]
+[AllowAnonymous]
 public class SubscriptionCallbackController : ControllerBase
 {
     private readonly IDbConnectionFactory _db;

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AidlyPms.Api.Modules.Products.Controllers;
 
 [Route("api/v1/inv/integrity")]
+[RequireMenu("PROD_1613")]
 public class StockIntegrityController : BaseController
 {
     private readonly IDbConnectionFactory _db;
