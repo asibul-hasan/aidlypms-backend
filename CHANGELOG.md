@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.16.3](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.2...v1.16.3) (2026-10-26)
+
+
+### 🐛 Bug Fixes
+
+* **db:** sync sys_menus seed data in db_script and schema with global menu catalog ([f1be5e6](https://github.com/asibul-hasan/aidlypms-backend/commit/f1be5e63c4014945cf57f651fdaf282df8520a7e))
+
 ## [1.16.2](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.1...v1.16.2) (2026-10-26)
 
 
