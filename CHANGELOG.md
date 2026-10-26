@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.16.5](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.4...v1.16.5) (2026-10-26)
+
+
+### 🧪 Tests
+
+* **resolver:** align test seed columns with schema in PaymentAccountResolverTests ([df13183](https://github.com/asibul-hasan/aidlypms-backend/commit/df131830384c47da6c611040f6cd2085008ffeb5))
+
 ## [1.16.4](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.3...v1.16.4) (2026-10-26)
 
 
