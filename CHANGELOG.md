@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.16.7](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.6...v1.16.7) (2026-10-26)
+
+
+### 🐛 Bug Fixes
+
+* **pos:** correct sale_return_items and generic/company column names in queries ([74a0413](https://github.com/asibul-hasan/aidlypms-backend/commit/74a0413c51acc1770e6675f17a6b6e3e4c53aaa3))
+
 ## [1.16.6](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.5...v1.16.6) (2026-10-26)
 
 
