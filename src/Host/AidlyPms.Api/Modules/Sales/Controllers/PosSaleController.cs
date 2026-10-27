@@ -951,6 +951,8 @@ public class PosSaleController : BaseController
     public async Task<ActionResult<ApiResponse<PagedResult<SaleInvoice>>>> GetOfflineSales(
         [FromQuery] DateTime? startDate = null,
         [FromQuery] DateTime? endDate = null,
+        [FromQuery] string? search = null,
+        [FromQuery] bool flaggedOnly = false,
         [FromQuery] int pageIndex = 1,
         [FromQuery] int pageSize = 20)
     {
@@ -958,22 +960,27 @@ public class PosSaleController : BaseController
         (startDate, endDate) = DateHelper.NormalizeDateRange(startDate, endDate);
         await using var conn = await _db.CreateOpenConnectionAsync();
         var offset = (pageIndex - 1) * pageSize;
+        var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
 
         const string countSql = @"
             SELECT COUNT(*)
             FROM sale_invoices s
             WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
               AND s.is_offline = TRUE
-              AND ((s.price_variance IS NOT NULL AND s.price_variance <> 0) OR s.late_sync = TRUE)
+              AND (@flaggedOnly = FALSE OR ((s.price_variance IS NOT NULL AND s.price_variance <> 0) OR s.late_sync = TRUE))
               AND (@startDate::timestamptz IS NULL OR s.sale_timestamp >= @startDate::timestamptz)
-              AND (@endDate::timestamptz IS NULL OR s.sale_timestamp <= @endDate::timestamptz);";
+              AND (@endDate::timestamptz IS NULL OR s.sale_timestamp <= @endDate::timestamptz)
+              AND (@searchTerm IS NULL OR s.sales_number ILIKE '%' || @searchTerm || '%'
+                                      OR s.offline_receipt_no ILIKE '%' || @searchTerm || '%');";
 
         var total = await conn.ExecuteScalarAsync<int>(countSql, new
         {
             CurrentPharmacyNo,
             CurrentBranchNo,
             startDate,
-            endDate
+            endDate,
+            flaggedOnly,
+            searchTerm
         });
 
         const string dataSql = @"
@@ -995,9 +1002,11 @@ public class PosSaleController : BaseController
             LEFT JOIN cust_customers c ON s.customer_no = c.customer_no
             WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
               AND s.is_offline = TRUE
-              AND ((s.price_variance IS NOT NULL AND s.price_variance <> 0) OR s.late_sync = TRUE)
+              AND (@flaggedOnly = FALSE OR ((s.price_variance IS NOT NULL AND s.price_variance <> 0) OR s.late_sync = TRUE))
               AND (@startDate::timestamptz IS NULL OR s.sale_timestamp >= @startDate::timestamptz)
               AND (@endDate::timestamptz IS NULL OR s.sale_timestamp <= @endDate::timestamptz)
+              AND (@searchTerm IS NULL OR s.sales_number ILIKE '%' || @searchTerm || '%'
+                                      OR s.offline_receipt_no ILIKE '%' || @searchTerm || '%')
             ORDER BY s.sale_timestamp DESC
             OFFSET @offset LIMIT @pageSize;";
 
@@ -1007,6 +1016,8 @@ public class PosSaleController : BaseController
             CurrentBranchNo,
             startDate,
             endDate,
+            flaggedOnly,
+            searchTerm,
             offset,
             pageSize
         })).AsList();
