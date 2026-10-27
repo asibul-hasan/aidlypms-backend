@@ -157,8 +157,8 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
             INSERT INTO sys_roles (
                 role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
             ) VALUES (
-                9, @p, @b, 'Manager', 'Manager', 'Manager', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            ) ON CONFLICT (role_no) DO NOTHING;
+                9, @p, @b, 'PMS Manager', 'PMS Manager', 'Full operational control over store inventory, accounting, settings, and staff', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (role_no) DO UPDATE SET alias = 'PMS Manager', role_name = 'PMS Manager';
 
             -- Restricted Role without 'void' permission
             INSERT INTO sys_roles (
@@ -1892,4 +1892,419 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
         _output.WriteLine("Test 21 Passed: bKash (type 4), Nagad (type 5), Card (type 7) resolved correctly, and missing Rocket returned 400.");
     }
+
+    // =========================================================================
+    // 22. No menu grant returns 403 Forbidden on GET, POST, PUT, DELETE
+    // =========================================================================
+    [Fact]
+    public async Task Test_22_NoMenuGrant_Returns403Forbidden_OnGetPostPutDelete()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        const long p = TestPharmacyNo;
+        const long b = TestBranchNo;
+        const long noMenuRoleNo = 9995;
+        const long noMenuUserNo = 9995;
+
+        // Ensure role exists with NO menu permissions
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_roles (
+                role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
+            ) VALUES (
+                @noMenuRoleNo, @p, @b, 'No-Menu User', 'No-Menu User', 'Role with zero menu grants', FALSE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (role_no) DO UPDATE SET alias = 'No-Menu User', role_name = 'No-Menu User';
+
+            DELETE FROM sys_role_menu_permissions WHERE role_no = @noMenuRoleNo AND pharmacy_no = @p;
+        ", new { p, b, noMenuRoleNo });
+
+        var token = GenerateJwt(p, b, noMenuUserNo, noMenuRoleNo, "No-Menu User");
+
+        // 1. GET /api/v1/cust/customers -> 403 Forbidden
+        var getReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/cust/customers");
+        getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var getResp = await _client.SendAsync(getReq);
+        Assert.Equal(HttpStatusCode.Forbidden, getResp.StatusCode);
+
+        // 2. POST /api/v1/cust/customers -> 403 Forbidden
+        var postReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cust/customers")
+        {
+            Content = JsonContent.Create(new { name = "Unauthorized Customer", phone = "01700999991" })
+        };
+        postReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var postResp = await _client.SendAsync(postReq);
+        Assert.Equal(HttpStatusCode.Forbidden, postResp.StatusCode);
+
+        // 3. PUT /api/v1/cust/customers/1 -> 403 Forbidden
+        var putReq = new HttpRequestMessage(HttpMethod.Put, "/api/v1/cust/customers/1")
+        {
+            Content = JsonContent.Create(new { name = "Unauthorized Customer", phone = "01700999991" })
+        };
+        putReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var putResp = await _client.SendAsync(putReq);
+        Assert.Equal(HttpStatusCode.Forbidden, putResp.StatusCode);
+
+        // 4. DELETE /api/v1/cust/customers/1 -> 403 Forbidden
+        var delReq = new HttpRequestMessage(HttpMethod.Delete, "/api/v1/cust/customers/1")
+        {
+            Content = JsonContent.Create(new { reason = "Unauthorized delete attempt" })
+        };
+        delReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var delResp = await _client.SendAsync(delReq);
+        Assert.Equal(HttpStatusCode.Forbidden, delResp.StatusCode);
+
+        _output.WriteLine("Test 22 Passed: No menu grant returned 403 Forbidden on GET, POST, PUT, DELETE.");
+    }
+
+    // =========================================================================
+    // 23. View-only returns 200 on GET and 403 on writes (POST, PUT, DELETE)
+    // =========================================================================
+    [Fact]
+    public async Task Test_23_ViewOnlyMenuGrant_Returns200OnGet_And403OnWrites()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        const long p = TestPharmacyNo;
+        const long b = TestBranchNo;
+        const long viewOnlyRoleNo = 9994;
+        const long viewOnlyUserNo = 9994;
+
+        // Ensure role exists with ONLY can_view = TRUE on CUST_1407
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_roles (
+                role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
+            ) VALUES (
+                @viewOnlyRoleNo, @p, @b, 'View-Only Clerk', 'View-Only Clerk', 'Role with view-only on customer screen', FALSE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (role_no) DO UPDATE SET alias = 'View-Only Clerk', role_name = 'View-Only Clerk';
+
+            DELETE FROM sys_role_menu_permissions WHERE role_no = @viewOnlyRoleNo AND pharmacy_no = @p;
+
+            INSERT INTO sys_role_menu_permissions (
+                role_menu_perm_no, pharmacy_no, role_no, menu_no,
+                can_view, can_create, can_edit, can_delete,
+                created_at, updated_at
+            )
+            SELECT nextval('seq_role_menu_perm_no'), @p, @viewOnlyRoleNo, menu_no,
+                   TRUE, FALSE, FALSE, FALSE,
+                   CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            FROM sys_menus WHERE menu_code = 'CUST_1407';
+        ", new { p, b, viewOnlyRoleNo });
+
+        var token = GenerateJwt(p, b, viewOnlyUserNo, viewOnlyRoleNo, "View-Only Clerk");
+
+        // 1. GET /api/v1/cust/customers -> 200 OK
+        var getReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/cust/customers");
+        getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var getResp = await _client.SendAsync(getReq);
+        Assert.Equal(HttpStatusCode.OK, getResp.StatusCode);
+
+        // 2. POST /api/v1/cust/customers -> 403 Forbidden
+        var postReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cust/customers")
+        {
+            Content = JsonContent.Create(new { name = "View Only Attempt Customer", phone = "01700999992" })
+        };
+        postReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var postResp = await _client.SendAsync(postReq);
+        Assert.Equal(HttpStatusCode.Forbidden, postResp.StatusCode);
+
+        // 3. PUT /api/v1/cust/customers/1 -> 403 Forbidden
+        var putReq = new HttpRequestMessage(HttpMethod.Put, "/api/v1/cust/customers/1")
+        {
+            Content = JsonContent.Create(new { name = "View Only Attempt Customer", phone = "01700999992" })
+        };
+        putReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var putResp = await _client.SendAsync(putReq);
+        Assert.Equal(HttpStatusCode.Forbidden, putResp.StatusCode);
+
+        // 4. DELETE /api/v1/cust/customers/1 -> 403 Forbidden
+        var delReq = new HttpRequestMessage(HttpMethod.Delete, "/api/v1/cust/customers/1")
+        {
+            Content = JsonContent.Create(new { reason = "View-only delete attempt" })
+        };
+        delReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var delResp = await _client.SendAsync(delReq);
+        Assert.Equal(HttpStatusCode.Forbidden, delResp.StatusCode);
+
+        _output.WriteLine("Test 23 Passed: View-only grant allowed GET (200 OK) and blocked POST, PUT, DELETE with 403 Forbidden.");
+    }
+
+    // =========================================================================
+    // 24. Role in another pharmacy cannot be read or changed (tenant isolation)
+    // =========================================================================
+    [Fact]
+    public async Task Test_24_TenantIsolation_RoleInAnotherPharmacy_CannotBeReadOrChanged()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        const long foreignPharmacyNo = 9991;
+        const long foreignBranchNo = 9991;
+        const long foreignRoleNo = 999101;
+
+        // Seed a role in a foreign pharmacy
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_pharmacies (
+                pharmacy_no, uuid, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
+            ) VALUES (
+                @foreignPharmacyNo, gen_random_uuid(), 'Foreign Pharmacy', '01899999991', 'foreign@example.com', 'Chittagong', 'Chittagong', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (pharmacy_no) DO NOTHING;
+
+            INSERT INTO sys_branches (
+                branch_no, uuid, pharmacy_no, name, contact_phone, contact_email, address, district, is_active, created_at, updated_at
+            ) VALUES (
+                @foreignBranchNo, gen_random_uuid(), @foreignPharmacyNo, 'Foreign Branch', '01899999991', 'foreign@example.com', 'Chittagong', 'Chittagong', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (branch_no) DO NOTHING;
+
+            INSERT INTO sys_roles (
+                role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
+            ) VALUES (
+                @foreignRoleNo, @foreignPharmacyNo, @foreignBranchNo, 'Foreign Secret Role', 'Foreign Secret Role', 'Sensitive role of foreign pharmacy', FALSE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (role_no) DO UPDATE SET alias = 'Foreign Secret Role', role_name = 'Foreign Secret Role';
+        ", new { foreignPharmacyNo, foreignBranchNo, foreignRoleNo });
+
+        // Authenticate as Manager in TestPharmacyNo (9002)
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "PMS Manager");
+
+        // 1. GET /api/v1/role/roles/{foreignRoleNo} -> 404 Not Found (tenant-isolated)
+        var getReq = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/role/roles/{foreignRoleNo}");
+        getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var getResp = await _client.SendAsync(getReq);
+        Assert.Equal(HttpStatusCode.NotFound, getResp.StatusCode);
+
+        // 2. PUT /api/v1/role/roles/{foreignRoleNo} -> 404 Not Found
+        var putReq = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/role/roles/{foreignRoleNo}")
+        {
+            Content = JsonContent.Create(new { alias = "Compromised Role", role_name = "Compromised Role" })
+        };
+        putReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var putResp = await _client.SendAsync(putReq);
+        Assert.Equal(HttpStatusCode.NotFound, putResp.StatusCode);
+
+        // Verify foreign role alias remains unchanged in database
+        var existingAlias = await conn.ExecuteScalarAsync<string>(
+            "SELECT alias FROM sys_roles WHERE role_no = @foreignRoleNo AND pharmacy_no = @foreignPharmacyNo;",
+            new { foreignRoleNo, foreignPharmacyNo });
+        Assert.Equal("Foreign Secret Role", existingAlias);
+
+        _output.WriteLine("Test 24 Passed: Role in another pharmacy cannot be read or changed across tenant boundaries.");
+    }
+
+    // =========================================================================
+    // 25. Granting a menu or special code the caller does not hold returns 403
+    // =========================================================================
+    [Fact]
+    public async Task Test_25_PrivilegeRule_GrantingMenuOrSpecialCodeNotHeldByCaller_Returns403()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        const long p = TestPharmacyNo;
+        const long b = TestBranchNo;
+        const long supervisorRoleNo = 9993;
+        const long supervisorUserNo = 9993;
+        const long targetRoleNo = 9992;
+
+        // Create a supervisor role that has role.manage and ROLE_1901 menu, but DOES NOT have 'void' special code and does NOT have MENU_1904 menu
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_roles (
+                role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
+            ) VALUES (
+                @supervisorRoleNo, @p, @b, 'Role Admin Supervisor', 'Role Admin Supervisor', 'Can manage roles within bounds', FALSE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (role_no) DO UPDATE SET alias = 'Role Admin Supervisor', role_name = 'Role Admin Supervisor';
+
+            INSERT INTO sys_roles (
+                role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
+            ) VALUES (
+                @targetRoleNo, @p, @b, 'Target Role', 'Target Role', 'Target for assignment', FALSE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (role_no) DO UPDATE SET alias = 'Target Role', role_name = 'Target Role';
+
+            DELETE FROM sys_role_permissions WHERE role_no = @supervisorRoleNo AND pharmacy_no = @p;
+            DELETE FROM sys_role_menu_permissions WHERE role_no = @supervisorRoleNo AND pharmacy_no = @p;
+
+            -- Grant role.manage permission to supervisor
+            INSERT INTO sys_role_permissions (role_no, permission_no, pharmacy_no, branch_no)
+            SELECT @supervisorRoleNo, permission_no, @p, @b
+            FROM sys_permissions WHERE code = 'role.manage';
+
+            -- Grant ROLE_1901 menu to supervisor
+            INSERT INTO sys_role_menu_permissions (
+                role_menu_perm_no, pharmacy_no, role_no, menu_no,
+                can_view, can_create, can_edit, can_delete,
+                created_at, updated_at
+            )
+            SELECT nextval('seq_role_menu_perm_no'), @p, @supervisorRoleNo, menu_no,
+                   TRUE, TRUE, TRUE, TRUE,
+                   CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            FROM sys_menus WHERE menu_code = 'ROLE_1901';
+        ", new { p, b, supervisorRoleNo, targetRoleNo });
+
+        var supervisorToken = GenerateJwt(p, b, supervisorUserNo, supervisorRoleNo, "Role Admin Supervisor");
+
+        // 1. Attempt to create a role granting special code 'void' (which supervisor does not hold) -> 403 Forbidden
+        var createSpecialCodeReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/role/roles")
+        {
+            Content = JsonContent.Create(new
+            {
+                alias = "Privilege Escalation Role",
+                role_name = "Privilege Escalation Role",
+                permissions = new[] { "role.manage", "void" }
+            })
+        };
+        createSpecialCodeReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supervisorToken);
+        var createSpecialCodeResp = await _client.SendAsync(createSpecialCodeReq);
+        Assert.Equal(HttpStatusCode.Forbidden, createSpecialCodeResp.StatusCode);
+        var specialErr = await createSpecialCodeResp.Content.ReadAsStringAsync();
+        Assert.Contains("Privilege rule", specialErr);
+
+        // 2. Attempt to grant menu MENU_1904 (which supervisor does not hold) -> 403 Forbidden
+        var menu1904No = await conn.ExecuteScalarAsync<long>("SELECT menu_no FROM sys_menus WHERE menu_code = 'MENU_1904';");
+        Assert.True(menu1904No > 0);
+
+        var grantMenuReq = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/role/{targetRoleNo}/menu-permissions")
+        {
+            Content = JsonContent.Create(new[]
+            {
+                new { menu_no = menu1904No, can_view = true, can_create = true, can_edit = false, can_delete = false }
+            })
+        };
+        grantMenuReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supervisorToken);
+        var grantMenuResp = await _client.SendAsync(grantMenuReq);
+        Assert.Equal(HttpStatusCode.Forbidden, grantMenuResp.StatusCode);
+        var menuErr = await grantMenuResp.Content.ReadAsStringAsync();
+        Assert.Contains("Privilege rule", menuErr);
+
+        _output.WriteLine("Test 25 Passed: Caller cannot grant special permission or menu privilege they do not possess (403 Forbidden).");
+    }
+
+    // =========================================================================
+    // 26. Tenant admin cannot edit menus, but platform owner can
+    // =========================================================================
+    [Fact]
+    public async Task Test_26_TenantAdmin_CannotEditMenus_PlatformOwnerCan()
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _output.WriteLine("Skipping: TEST_POSTGRES_CONNECTION not configured.");
+            return;
+        }
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        // 1. Tenant Admin (PMS Manager with full access in Pharmacy 9002, but NO platform_owner claim)
+        var tenantAdminToken = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "PMS Manager");
+
+        // Attempt to create a menu -> 403 Forbidden
+        var tenantCreateReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/menus")
+        {
+            Content = JsonContent.Create(new
+            {
+                menu_code = "TEST_MENU_TENANT_ATTEMPT",
+                title = "Tenant Menu Title",
+                title_bn = "টেন্যান্ট শিরোনাম",
+                path = "/tenant-attempt",
+                route = "/tenant-attempt",
+                icon = "settings",
+                menu_type = "SCREEN",
+                status = true,
+                order_no = 999
+            })
+        };
+        tenantCreateReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tenantAdminToken);
+        var tenantCreateResp = await _client.SendAsync(tenantCreateReq);
+        Assert.Equal(HttpStatusCode.Forbidden, tenantCreateResp.StatusCode);
+
+        // Attempt to update existing menu -> 403 Forbidden
+        var sampleMenuNo = await conn.ExecuteScalarAsync<long>("SELECT menu_no FROM sys_menus WHERE menu_code = 'MENU_1904';");
+        Assert.True(sampleMenuNo > 0);
+
+        var tenantUpdateReq = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/menus/{sampleMenuNo}")
+        {
+            Content = JsonContent.Create(new
+            {
+                title = "Tenant Hacked Title"
+            })
+        };
+        tenantUpdateReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tenantAdminToken);
+        var tenantUpdateResp = await _client.SendAsync(tenantUpdateReq);
+        Assert.Equal(HttpStatusCode.Forbidden, tenantUpdateResp.StatusCode);
+
+        // 2. Platform Owner (JWT with platform_owner = 'true')
+        var ownerToken = GenerateOwnerJwt();
+
+        // Platform owner creates menu -> 200 OK
+        const string ownerMenuCode = "TEST_MENU_OWNER_SUCCESS";
+        await conn.ExecuteAsync("DELETE FROM sys_menus WHERE menu_code = @ownerMenuCode;", new { ownerMenuCode });
+
+        var ownerCreateReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/menus")
+        {
+            Content = JsonContent.Create(new
+            {
+                menu_code = ownerMenuCode,
+                title = "Platform Owner Created Menu",
+                title_bn = "প্ল্যাটফর্ম ওনার মেনু",
+                path = "/owner-menu",
+                route = "/owner-menu",
+                icon = "shield",
+                menu_type = "SCREEN",
+                status = true,
+                order_no = 999
+            })
+        };
+        ownerCreateReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
+        var ownerCreateResp = await _client.SendAsync(ownerCreateReq);
+        Assert.Equal(HttpStatusCode.OK, ownerCreateResp.StatusCode);
+
+        var ownerJson = await ownerCreateResp.Content.ReadFromJsonAsync<JsonObject>();
+        var createdMenuNo = ownerJson?["data"]?["menu_no"]?.GetValue<long>() ?? 0;
+        Assert.True(createdMenuNo > 0);
+
+        // Platform owner updates menu -> 200 OK
+        var ownerUpdateReq = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/menus/{createdMenuNo}")
+        {
+            Content = JsonContent.Create(new
+            {
+                title = "Platform Owner Updated Menu Title"
+            })
+        };
+        ownerUpdateReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
+        var ownerUpdateResp = await _client.SendAsync(ownerUpdateReq);
+        Assert.Equal(HttpStatusCode.OK, ownerUpdateResp.StatusCode);
+
+        // Verify update persisted
+        var updatedTitle = await conn.ExecuteScalarAsync<string>(
+            "SELECT title FROM sys_menus WHERE menu_no = @createdMenuNo;", new { createdMenuNo });
+        Assert.Equal("Platform Owner Updated Menu Title", updatedTitle);
+
+        // Cleanup created menu
+        await conn.ExecuteAsync("DELETE FROM sys_menus WHERE menu_no = @createdMenuNo;", new { createdMenuNo });
+
+        _output.WriteLine("Test 26 Passed: Tenant admin was blocked from editing menus (403), while platform owner created and updated menus successfully.");
+    }
 }
+

@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration: 20261026_13_legacy_role_menu_permissions.sql
+-- Migration: 20261026_14_legacy_role_menu_permissions.sql
 -- Description:
 --   1. Migrates existing role permissions: for every role holding a legacy
 --      module code in sys_role_permissions, grants granular menu permissions

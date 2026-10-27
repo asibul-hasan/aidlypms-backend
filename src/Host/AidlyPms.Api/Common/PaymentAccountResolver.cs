@@ -81,7 +81,6 @@ public class PaymentAccountResolver : IPaymentAccountResolver
             4 => [5],    // Nagad: 5
             5 => [6],    // Rocket: 6
             6 => [7],    // Card: 7
-            7 => [7],    // Card alias: 7
             _ => Array.Empty<short>()
         };
 

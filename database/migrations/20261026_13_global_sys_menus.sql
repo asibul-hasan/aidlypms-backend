@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration: 20261026_12_global_sys_menus.sql
+-- Migration: 20261026_13_global_sys_menus.sql
 -- Description:
 --   1. Upgrades sys_menus to a truly DB-driven global menu catalog.
 --   2. Adds menu_code (UNIQUE), title_bn, menu_type (MODULE, SUBMODULE, SCREEN), route.

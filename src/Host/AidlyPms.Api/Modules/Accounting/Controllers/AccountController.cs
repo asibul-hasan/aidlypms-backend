@@ -11,10 +11,12 @@ namespace AidlyPms.Api.Modules.Accounting.Controllers;
 public class AccountController : BaseController
 {
     private readonly IDbConnectionFactory _db;
+    private readonly IPharmacyChartSeeder _chartSeeder;
 
-    public AccountController(IDbConnectionFactory db)
+    public AccountController(IDbConnectionFactory db, IPharmacyChartSeeder chartSeeder)
     {
         _db = db;
+        _chartSeeder = chartSeeder;
     }
 
     [HttpGet]
@@ -24,6 +26,7 @@ public class AccountController : BaseController
         [FromQuery] string? search)
     {
         using var conn = _db.CreateConnection();
+        await _chartSeeder.SeedDefaultChartForPharmacyAsync(conn, null, CurrentPharmacyNo, CurrentBranchNo);
         var sql = @"
             SELECT a.*,
                    (

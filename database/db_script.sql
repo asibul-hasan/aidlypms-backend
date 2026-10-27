@@ -1361,11 +1361,13 @@ INSERT INTO acc_transaction_accounts (account_no, pharmacy_no, branch_no, accoun
 (12, 1, 1, 5, '50201', 'General & Operating Expenses', NULL, 99, NULL, NULL, 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 (13, 1, 1, 1, '10102', 'bKash Merchant Wallet', '01700000002', 4, NULL, 'bKash Merchant', 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 (14, 1, 1, 1, '10103', 'Nagad Merchant Wallet', '01800000002', 5, NULL, 'Nagad Merchant', 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-(15, 1, 1, 1, '10104', 'Card POS Settlement Account', NULL, 7, NULL, 'Card POS Settlement', 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(15, 1, 1, 1, '10104', 'Card POS Machine', NULL, 7, NULL, 'Card POS Settlement', 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 (16, 1, 1, 4, '40202', 'Rounding Adjustment Gain', NULL, 99, NULL, NULL, 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 (17, 1, 1, 5, '50203', 'Rounding Adjustment Loss', NULL, 99, NULL, NULL, 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 (18, 1, 1, 5, '50204', 'Cash Drawer Variance & Shortage', NULL, 99, NULL, NULL, 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-(19, 1, 1, 4, '40203', 'Cash Drawer Variance & Overage', NULL, 99, NULL, NULL, 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+(19, 1, 1, 4, '40203', 'Cash Drawer Variance & Overage', NULL, 99, NULL, NULL, 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(20, 1, 1, 1, '10105', 'Rocket', '01900000002', 6, NULL, 'Rocket Merchant', 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(21, 1, 1, 1, '10901', 'Return Credit Clearing Account', NULL, 99, NULL, 'Internal Clearing', 0.0000, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT (account_no) DO NOTHING;
 
 -- Seed Sample Pharmaceutical Manufacturers (prod_companies)

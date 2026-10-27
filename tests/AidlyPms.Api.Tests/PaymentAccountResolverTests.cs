@@ -154,10 +154,60 @@ public class PaymentAccountResolverTests : IAsyncLifetime
         // PaymentMethod 6 = Card -> should resolve account_type 7 (Card POS Settlement: account TestPharmacyNo * 100 + 15)
         var accountNo6 = await resolver.ResolveAccountNoAsync(conn, null, TestPharmacyNo, TestBranchNo, 6);
         Assert.Equal(TestPharmacyNo * 100 + 15, accountNo6);
+    }
 
-        // PaymentMethod 7 = Card alias -> also resolves account_type 7
-        var accountNo7 = await resolver.ResolveAccountNoAsync(conn, null, TestPharmacyNo, TestBranchNo, 7);
-        Assert.Equal(TestPharmacyNo * 100 + 15, accountNo7);
+    [Fact]
+    public async Task ResolveAccountNo_PaymentMethod7_Due_Throws400PosSaleException()
+    {
+        if (string.IsNullOrWhiteSpace(_connectionString)) return;
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        var resolver = new PaymentAccountResolver(new TestDbConnectionFactory(_connectionString));
+
+        // PaymentMethod 7 = Customer Due -> not a payment account method, throws PosSaleException
+        var ex = await Assert.ThrowsAsync<PosSaleException>(async () =>
+        {
+            await resolver.ResolveAccountNoAsync(conn, null, TestPharmacyNo, TestBranchNo, 7);
+        });
+
+        Assert.Equal(400, ex.StatusCode);
+        Assert.Equal("No account configured for this payment method. Add one in Accounts.", ex.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ResolveAccountNo_RocketSale_ResolvesToType6Account()
+    {
+        if (string.IsNullOrWhiteSpace(_connectionString)) return;
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        const long p = TestPharmacyNo;
+        const long b = TestBranchNo;
+        const long rocketAcc = p * 100 + 20;
+
+        // Insert Rocket account (type 6)
+        await conn.ExecuteAsync(@"
+            INSERT INTO acc_transaction_accounts (
+                account_no, pharmacy_no, branch_no, account_category, account_code, account_name, account_type, bank_account_number, bank_name, current_balance, is_active, created_at, updated_at
+            ) VALUES (
+                @rocketAcc, @p, @b, 1, '10105', 'Rocket', 6, '01900000002', 'Rocket Merchant', 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (account_no) DO UPDATE SET is_active = TRUE;",
+            new { rocketAcc, p, b });
+
+        try
+        {
+            var resolver = new PaymentAccountResolver(new TestDbConnectionFactory(_connectionString));
+            // PaymentMethod 5 = Rocket -> resolves account_type 6
+            var accountNo = await resolver.ResolveAccountNoAsync(conn, null, p, b, 5);
+            Assert.Equal(rocketAcc, accountNo);
+        }
+        finally
+        {
+            await conn.ExecuteAsync("DELETE FROM acc_transaction_accounts WHERE account_no = @rocketAcc;", new { rocketAcc });
+        }
     }
 
     [Fact]

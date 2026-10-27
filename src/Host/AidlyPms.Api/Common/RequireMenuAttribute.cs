@@ -36,6 +36,13 @@ public class RequireMenuAttribute : Attribute, IAsyncActionFilter
             return;
         }
 
+        var isPlatformOwner = string.Equals(context.HttpContext.User?.FindFirst("platform_owner")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+        if (isPlatformOwner)
+        {
+            await next();
+            return;
+        }
+
         var tenant = context.HttpContext.RequestServices.GetRequiredService<ITenantContext>();
         var db = context.HttpContext.RequestServices.GetRequiredService<IDbConnectionFactory>();
 
@@ -54,23 +61,17 @@ public class RequireMenuAttribute : Attribute, IAsyncActionFilter
                 new { UserNo = userNo, PharmacyNo = pharmacyNo, BranchNo = branchNo });
         }
 
-        // Fast-path: System Manager (Role 9 or alias 'PMS Manager') has all permissions
-        if (roleNo == 9)
-        {
-            await next();
-            return;
-        }
-
+        // Fast-path: System Manager (alias 'PMS Manager') has full access
         if (roleNo > 0)
         {
-            var isManager = await conn.ExecuteScalarAsync<bool>(@"
+            var isFullAccess = await conn.ExecuteScalarAsync<bool>(@"
                 SELECT EXISTS(
                     SELECT 1 FROM sys_roles
-                    WHERE role_no = @RoleNo AND (alias = 'PMS Manager' OR role_name = 'PMS Manager')
+                    WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo AND (alias = 'PMS Manager' OR role_name = 'PMS Manager')
                 );",
-                new { RoleNo = roleNo });
+                new { RoleNo = roleNo, PharmacyNo = pharmacyNo });
 
-            if (isManager)
+            if (isFullAccess)
             {
                 await next();
                 return;

@@ -510,7 +510,6 @@ public class RoleController : BaseController
 
     private async Task<bool> IsCallerManagerAsync(System.Data.IDbConnection conn, System.Data.IDbTransaction? tran = null)
     {
-        if (CurrentRoleNo == 9) return true;
         if (CurrentRoleNo > 0)
         {
             return await conn.ExecuteScalarAsync<bool>(@"

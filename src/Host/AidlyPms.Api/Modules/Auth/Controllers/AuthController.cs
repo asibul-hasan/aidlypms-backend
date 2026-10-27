@@ -254,15 +254,15 @@ public class AuthController : BaseController
     public static async Task<(List<AidlyPms.Api.Modules.Roles.Models.SysMenu> MenuTree, List<string> Permissions, bool IsFullAccess)> BuildUserAccessAsync(
         System.Data.IDbConnection conn, long pharmacyNo, long roleNo, string? roleName)
     {
-        var isFullAccess = roleNo == 9 ||
-                           string.Equals(roleName, "PMS Manager", StringComparison.OrdinalIgnoreCase);
+        var isFullAccess = string.Equals(roleName, "PMS Manager", StringComparison.OrdinalIgnoreCase);
 
         if (!isFullAccess && roleNo > 0)
         {
-            var dbRoleAlias = await conn.ExecuteScalarAsync<string>(@"
-                SELECT alias FROM sys_roles WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo;",
+            var dbRole = await conn.QuerySingleOrDefaultAsync<(string? Alias, string? RoleName)>(@"
+                SELECT alias AS Alias, role_name AS RoleName FROM sys_roles WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo;",
                 new { RoleNo = roleNo, PharmacyNo = pharmacyNo });
-            if (string.Equals(dbRoleAlias, "PMS Manager", StringComparison.OrdinalIgnoreCase))
+            if ((!string.IsNullOrEmpty(dbRole.Alias) && string.Equals(dbRole.Alias, "PMS Manager", StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(dbRole.RoleName) && string.Equals(dbRole.RoleName, "PMS Manager", StringComparison.OrdinalIgnoreCase)))
             {
                 isFullAccess = true;
             }
