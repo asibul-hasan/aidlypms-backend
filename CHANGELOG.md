@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.18.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.17.1...v1.18.0) (2026-10-27)
+
+
+### 🚀 Features
+
+* **pms:** remove role 9 checks, add integration tests for RBAC, seed card/rocket accounts ([7c89451](https://github.com/asibul-hasan/aidlypms-backend/commit/7c8945127863eebd0d5dee035194b2972243aeed))
+
 ## [1.17.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.17.0...v1.17.1) (2026-10-27)
 
 
