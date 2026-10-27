@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.17.1](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.17.0...v1.17.1) (2026-10-27)
+
+
+### 🐛 Bug Fixes
+
+* **pos:** allow retrieving all synced offline sales with optional flaggedOnly filter ([51c4da2](https://github.com/asibul-hasan/aidlypms-backend/commit/51c4da2b98a86461359e17d622622cc798b94349))
+
 ## [1.17.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.16.7...v1.17.0) (2026-10-26)
 
 
