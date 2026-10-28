@@ -331,6 +331,7 @@ public class RoleController : BaseController
 
         var sql = @"
             SELECT 
+                rmp.role_menu_perm_no,
                 m.menu_no,
                 m.menu_code,
                 m.title,
@@ -363,6 +364,11 @@ public class RoleController : BaseController
     [RequirePermission("role.manage")]
     public async Task<ActionResult<ApiResponse<bool>>> SaveRoleMenuPermissions(long roleNo, [FromBody] List<RoleMenuPermissionItemDto> items)
     {
+        if (items == null || items.Count == 0)
+        {
+            return OkResponse(true, "No changes to update.");
+        }
+
         using var conn = _db.CreateConnection();
         conn.Open();
         using var tran = conn.BeginTransaction();
@@ -378,77 +384,117 @@ public class RoleController : BaseController
 
             var isManager = await IsCallerManagerAsync(conn, tran);
 
-            if (items != null && items.Count > 0)
+            // Validate all menu_no exist in sys_menus
+            var menuNos = items.Select(x => x.MenuNo).Distinct().ToArray();
+            var validMenuNos = (await conn.QueryAsync<long>(
+                "SELECT menu_no FROM sys_menus WHERE menu_no = ANY(@MenuNos);",
+                new { MenuNos = menuNos }, transaction: tran)).ToHashSet();
+
+            foreach (var item in items)
             {
-                // Validate all menu_no exist in sys_menus
-                var menuNos = items.Select(x => x.MenuNo).Distinct().ToArray();
-                var validMenuNos = (await conn.QueryAsync<long>(
-                    "SELECT menu_no FROM sys_menus WHERE menu_no = ANY(@MenuNos);",
-                    new { MenuNos = menuNos }, transaction: tran)).ToHashSet();
+                if (!validMenuNos.Contains(item.MenuNo))
+                {
+                    return FailResponse<bool>($"Unknown menu_no {item.MenuNo}.", statusCode: 400);
+                }
+
+                // Normalize: create, edit, delete imply view
+                if (item.CanCreate || item.CanEdit || item.CanDelete)
+                {
+                    item.CanView = true;
+                }
+            }
+
+            // Privilege rule: non-manager cannot grant grants they do not hold
+            if (!isManager)
+            {
+                var callerGrants = (await conn.QueryAsync<(long MenuNo, bool CanView, bool CanCreate, bool CanEdit, bool CanDelete)>(@"
+                    SELECT menu_no, can_view, can_create, can_edit, can_delete
+                    FROM sys_role_menu_permissions
+                    WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo AND menu_no = ANY(@MenuNos);",
+                    new { RoleNo = CurrentRoleNo, PharmacyNo = CurrentPharmacyNo, MenuNos = menuNos },
+                    transaction: tran))
+                    .ToDictionary(g => g.MenuNo);
 
                 foreach (var item in items)
                 {
-                    if (!validMenuNos.Contains(item.MenuNo))
-                    {
-                        return FailResponse<bool>($"Unknown menu_no {item.MenuNo}.", statusCode: 400);
-                    }
-
-                    // Normalize: create, edit, delete imply view
-                    if (item.CanCreate || item.CanEdit || item.CanDelete)
-                    {
-                        item.CanView = true;
-                    }
-                }
-
-                // Privilege rule: non-manager cannot grant grants they do not hold
-                if (!isManager)
-                {
-                    var callerGrants = (await conn.QueryAsync<(long MenuNo, bool CanView, bool CanCreate, bool CanEdit, bool CanDelete)>(@"
-                        SELECT menu_no, can_view, can_create, can_edit, can_delete
-                        FROM sys_role_menu_permissions
-                        WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo AND menu_no = ANY(@MenuNos);",
-                        new { RoleNo = CurrentRoleNo, PharmacyNo = CurrentPharmacyNo, MenuNos = menuNos },
-                        transaction: tran))
-                        .ToDictionary(g => g.MenuNo);
-
-                    foreach (var item in items)
-                    {
-                        callerGrants.TryGetValue(item.MenuNo, out var cg);
-                        if (item.CanView && !cg.CanView)
-                            return FailResponse<bool>($"Privilege rule: Cannot grant View on menu {item.MenuNo} not held by caller.", statusCode: 403);
-                        if (item.CanCreate && !cg.CanCreate)
-                            return FailResponse<bool>($"Privilege rule: Cannot grant Create on menu {item.MenuNo} not held by caller.", statusCode: 403);
-                        if (item.CanEdit && !cg.CanEdit)
-                            return FailResponse<bool>($"Privilege rule: Cannot grant Edit on menu {item.MenuNo} not held by caller.", statusCode: 403);
-                        if (item.CanDelete && !cg.CanDelete)
-                            return FailResponse<bool>($"Privilege rule: Cannot grant Delete on menu {item.MenuNo} not held by caller.", statusCode: 403);
-                    }
+                    callerGrants.TryGetValue(item.MenuNo, out var cg);
+                    if (item.CanView && !cg.CanView)
+                        return FailResponse<bool>($"Privilege rule: Cannot grant View on menu {item.MenuNo} not held by caller.", statusCode: 403);
+                    if (item.CanCreate && !cg.CanCreate)
+                        return FailResponse<bool>($"Privilege rule: Cannot grant Create on menu {item.MenuNo} not held by caller.", statusCode: 403);
+                    if (item.CanEdit && !cg.CanEdit)
+                        return FailResponse<bool>($"Privilege rule: Cannot grant Edit on menu {item.MenuNo} not held by caller.", statusCode: 403);
+                    if (item.CanDelete && !cg.CanDelete)
+                        return FailResponse<bool>($"Privilege rule: Cannot grant Delete on menu {item.MenuNo} not held by caller.", statusCode: 403);
                 }
             }
 
             var now = DateTime.UtcNow;
 
-            if (items != null)
-            {
-                foreach (var item in items)
-                {
-                    var upsertSql = @"
-                        INSERT INTO sys_role_menu_permissions (
-                            role_menu_perm_no, pharmacy_no, role_no, menu_no,
-                            can_view, can_create, can_edit, can_delete,
-                            created_at, updated_at
-                        ) VALUES (
-                            nextval('seq_role_menu_perm_no'), @CurrentPharmacyNo, @roleNo, @MenuNo,
-                            @CanView, @CanCreate, @CanEdit, @CanDelete,
-                            @Now, @Now
-                        )
-                        ON CONFLICT (pharmacy_no, role_no, menu_no) DO UPDATE SET
-                            can_view = EXCLUDED.can_view,
-                            can_create = EXCLUDED.can_create,
-                            can_edit = EXCLUDED.can_edit,
-                            can_delete = EXCLUDED.can_delete,
-                            updated_at = EXCLUDED.updated_at;";
+            var upsertSql = @"
+                INSERT INTO sys_role_menu_permissions (
+                    role_menu_perm_no, pharmacy_no, role_no, menu_no,
+                    can_view, can_create, can_edit, can_delete,
+                    created_at, updated_at
+                ) VALUES (
+                    nextval('seq_role_menu_perm_no'), @CurrentPharmacyNo, @roleNo, @MenuNo,
+                    @CanView, @CanCreate, @CanEdit, @CanDelete,
+                    @Now, @Now
+                )
+                ON CONFLICT (pharmacy_no, role_no, menu_no) DO UPDATE SET
+                    can_view = EXCLUDED.can_view,
+                    can_create = EXCLUDED.can_create,
+                    can_edit = EXCLUDED.can_edit,
+                    can_delete = EXCLUDED.can_delete,
+                    updated_at = EXCLUDED.updated_at;";
 
+            var updatePkSql = @"
+                UPDATE sys_role_menu_permissions SET
+                    can_view = @CanView,
+                    can_create = @CanCreate,
+                    can_edit = @CanEdit,
+                    can_delete = @CanDelete,
+                    updated_at = @Now
+                WHERE role_menu_perm_no = @RoleMenuPermNo
+                  AND pharmacy_no = @CurrentPharmacyNo
+                  AND role_no = @roleNo;";
+
+            foreach (var item in items)
+            {
+                // Standard Practice: If primary key role_menu_perm_no is present, update directly by primary key
+                if (item.RoleMenuPermNo.HasValue && item.RoleMenuPermNo.Value > 0)
+                {
+                    var rowsUpdated = await conn.ExecuteAsync(updatePkSql, new
+                    {
+                        RoleMenuPermNo = item.RoleMenuPermNo.Value,
+                        CurrentPharmacyNo,
+                        roleNo,
+                        item.CanView,
+                        item.CanCreate,
+                        item.CanEdit,
+                        item.CanDelete,
+                        Now = now
+                    }, transaction: tran);
+
+                    if (rowsUpdated == 0)
+                    {
+                        // Fallback to upsert if not found by primary key
+                        await conn.ExecuteAsync(upsertSql, new
+                        {
+                            CurrentPharmacyNo,
+                            roleNo,
+                            item.MenuNo,
+                            item.CanView,
+                            item.CanCreate,
+                            item.CanEdit,
+                            item.CanDelete,
+                            Now = now
+                        }, transaction: tran);
+                    }
+                }
+                else
+                {
+                    // New assignment: insert only this change item
                     await conn.ExecuteAsync(upsertSql, new
                     {
                         CurrentPharmacyNo,
@@ -464,7 +510,7 @@ public class RoleController : BaseController
             }
 
             tran.Commit();
-            return OkResponse(true, "Menu permissions updated successfully.");
+            return OkResponse(true, $"Updated {items.Count} menu permission(s) successfully.");
         }
         catch
         {
@@ -480,6 +526,7 @@ public class RoleController : BaseController
         using var conn = _db.CreateConnection();
         var sql = @"
             SELECT 
+                rmp.role_menu_perm_no,
                 m.menu_no,
                 m.menu_code,
                 m.title,

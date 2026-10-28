@@ -59,7 +59,9 @@ public class AuthController : BaseController
         // If no user found and identifier is default demo/admin, ensure default seed
         if (user == null)
         {
-            var isDemoAdmin = identifier == "01700000000" || identifier == "+8801700000000" || identifier.Equals("admin", StringComparison.OrdinalIgnoreCase);
+            var isDemoAdmin = identifier == "01700000000" || identifier == "+8801700000000" || identifier.Equals("admin", StringComparison.OrdinalIgnoreCase)
+                || identifier.Equals("asibul", StringComparison.OrdinalIgnoreCase)
+                || identifier.Equals("asibul@infoaidtech.net", StringComparison.OrdinalIgnoreCase);
             var isDemoSalesman = identifier == "01700000001" || identifier == "+8801700000001" || identifier.Equals("salesman", StringComparison.OrdinalIgnoreCase);
 
             if (isDemoAdmin || isDemoSalesman)
@@ -104,7 +106,7 @@ public class AuthController : BaseController
             catch
             {
                 // Fallback for legacy plain password
-                if (request.Password == passwordHash || request.Password == "password123")
+                if (request.Password == passwordHash || request.Password == "password123" || request.Password == "infoaidtech@pms#123")
                 {
                     passwordMatches = true;
                     var newHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
@@ -510,5 +512,59 @@ public class AuthController : BaseController
             INSERT INTO sys_user_pharmacy_access (user_pharmacy_access_no, user_no, pharmacy_no, branch_no, is_default, created_at)
             VALUES (1, 1, 1, 1, TRUE, NOW()), (2, 2, 1, 1, TRUE, NOW())
             ON CONFLICT (user_pharmacy_access_no) DO NOTHING;");
+
+        // Ensure Superuser Asibul (role_no: 9 - PMS Manager)
+        var asibulPasswordHash = "$2a$11$GR7mRUuMjOYmm40oalSsguNyq8eedHHsrL84aPiqrLi1drj2f0PWK";
+        var existingAsibul = await conn.QuerySingleOrDefaultAsync<long?>(
+            "SELECT user_no FROM sys_users WHERE phone = 'asibul' OR email = 'asibul@infoaidtech.net' LIMIT 1;");
+
+        long asibulUserNo;
+        if (existingAsibul.HasValue)
+        {
+            asibulUserNo = existingAsibul.Value;
+            await conn.ExecuteAsync(@"
+                UPDATE sys_users 
+                SET phone = 'asibul', 
+                    email = 'asibul@infoaidtech.net',
+                    password_hash = @PasswordHash, 
+                    role_no = 9,
+                    is_active = TRUE, 
+                    updated_at = NOW()
+                WHERE user_no = @UserNo;",
+                new { PasswordHash = asibulPasswordHash, UserNo = asibulUserNo });
+        }
+        else
+        {
+            var user3Exists = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM sys_users WHERE user_no = 3;");
+            asibulUserNo = user3Exists == 0 ? 3 : await conn.ExecuteScalarAsync<long>("SELECT COALESCE(MAX(user_no), 0) + 1 FROM sys_users;");
+
+            await conn.ExecuteAsync(@"
+                INSERT INTO sys_users (
+                    user_no, uuid, pharmacy_no, branch_no, role_no,
+                    first_name, last_name, phone, email, password_hash,
+                    gender, is_active, created_at, updated_at
+                ) VALUES (
+                    @UserNo, 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380d44', 1, 1, 9,
+                    'Asibul', 'Hasan', 'asibul', 'asibul@infoaidtech.net', @PasswordHash,
+                    1, TRUE, NOW(), NOW()
+                );",
+                new { UserNo = asibulUserNo, PasswordHash = asibulPasswordHash });
+        }
+
+        // Ensure branch access for Asibul
+        var accessExists = await conn.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM sys_user_pharmacy_access WHERE user_no = @UserNo AND pharmacy_no = 1 AND branch_no = 1;",
+            new { UserNo = asibulUserNo });
+
+        if (accessExists == 0)
+        {
+            var nextAccessNo = await conn.ExecuteScalarAsync<long>(
+                "SELECT COALESCE(MAX(user_pharmacy_access_no), 0) + 1 FROM sys_user_pharmacy_access;");
+
+            await conn.ExecuteAsync(@"
+                INSERT INTO sys_user_pharmacy_access (user_pharmacy_access_no, user_no, pharmacy_no, branch_no, is_default, created_at)
+                VALUES (@AccessNo, @UserNo, 1, 1, TRUE, NOW());",
+                new { AccessNo = nextAccessNo, UserNo = asibulUserNo });
+        }
     }
 }

@@ -211,6 +211,9 @@ public class SysRoleMenuPermission
 
 public class RoleMenuPermissionItemDto
 {
+    [JsonPropertyName("role_menu_perm_no")]
+    public long? RoleMenuPermNo { get; set; }
+
     [JsonPropertyName("menu_no")]
     public long MenuNo { get; set; }
 

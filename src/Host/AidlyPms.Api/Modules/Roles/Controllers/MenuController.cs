@@ -158,15 +158,7 @@ public class MenuController : BaseController
         if (string.IsNullOrWhiteSpace(model.Title))
             return FailResponse<SysMenu>("Menu title is required.");
 
-        if (string.IsNullOrWhiteSpace(model.MenuCode))
-            return FailResponse<SysMenu>("Menu code is required.");
-
         using var conn = _db.CreateConnection();
-
-        var codeExists = await conn.ExecuteScalarAsync<bool>(
-            "SELECT EXISTS(SELECT 1 FROM sys_menus WHERE menu_code = @MenuCode);", new { model.MenuCode });
-        if (codeExists)
-            return FailResponse<SysMenu>($"Menu with code '{model.MenuCode}' already exists.");
 
         if (model.ParentMenuNo.HasValue)
         {
@@ -180,6 +172,19 @@ public class MenuController : BaseController
 
         var nextNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_sys_menu_no');");
         model.MenuNo = nextNo;
+
+        if (string.IsNullOrWhiteSpace(model.MenuCode))
+        {
+            model.MenuCode = $"MENU_{nextNo}";
+        }
+        else
+        {
+            var codeExists = await conn.ExecuteScalarAsync<bool>(
+                "SELECT EXISTS(SELECT 1 FROM sys_menus WHERE menu_code = @MenuCode);", new { model.MenuCode });
+            if (codeExists)
+                return FailResponse<SysMenu>($"Menu with code '{model.MenuCode}' already exists.");
+        }
+
         model.Route = model.Route ?? model.Path;
         model.Path = model.Path ?? model.Route;
         model.TitleBn = !string.IsNullOrWhiteSpace(model.TitleBn) ? model.TitleBn : model.Title;
@@ -208,12 +213,6 @@ public class MenuController : BaseController
                 ApiResponse<SysMenu>.Fail("Forbidden", "Access denied: Platform owner authorization required to edit menus."));
         }
 
-        if (string.IsNullOrWhiteSpace(model.Title))
-            return FailResponse<SysMenu>("Menu title is required.");
-
-        if (model.ParentMenuNo.HasValue && model.ParentMenuNo.Value == id)
-            return FailResponse<SysMenu>("A menu cannot be its own parent.");
-
         using var conn = _db.CreateConnection();
 
         var existing = await conn.QuerySingleOrDefaultAsync<SysMenu>(
@@ -221,6 +220,12 @@ public class MenuController : BaseController
 
         if (existing == null)
             return FailResponse<SysMenu>("Menu not found.", statusCode: 404);
+
+        if (model.Title != null && string.IsNullOrWhiteSpace(model.Title))
+            return FailResponse<SysMenu>("Menu title cannot be blank.");
+
+        if (model.ParentMenuNo.HasValue && model.ParentMenuNo.Value == id)
+            return FailResponse<SysMenu>("A menu cannot be its own parent.");
 
         if (!string.IsNullOrWhiteSpace(model.MenuCode) && !string.Equals(model.MenuCode, existing.MenuCode, StringComparison.OrdinalIgnoreCase))
         {
@@ -260,13 +265,13 @@ public class MenuController : BaseController
         {
             MenuNo = id,
             MenuCode = !string.IsNullOrWhiteSpace(model.MenuCode) ? model.MenuCode : existing.MenuCode,
-            model.Title,
+            Title = !string.IsNullOrWhiteSpace(model.Title) ? model.Title : existing.Title,
             TitleBn = !string.IsNullOrWhiteSpace(model.TitleBn) ? model.TitleBn : existing.TitleBn,
-            Path = model.Path ?? model.Route ?? existing.Path,
+            Path = model.Path ?? existing.Path,
             Route = model.Route ?? model.Path ?? existing.Route,
-            model.Icon,
+            Icon = model.Icon ?? existing.Icon,
             model.ParentMenuNo,
-            model.OrderNo,
+            OrderNo = model.OrderNo > 0 ? model.OrderNo : existing.OrderNo,
             MenuType = !string.IsNullOrWhiteSpace(model.MenuType) ? model.MenuType : existing.MenuType,
             model.Status,
             UpdatedAt = DateTime.UtcNow

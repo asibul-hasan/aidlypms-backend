@@ -171,4 +171,63 @@ public class MenuAndRolePermissionsTests
         if (item3.CanCreate || item3.CanEdit || item3.CanDelete) item3.CanView = true;
         Assert.True(item3.CanView);
     }
+
+    [Fact]
+    public void Test_RoleMenuPermissionItemDto_Has_RoleMenuPermNo_PK_Mapping()
+    {
+        var prop = typeof(RoleMenuPermissionItemDto).GetProperty("RoleMenuPermNo");
+        Assert.NotNull(prop);
+        Assert.Equal(typeof(long?), prop.PropertyType);
+
+        var jsonAttr = prop.GetCustomAttribute<JsonPropertyNameAttribute>();
+        Assert.NotNull(jsonAttr);
+        Assert.Equal("role_menu_perm_no", jsonAttr.Name);
+    }
+
+    [Fact]
+    public void Test_RoleMenuPermissionItemDto_JsonSerialization_Roundtrip()
+    {
+        var json = """
+        {
+            "role_menu_perm_no": 99,
+            "menu_no": 10,
+            "can_view": true,
+            "can_create": false,
+            "can_edit": true,
+            "can_delete": false
+        }
+        """;
+
+        var dto = System.Text.Json.JsonSerializer.Deserialize<RoleMenuPermissionItemDto>(json);
+        Assert.NotNull(dto);
+        Assert.Equal(99L, dto.RoleMenuPermNo);
+        Assert.Equal(10L, dto.MenuNo);
+        Assert.True(dto.CanView);
+        Assert.False(dto.CanCreate);
+        Assert.True(dto.CanEdit);
+        Assert.False(dto.CanDelete);
+
+        // Serialize back and verify role_menu_perm_no key
+        var serialized = System.Text.Json.JsonSerializer.Serialize(dto);
+        Assert.Contains("\"role_menu_perm_no\":99", serialized);
+    }
+
+    [Fact]
+    public void Test_RoleMenuPermissionItemDto_Null_RoleMenuPermNo_For_New_Inserts()
+    {
+        var json = """
+        {
+            "menu_no": 15,
+            "can_view": true,
+            "can_create": true,
+            "can_edit": true,
+            "can_delete": true
+        }
+        """;
+
+        var dto = System.Text.Json.JsonSerializer.Deserialize<RoleMenuPermissionItemDto>(json);
+        Assert.NotNull(dto);
+        Assert.Null(dto.RoleMenuPermNo);
+        Assert.Equal(15L, dto.MenuNo);
+    }
 }

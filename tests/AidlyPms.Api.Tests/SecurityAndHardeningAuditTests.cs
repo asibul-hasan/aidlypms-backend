@@ -583,4 +583,17 @@ public class SecurityAndHardeningAuditTests
         Assert.NotNull(dispProp);
         Assert.Equal(typeof(short?), dispProp.PropertyType);
     }
+
+    // =========================================================================
+    // 16. Superuser Asibul credentials verification test
+    // =========================================================================
+    [Fact]
+    public void Test_16_Superuser_Asibul_PasswordHash_Matches_Credentials()
+    {
+        const string password = "infoaidtech@pms#123";
+        const string storedHash = "$2a$11$GR7mRUuMjOYmm40oalSsguNyq8eedHHsrL84aPiqrLi1drj2f0PWK";
+
+        var verified = BCrypt.Net.BCrypt.Verify(password, storedHash);
+        Assert.True(verified, "BCrypt hash for superuser asibul must verify cleanly against infoaidtech@pms#123");
+    }
 }
