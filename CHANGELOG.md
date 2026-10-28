@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.19.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.18.0...v1.19.0) (2026-10-28)
+
+
+### 🚀 Features
+
+* **roles:** optimize menu permissions update to change list only by primary key ([eae65ce](https://github.com/asibul-hasan/aidlypms-backend/commit/eae65ce0a767253b1021a1ccabaf9d6de1bbdbf6))
+
 ## [1.18.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.17.1...v1.18.0) (2026-10-27)
 
 
