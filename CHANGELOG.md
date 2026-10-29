@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.20.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.19.0...v1.20.0) (2026-10-29)
+
+
+### 🚀 Features
+
+* **rbac:** add Admin system role, hide developer menus, and grant universal multi-branch access ([6dd16fc](https://github.com/asibul-hasan/aidlypms-backend/commit/6dd16fc1816e26356c2e70bacf7a267aeb280898))
+
 ## [1.19.0](https://github.com/asibul-hasan/aidlypms-backend/compare/v1.18.0...v1.19.0) (2026-10-28)
 
 
