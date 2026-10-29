@@ -1,3 +1,5 @@
+using AidlyPms.Api.Common.Security;
+using AidlyPms.Api.Common.Database;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
@@ -77,7 +79,8 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
                     {
                         ["ConnectionStrings:DefaultConnection"] = _connectionString,
                         ["ConnectionStrings:DirectConnection"] = _connectionString,
-                        ["RUN_BACKGROUND_JOBS"] = "false"
+                        ["RUN_BACKGROUND_JOBS"] = "false",
+                        ["JWT_SIGNING_KEY"] = new string('T', 64)
                     });
                 });
             });
@@ -104,32 +107,35 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         }
     }
 
-    private static string GenerateJwt(long pharmacyNo, long branchNo, long userNo, long roleNo, string roleName)
+    private string GenerateJwt(long pharmacyNo, long branchNo, long userNo, long roleNo, string roleName)
     {
-        const string keyStr = "AidlyPMS_SuperSecret_Jwt_SigningKey_2026_Enterprise_Secure!";
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyStr));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-        var claims = new List<Claim>
+        // Tokens exercise the real session store; display names never confer authority.
+        if (roleNo == TestRestrictedRoleNo && userNo == TestUserNo) userNo = TestUserNo + 10;
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            new(ClaimTypes.NameIdentifier, userNo.ToString()),
-            new(ClaimTypes.Name, $"User {userNo}"),
-            new(ClaimTypes.Role, roleName),
-            new("user_no", userNo.ToString()),
-            new("pharmacy_no", pharmacyNo.ToString()),
-            new("branch_no", branchNo.ToString()),
-            new("role_no", roleNo.ToString())
-        };
-
-        var token = new JwtSecurityToken(
-            issuer: "AidlyPmsBackend",
-            audience: "AidlyPmsFrontend",
-            claims: claims,
-            expires: DateTime.UtcNow.AddDays(1),
-            signingCredentials: creds
-        );
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
+            ["ConnectionStrings:DefaultConnection"] = _connectionString
+        }).Build();
+        var sessions = new AuthSessions(new NpgsqlConnectionFactory(config), new JwtSettings { SigningKey = Encoding.UTF8.GetBytes(new string('T', 64)) });
+        using (var fixtureConnection = new NpgsqlConnection(_connectionString))
+        {
+            fixtureConnection.Execute(@"
+                INSERT INTO sys_users (user_no, uuid, pharmacy_no, branch_no, role_no, first_name, last_name,
+                    phone, email, password_hash, is_active, created_at, updated_at)
+                VALUES (@UserNo, gen_random_uuid(), @PharmacyNo, @BranchNo, @RoleNo, 'Review', 'User',
+                    @Phone, @Email, 'synthetic-unusable-hash', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_no) DO NOTHING;", new { UserNo = userNo, PharmacyNo = pharmacyNo, BranchNo = branchNo, RoleNo = roleNo,
+                    Phone = "test-" + userNo, Email = "review-" + userNo + "@example.test" });
+            fixtureConnection.Execute(@"
+                INSERT INTO sys_user_pharmacy_access (user_pharmacy_access_no, user_no, pharmacy_no, branch_no, is_default, created_at)
+                VALUES (nextval('seq_sys_user_access_no'), @UserNo, @PharmacyNo, @BranchNo, FALSE, CURRENT_TIMESTAMP)
+                ON CONFLICT (pharmacy_no, branch_no, user_no) DO NOTHING;", new { UserNo = userNo, PharmacyNo = pharmacyNo, BranchNo = branchNo });
+        }
+        if (roleNo == TestCashierRoleNo)
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            conn.Execute(@"UPDATE sys_users SET role_no = @RoleNo, updated_at = CURRENT_TIMESTAMP WHERE user_no = @UserNo;", new { RoleNo = roleNo, UserNo = userNo });
+        }
+        return sessions.CreateAsync(userNo, pharmacyNo, branchNo).GetAwaiter().GetResult().Token;
     }
 
     private static async Task EnsureSeedAsync(NpgsqlConnection conn)
@@ -158,7 +164,9 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
                 role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at
             ) VALUES (
                 9, @p, @b, 'PMS Manager', 'PMS Manager', 'Full operational control over store inventory, accounting, settings, and staff', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            ) ON CONFLICT (role_no) DO UPDATE SET alias = 'PMS Manager', role_name = 'PMS Manager';
+            ) ON CONFLICT (role_no) DO UPDATE SET alias = 'PMS Manager', role_name = 'PMS Manager', pharmacy_no = EXCLUDED.pharmacy_no, branch_no = EXCLUDED.branch_no;
+
+            UPDATE sys_roles SET pharmacy_no = @p, branch_no = @b WHERE role_no = 10;
 
             -- Restricted Role without 'void' permission
             INSERT INTO sys_roles (
@@ -1333,36 +1341,12 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         }
     }
 
-    private static string GenerateOwnerJwt(string email = "owner@aidlypms.com", string userId = "1")
+    private string GenerateOwnerJwt(string email = "owner@aidlypms.com", string userId = "1")
     {
-        const string keyStr = "AidlyPMS_SuperSecret_Jwt_SigningKey_2026_Enterprise_Secure!";
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyStr));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, userId),
-            new(ClaimTypes.Name, "Platform Owner"),
-            new(ClaimTypes.Email, email),
-            new("user_no", userId),
-            new("platform_owner", "true"),
-            new(ClaimTypes.Role, "PlatformOwner")
-        };
-
-        var token = new JwtSecurityToken(
-            issuer: "AidlyPmsBackend",
-            audience: "AidlyPmsFrontend",
-            claims: claims,
-            expires: DateTime.UtcNow.AddDays(7),
-            signingCredentials: creds
-        );
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        using var conn = new NpgsqlConnection(_connectionString);
+        return GenerateJwt(TestPharmacyNo, TestBranchNo, 5000001, 1, "Platform Owner");
     }
 
-    // =========================================================================
-    // 15. Tenant cannot confirm payment under /api/v1/owner/subscriptions/payments/{no}/confirm (403 Forbidden)
-    // =========================================================================
     [Fact]
     public async Task Test_15_Tenant_CannotConfirmOwnPayment_Returns403()
     {
@@ -2181,15 +2165,15 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
         var specialErr = await createSpecialCodeResp.Content.ReadAsStringAsync();
         Assert.Contains("Privilege rule", specialErr);
 
-        // 2. Attempt to grant menu MENU_1904 (which supervisor does not hold) -> 403 Forbidden
-        var menu1904No = await conn.ExecuteScalarAsync<long>("SELECT menu_no FROM sys_menus WHERE menu_code = 'MENU_1904';");
-        Assert.True(menu1904No > 0);
+        // 2. Attempt to grant an ordinary customer menu which the supervisor does not hold -> 403 Forbidden
+        var unheldMenuNo = await conn.ExecuteScalarAsync<long>("SELECT menu_no FROM sys_menus WHERE menu_code = 'CUST_1407';");
+        Assert.True(unheldMenuNo > 0);
 
         var grantMenuReq = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/role/{targetRoleNo}/menu-permissions")
         {
             Content = JsonContent.Create(new[]
             {
-                new { menu_no = menu1904No, can_view = true, can_create = true, can_edit = false, can_delete = false }
+                new { menu_no = unheldMenuNo, can_view = true, can_create = true, can_edit = false, can_delete = false }
             })
         };
         grantMenuReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supervisorToken);
@@ -2306,5 +2290,134 @@ public class WebApplicationFactoryIntegrationTests : IAsyncLifetime
 
         _output.WriteLine("Test 26 Passed: Tenant admin was blocked from editing menus (403), while platform owner created and updated menus successfully.");
     }
+    private async Task<HttpResponseMessage> SendAsAsync(string token, HttpMethod method, string path, object? body = null)
+    {
+        var request = new HttpRequestMessage(method, path);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (body != null) request.Content = JsonContent.Create(body);
+        return await _client!.SendAsync(request);
+    }
+
+    [Fact]
+    public async Task Security_SessionsRevokeOnDisablePasswordChangeAndLogout()
+    {
+        if (_client == null) return;
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Anything");
+        Assert.Equal(HttpStatusCode.OK, (await SendAsAsync(token, HttpMethod.Get, "/api/v1/auth/me")).StatusCode);
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.ExecuteAsync("UPDATE sys_users SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE user_no = @u;", new { u = TestUserNo });
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsAsync(token, HttpMethod.Get, "/api/v1/auth/me")).StatusCode);
+        await conn.ExecuteAsync("UPDATE sys_users SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE user_no = @u;", new { u = TestUserNo });
+        token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Anything");
+        var verifiedStamp = await conn.QuerySingleAsync<DateTime>("SELECT updated_at FROM sys_users WHERE user_no = @u;", new { u = TestUserNo });
+        await conn.ExecuteAsync("UPDATE sys_users SET password_hash = 'changed-synthetic-only', updated_at = CURRENT_TIMESTAMP WHERE user_no = @u;", new { u = TestUserNo });
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsAsync(token, HttpMethod.Get, "/api/v1/auth/me")).StatusCode);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = _connectionString }).Build();
+        var sessions = new AuthSessions(new NpgsqlConnectionFactory(configuration), new JwtSettings { SigningKey = Encoding.UTF8.GetBytes(new string('T', 64)) });
+        // Credentials verified before a concurrent password update cannot create a fresh valid session.
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => sessions.CreateAsync(TestUserNo, TestPharmacyNo, TestBranchNo, verifiedUserUpdatedAt: verifiedStamp));
+        token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Anything");
+        Assert.Equal(HttpStatusCode.OK, (await SendAsAsync(token, HttpMethod.Post, "/api/v1/auth/logout")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsAsync(token, HttpMethod.Get, "/api/v1/auth/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Security_TenantCannotDiscoverProtectedOwnerUserOrRole()
+    {
+        if (_client == null) return;
+        const long hiddenRole = 777001;
+        const long hiddenUser = 777002;
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_roles (role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at)
+            VALUES (@r, @p, @b, 'Private Support Role', 'Private Support Role', NULL, TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+            INSERT INTO sys_role_capabilities (role_no, access_scope) VALUES (@r, 'PLATFORM_OWNER');
+            INSERT INTO sys_users (user_no, uuid, pharmacy_no, branch_no, role_no, first_name, last_name, phone, email, password_hash, is_active, created_at, updated_at)
+            VALUES (@u, gen_random_uuid(), @p, @b, @r, 'Private', 'Operator', 'private-support', 'support@example.test', 'synthetic', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);",
+            new { r = hiddenRole, u = hiddenUser, p = TestPharmacyNo, b = TestBranchNo });
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+        foreach (var path in new[] { "/api/v1/sys/users", "/api/v1/role/roles" })
+        {
+            var response = await SendAsAsync(token, HttpMethod.Get, path);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var text = await response.Content.ReadAsStringAsync();
+            Assert.DoesNotContain("private-support", text);
+            Assert.DoesNotContain("Private Support Role", text);
+            Assert.DoesNotContain("password_hash", text);
+        }
+        foreach (var path in new[] { $"/api/v1/sys/users/{hiddenUser}", $"/api/v1/role/roles/{hiddenRole}", $"/api/v1/role/{hiddenRole}/menu-permissions" })
+            Assert.Equal(HttpStatusCode.NotFound, (await SendAsAsync(token, HttpMethod.Get, path)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsAsync(token, HttpMethod.Put, $"/api/v1/sys/users/{hiddenUser}", new { first_name = "Modified" })).StatusCode);
+        foreach (var protectedRole in new[] { 1L, hiddenRole })
+        {
+            Assert.Equal(HttpStatusCode.NotFound, (await SendAsAsync(token, HttpMethod.Delete, $"/api/v1/role/roles/{protectedRole}")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await SendAsAsync(token, HttpMethod.Post, $"/api/v1/role/{protectedRole}/menu-permissions", new[] { new { menu_no = 1, can_view = true } })).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task Security_OwnerCanProvisionAndAccessFutureCompaniesWhileTenantIsDenied()
+    {
+        if (_client == null) return;
+        var payload = new { name = "New Client", contact_phone = "01777777777", address = "Dhaka", district = "Dhaka" };
+        var tenant = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsAsync(tenant, HttpMethod.Post, "/api/v1/sys/pharmacies", payload)).StatusCode);
+        var owner = GenerateOwnerJwt();
+        var created = await SendAsAsync(owner, HttpMethod.Post, "/api/v1/sys/pharmacies", payload);
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var body = await created.Content.ReadFromJsonAsync<JsonObject>();
+        var branchNo = body!["data"]!["branch_no"]!.GetValue<long>();
+        var pharmacyNo = body["data"]!["pharmacy"]!["pharmacy_no"]!.GetValue<long>();
+        var ownerBranches = await SendAsAsync(owner, HttpMethod.Get, "/api/v1/sys/branches");
+        Assert.Contains(branchNo.ToString(), await ownerBranches.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsAsync(tenant, HttpMethod.Post, "/api/v1/sys/switch-branch", new { branch_no = branchNo })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsAsync(owner, HttpMethod.Post, "/api/v1/sys/switch-branch", new { branch_no = branchNo })).StatusCode);
+        var selected = await _client.GetFromJsonAsync<JsonObject>("/api/v1/auth/me");
+        Assert.Equal(pharmacyNo, selected!["data"]!["pharmacy_no"]!.GetValue<long>());
+        Assert.Equal(branchNo, selected["data"]!["branch_no"]!.GetValue<long>());
+        Assert.True(selected["data"]!["is_platform_owner"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task Security_BrowserLoginUsesHttpOnlyCookieAndRequiresCsrfForWrites()
+    {
+        if (_client == null) return;
+        const string password = "SyntheticExistingPassword!";
+        var hash = BCrypt.Net.BCrypt.HashPassword(password);
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.ExecuteAsync("UPDATE sys_users SET password_hash = @Hash, updated_at = CURRENT_TIMESTAMP WHERE user_no = @u;", new { Hash = hash, u = TestUserNo });
+        var noCsrf = await _client.PostAsJsonAsync("/api/v1/auth/login", new { phone = "01711111111", password });
+        Assert.Equal(HttpStatusCode.BadRequest, noCsrf.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/auth/login/", new { phone = "01711111111", password })).StatusCode);
+        var csrf = await _client.GetFromJsonAsync<JsonObject>("/api/v1/auth/csrf");
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login") { Content = JsonContent.Create(new { phone = "01711111111", password }) };
+        request.Headers.Add("X-CSRF-TOKEN", csrf!["data"]!["requestToken"]!.GetValue<string>());
+        var loggedIn = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, loggedIn.StatusCode);
+        Assert.Contains(loggedIn.Headers.GetValues("Set-Cookie"), h => h.StartsWith("AidlyPms.Session=") && h.Contains("httponly", StringComparison.OrdinalIgnoreCase));
+        var response = await loggedIn.Content.ReadFromJsonAsync<JsonObject>();
+        Assert.Equal("session", response!["data"]!["token"]!.GetValue<string>());
+        Assert.Equal(hash, await conn.ExecuteScalarAsync<string>("SELECT password_hash FROM sys_users WHERE user_no = @u;", new { u = TestUserNo }));
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsync("/api/v1/auth/logout", null)).StatusCode);
+        csrf = await _client.GetFromJsonAsync<JsonObject>("/api/v1/auth/csrf");
+        var logout = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout");
+        logout.Headers.Add("X-CSRF-TOKEN", csrf!["data"]!["requestToken"]!.GetValue<string>());
+        Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(logout)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.GetAsync("/api/v1/auth/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Performance_DashboardBatchAndLowStockAggregateExecuteAgainstPostgres()
+    {
+        if (_client == null) return;
+        var token = GenerateJwt(TestPharmacyNo, TestBranchNo, TestUserNo, TestManagerRoleNo, "Manager");
+        foreach (var path in new[] { "/api/v1/dashboard/summary", "/api/v1/prod/products/low-stock", "/api/v1/prod/products?search=Test", "/api/v1/role/roles" })
+        {
+            var response = await SendAsAsync(token, HttpMethod.Get, path);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+    }
+
 }
 

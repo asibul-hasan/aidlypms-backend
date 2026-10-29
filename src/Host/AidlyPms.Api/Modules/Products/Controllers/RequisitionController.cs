@@ -445,12 +445,9 @@ public class RequisitionController : BaseController
         try
         {
             var reqNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(requisition_no), 0) + 1 FROM prod_product_requisitions;", transaction: tran);
+                "SELECT nextval('seq_requisition_no');", transaction: tran);
 
             var reqCode = $"REQ-{CurrentBranchNo:D2}-{DateTime.UtcNow.Year}-{reqNo:D5}";
-
-            var maxItemNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(requisition_item_no), 0) FROM prod_product_requisition_items;", transaction: tran);
 
             var processedItems = new List<ProdProductRequisitionItem>();
             decimal grandTotalCost = 0;
@@ -458,7 +455,7 @@ public class RequisitionController : BaseController
 
             foreach (var item in payload.Items)
             {
-                maxItemNo++;
+                var itemNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_requisition_item_no');", transaction: tran);
                 var boxQty = item.RequestedBoxQty ?? item.BoxQty ?? 1;
                 var qtyInBox = item.QuantityInBox.HasValue && item.QuantityInBox.Value > 0 ? item.QuantityInBox.Value : 1;
                 var minQtyPcs = item.MinQtyPcs ?? item.RequestedPcsQty ?? (boxQty * qtyInBox);
@@ -489,7 +486,7 @@ public class RequisitionController : BaseController
 
                 processedItems.Add(new ProdProductRequisitionItem
                 {
-                    RequisitionItemNo = maxItemNo,
+                    RequisitionItemNo = itemNo,
                     PharmacyNo = CurrentPharmacyNo,
                     BranchNo = CurrentBranchNo,
                     RequisitionNo = reqNo,
@@ -627,16 +624,13 @@ public class RequisitionController : BaseController
                 return FailResponse<ProdProductRequisition>("Requisition has been approved or fulfilled and cannot be modified or deleted.");
             }
 
-            var maxItemNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(requisition_item_no), 0) FROM prod_product_requisition_items;", transaction: tran);
-
             var processedItems = new List<ProdProductRequisitionItem>();
             decimal grandTotalCost = 0;
             int totalSelectedItems = 0;
 
             foreach (var item in payload.Items)
             {
-                maxItemNo++;
+                var itemNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_requisition_item_no');", transaction: tran);
                 var boxQty = item.RequestedBoxQty ?? item.BoxQty ?? 1;
                 var qtyInBox = item.QuantityInBox.HasValue && item.QuantityInBox.Value > 0 ? item.QuantityInBox.Value : 1;
                 var minQtyPcs = item.MinQtyPcs ?? item.RequestedPcsQty ?? (boxQty * qtyInBox);
@@ -667,7 +661,7 @@ public class RequisitionController : BaseController
 
                 processedItems.Add(new ProdProductRequisitionItem
                 {
-                    RequisitionItemNo = maxItemNo,
+                    RequisitionItemNo = itemNo,
                     PharmacyNo = CurrentPharmacyNo,
                     BranchNo = CurrentBranchNo,
                     RequisitionNo = requisitionNo,

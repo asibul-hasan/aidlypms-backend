@@ -47,7 +47,7 @@ public class SecurityAndHardeningAuditTests
         var allowedAnonymousMethods = new HashSet<string>
         {
             $"{nameof(AuthController)}.{nameof(AuthController.Login)}",
-            $"{nameof(AuthController)}.{nameof(AuthController.SeedDefaults)}"
+            $"{nameof(AuthController)}.{nameof(AuthController.GetCsrfToken)}"
         };
 
         foreach (var controller in controllerTypes)

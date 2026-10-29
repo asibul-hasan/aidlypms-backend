@@ -42,7 +42,7 @@ public class DocumentNumberService : IDocumentNumberService
         const string sql = @"
             INSERT INTO sys_doc_sequence (sequence_no, pharmacy_no, branch_no, doc_type, fin_year, last_seq_number, prefix_format, updated_at)
             VALUES (
-                (COALESCE((SELECT MAX(sequence_no) FROM sys_doc_sequence), 0) + 1),
+                nextval('seq_doc_sequence_no'),
                 @pharmacyNo, @branchNo, @docType, @year, 1, @prefixFormat, NOW()
             )
             ON CONFLICT (pharmacy_no, branch_no, doc_type, fin_year)

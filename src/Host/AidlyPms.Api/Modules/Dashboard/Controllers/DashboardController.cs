@@ -24,68 +24,53 @@ public class DashboardController : BaseController
         var dhakaToday = DateHelper.GetDhakaToday();
         var (startUtc, endUtc) = DateHelper.GetDhakaDayUtcRange(dhakaToday);
 
-        var salesStats = await conn.QuerySingleOrDefaultAsync<(decimal TotalSales, int SalesCount, decimal TotalProfit)>(@"
+        // Independent aggregates share one database round trip without multiplying fact rows.
+        using var dashboardResults = await conn.QueryMultipleAsync(@"
             SELECT COALESCE(SUM(final_price), 0) AS TotalSales,
                    COUNT(1) AS SalesCount,
                    COALESCE(SUM(approximate_profit), 0) AS TotalProfit
             FROM sale_invoices
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
               AND sale_timestamp >= @StartUtc AND sale_timestamp <= @EndUtc
-              AND document_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc });
+              AND document_status = 2;
 
-        var cashCollectedToday = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(p.amount), 0)
             FROM sale_invoice_payments p
             JOIN sale_invoices s ON p.sale_invoice_no = s.sale_invoice_no
             WHERE s.pharmacy_no = @CurrentPharmacyNo AND s.branch_no = @CurrentBranchNo
               AND s.sale_timestamp >= @StartUtc AND s.sale_timestamp <= @EndUtc
               AND s.document_status = 2
-              AND p.payment_method = 1;",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
+              AND p.payment_method = 1;
 
-        var purchasesToday = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(final_price), 0)
             FROM pur_purchase_invoices
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
               AND purchase_date >= @StartUtc AND purchase_date <= @EndUtc
-              AND document_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
+              AND document_status = 2;
 
-        var expensesToday = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM acc_expenses
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND expense_date >= @StartUtc AND expense_date <= @EndUtc;",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
+              AND expense_date >= @StartUtc AND expense_date <= @EndUtc;
 
-        var totalCustomerDue = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(current_due), 0)
             FROM cust_customers
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 0m;
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;
 
-        var totalSupplierPayable = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(current_due_balance), 0)
             FROM supp_suppliers
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 0m;
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;
 
-        var totalInventoryValuation = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(b.total_quantity_pcs * p.purchase_price_per_piece), 0)
             FROM prod_product_batches b
             JOIN prod_products p ON b.product_no = p.product_no
             WHERE b.pharmacy_no = @CurrentPharmacyNo AND b.branch_no = @CurrentBranchNo
               AND b.is_placeholder = FALSE
-              AND b.total_quantity_pcs > 0;",
-            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 0m;
+              AND b.total_quantity_pcs > 0;
 
-        var totalProducts = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(1) FROM prod_products
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND is_active = TRUE;",
-            new { CurrentPharmacyNo, CurrentBranchNo });
+            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo AND is_active = TRUE;
 
-        var lowStockCount = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(1) FROM (
                 SELECT p.product_no, p.min_stock_qty_pcs, COALESCE(SUM(b.total_quantity_pcs), 0) AS current_stock
                 FROM prod_products p
@@ -93,103 +78,115 @@ public class DashboardController : BaseController
                 WHERE p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo AND p.is_active = TRUE
                 GROUP BY p.product_no, p.min_stock_qty_pcs
                 HAVING COALESCE(SUM(b.total_quantity_pcs), 0) <= p.min_stock_qty_pcs
-            ) sub;",
-            new { CurrentPharmacyNo, CurrentBranchNo });
+            ) sub;
 
-        var expiredCount = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(1) FROM prod_product_batches
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
               AND is_placeholder = FALSE
-              AND expiry_date < CURRENT_DATE AND total_quantity_pcs > 0;",
-            new { CurrentPharmacyNo, CurrentBranchNo });
+              AND expiry_date < CURRENT_DATE AND total_quantity_pcs > 0;
 
-        var expiryDays = await conn.ExecuteScalarAsync<int?>(@"
-            SELECT expired_notification_days FROM cfg_product_configs
-            WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo;",
-            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 90;
-
-        var nearExpiryThreshold = DateTime.UtcNow.AddDays(expiryDays > 0 ? expiryDays : 90).Date;
-        var nearExpiryCount = await conn.ExecuteScalarAsync<int>(@"
             SELECT COUNT(1) FROM prod_product_batches
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
               AND is_placeholder = FALSE
-              AND expiry_date >= CURRENT_DATE AND expiry_date <= @NearExpiryThreshold
-              AND total_quantity_pcs > 0;",
-            new { CurrentPharmacyNo, CurrentBranchNo, NearExpiryThreshold = nearExpiryThreshold });
+              AND expiry_date >= CURRENT_DATE AND expiry_date <= (@TodayUtcDate::date + COALESCE((SELECT CASE WHEN expired_notification_days > 0 THEN expired_notification_days ELSE 90 END FROM cfg_product_configs WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo), 90))
+              AND total_quantity_pcs > 0;
 
-        var bankBalance = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(current_balance), 0)
             FROM acc_transaction_accounts
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND account_type = 2 AND is_active = TRUE;",
-            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 0m;
+              AND account_type = 2 AND is_active = TRUE;
 
-        var mfsBalance = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(current_balance), 0)
             FROM acc_transaction_accounts
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND account_type IN (4, 5) AND is_active = TRUE;",
-            new { CurrentPharmacyNo, CurrentBranchNo }) ?? 0m;
+              AND account_type IN (4, 5) AND is_active = TRUE;
 
-        var todaySaleReturns = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(final_refund_price), 0)
             FROM sale_returns
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
               AND return_status = 2
-              AND return_date >= @StartUtc AND return_date <= @EndUtc;",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
+              AND return_date >= @StartUtc AND return_date <= @EndUtc;
 
-        var todayPurchaseReturns = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(gross_return_amount), 0)
             FROM pur_purchase_returns
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND return_date >= @StartUtc AND return_date <= @EndUtc;",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
+              AND return_date >= @StartUtc AND return_date <= @EndUtc;
 
-        var todayDueCollected = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM due_collections
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND payment_date >= @StartUtc AND payment_date <= @EndUtc;",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
+              AND payment_date >= @StartUtc AND payment_date <= @EndUtc;
 
-        var todaySupplierPaid = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM pur_supplier_payments
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND payment_date >= @StartUtc AND payment_date <= @EndUtc;",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
+              AND payment_date >= @StartUtc AND payment_date <= @EndUtc;
 
-        var totalCashBalance = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(current_balance), 0)
             FROM acc_transaction_accounts
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND account_type = 1 AND is_active = TRUE;",
-            new { CurrentPharmacyNo, CurrentBranchNo }) ?? cashCollectedToday;
+              AND account_type = 1 AND is_active = TRUE;
 
-        var todayIncomes = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(amount), 0)
             FROM acc_incomes
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND income_date >= @StartUtc AND income_date <= @EndUtc;",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
+              AND income_date >= @StartUtc AND income_date <= @EndUtc;
 
-        var todayDemurrage = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT COALESCE(SUM(e.amount), 0)
             FROM acc_expenses e
             JOIN acc_expense_categories c ON e.expense_category_no = c.expense_category_no
             WHERE e.pharmacy_no = @CurrentPharmacyNo AND e.branch_no = @CurrentBranchNo
               AND e.expense_date >= @StartUtc AND e.expense_date <= @EndUtc
-              AND (c.name ILIKE '%demurrage%' OR c.name ILIKE '%damage%' OR c.name ILIKE '%loss%');",
-            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc }) ?? 0m;
+              AND (c.name ILIKE '%demurrage%' OR c.name ILIKE '%damage%' OR c.name ILIKE '%loss%');
 
-        var pendingHandoverStats = await conn.QuerySingleOrDefaultAsync<(int Count, decimal Amount)>(@"
             SELECT COUNT(1) AS Count,
                    COALESCE(SUM(customer_will_pay - change_amount), 0) AS Amount
             FROM sale_invoices
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
               AND cash_received_status = 1 AND document_status = 2;",
-            new { CurrentPharmacyNo, CurrentBranchNo });
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, EndUtc = endUtc, TodayUtcDate = DateTime.UtcNow.Date });
+
+        var salesStats = await dashboardResults.ReadSingleAsync<(decimal TotalSales, int SalesCount, decimal TotalProfit)>();
+
+        var cashCollectedToday = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var purchasesToday = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var expensesToday = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var totalCustomerDue = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var totalSupplierPayable = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var totalInventoryValuation = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var totalProducts = await dashboardResults.ReadSingleAsync<int>();
+
+        var lowStockCount = await dashboardResults.ReadSingleAsync<int>();
+
+        var expiredCount = await dashboardResults.ReadSingleAsync<int>();
+
+        var nearExpiryCount = await dashboardResults.ReadSingleAsync<int>();
+
+        var bankBalance = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var mfsBalance = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var todaySaleReturns = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var todayPurchaseReturns = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var todayDueCollected = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var todaySupplierPaid = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var totalCashBalance = await dashboardResults.ReadSingleAsync<decimal?>() ?? cashCollectedToday;
+
+        var todayIncomes = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var todayDemurrage = await dashboardResults.ReadSingleAsync<decimal?>() ?? 0m;
+
+        var pendingHandoverStats = await dashboardResults.ReadSingleAsync<(int Count, decimal Amount)>();
 
         var netTodaySales = salesStats.TotalSales - todaySaleReturns;
 

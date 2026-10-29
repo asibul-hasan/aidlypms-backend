@@ -43,12 +43,18 @@ public class PosSaleController : BaseController
         [FromQuery] DateTime? startDate = null,
         [FromQuery] DateTime? endDate = null,
         [FromQuery] int pageIndex = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] DateTimeOffset? beforeTimestamp = null,
+        [FromQuery] long? beforeInvoiceNo = null)
     {
+        if (beforeTimestamp.HasValue != beforeInvoiceNo.HasValue || beforeInvoiceNo <= 0)
+            return FailResponse<PagedResult<SaleInvoice>>("A cursor requires both beforeTimestamp and a positive beforeInvoiceNo.");
+        beforeTimestamp = beforeTimestamp?.ToUniversalTime();
         pageSize = Math.Clamp(pageSize, 1, 200);
         (startDate, endDate) = DateHelper.NormalizeDateRange(startDate, endDate);
         await using var conn = await _db.CreateOpenConnectionAsync();
-        var offset = (pageIndex - 1) * pageSize;
+        pageIndex = Math.Clamp(pageIndex, 1, int.MaxValue / pageSize);
+        var offset = beforeTimestamp.HasValue ? 0 : (pageIndex - 1) * pageSize;
 
         const string countSql = @"
             SELECT COUNT(*)
@@ -94,7 +100,8 @@ public class PosSaleController : BaseController
               AND (@customerNo::bigint IS NULL OR s.customer_no = @customerNo::bigint)
               AND (@startDate::timestamptz IS NULL OR s.sale_timestamp >= @startDate::timestamptz)
               AND (@endDate::timestamptz IS NULL OR s.sale_timestamp <= @endDate::timestamptz)
-            ORDER BY s.sale_timestamp DESC
+              AND (@beforeTimestamp::timestamptz IS NULL OR (s.sale_timestamp, s.sale_invoice_no) < (@beforeTimestamp::timestamptz, @beforeInvoiceNo::bigint))
+            ORDER BY s.sale_timestamp DESC, s.sale_invoice_no DESC
             OFFSET @offset LIMIT @pageSize;";
 
         var items = (await conn.QueryAsync<SaleInvoice>(dataSql, new
@@ -106,7 +113,9 @@ public class PosSaleController : BaseController
             startDate,
             endDate,
             offset,
-            pageSize
+            pageSize,
+            beforeTimestamp,
+            beforeInvoiceNo
         })).AsList();
 
         return PagedResponse(new PagedResult<SaleInvoice>(items, total, pageIndex, pageSize));

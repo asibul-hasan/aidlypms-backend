@@ -1,3 +1,4 @@
+using AidlyPms.Api.Common.Security;
 using AidlyPms.Api.Common;
 using AidlyPms.Api.Common.Database;
 using AidlyPms.Api.Modules.Roles.Models;
@@ -40,10 +41,11 @@ public class RepresentativeController : BaseController
         pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
         pms.Add("CurrentBranchNo", CurrentBranchNo);
 
-        if (!IsAdmin)
+        if (!IsPlatformOwner)
         {
-            sql += " AND u.role_no != 1 AND LOWER(u.phone) != 'asibul' AND LOWER(COALESCE(u.email, '')) != 'asibul@infoaidtech.net'";
-            countSql += " AND u.role_no != 1 AND LOWER(u.phone) != 'asibul' AND LOWER(COALESCE(u.email, '')) != 'asibul@infoaidtech.net'";
+            const string hidden = " AND NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = u.role_no AND cap.access_scope = 'PLATFORM_OWNER')";
+            sql += hidden;
+            countSql += hidden;
         }
 
         if (roleNo.HasValue)
@@ -80,8 +82,9 @@ public class RepresentativeController : BaseController
             SELECT u.*, r.alias AS role_name
             FROM sys_users u
             LEFT JOIN sys_roles r ON u.role_no = r.role_no
-            WHERE u.user_no = @Id AND u.pharmacy_no = @CurrentPharmacyNo;",
-            new { Id = id, CurrentPharmacyNo });
+            WHERE u.user_no = @Id AND u.pharmacy_no = @CurrentPharmacyNo
+              AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = u.role_no AND cap.access_scope = 'PLATFORM_OWNER'));",
+            new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner });
 
         if (user == null)
             return FailResponse<SysUser>("Staff user not found.", statusCode: 404);
@@ -95,19 +98,23 @@ public class RepresentativeController : BaseController
     [HttpPost("sys/users")]
     [HttpPost("representative")]
     [RequirePermission("user.manage")]
-    public async Task<ActionResult<ApiResponse<SysUser>>> CreateRepresentative([FromBody] SysUser model)
+    public async Task<ActionResult<ApiResponse<SysUser>>> CreateRepresentative([FromBody] StaffUserRequest request)
     {
+        var model = request.ToModel();
         if (string.IsNullOrWhiteSpace(model.FirstName))
             return FailResponse<SysUser>("First name is required.");
 
         if (string.IsNullOrWhiteSpace(model.Phone))
             return FailResponse<SysUser>("Phone number is required.");
 
+        if (!PasswordVerification.IsValidNewPassword(model.Password))
+            return FailResponse<SysUser>("A password of at least 12 characters and at most 72 UTF-8 bytes is required.");
+
         if (model.RoleNo <= 0)
             return FailResponse<SysUser>("A valid role must be assigned.");
 
         if (model.RoleNo == 1 && !IsAdmin)
-            return FailResponse<SysUser>("The Admin role cannot be assigned.", statusCode: 403);
+            return FailResponse<SysUser>("The role cannot be assigned in this branch or exceeds your permissions.", statusCode: 403);
 
         if (string.Equals(model.Phone?.Trim(), "asibul", StringComparison.OrdinalIgnoreCase))
             return FailResponse<SysUser>("Username/phone 'asibul' is reserved.", statusCode: 400);
@@ -118,6 +125,8 @@ public class RepresentativeController : BaseController
 
         try
         {
+            if (!await RoleAssignmentPolicy.CanAssignAsync(conn, tran, Access, model.RoleNo, CurrentPharmacyNo, CurrentBranchNo))
+                return FailResponse<SysUser>("The role cannot be assigned in this branch or exceeds your permissions.", statusCode: 403);
             var phoneExists = await conn.ExecuteScalarAsync<bool>(@"
                 SELECT EXISTS(SELECT 1 FROM sys_users WHERE phone = @Phone);",
                 new { model.Phone }, transaction: tran);
@@ -126,7 +135,7 @@ public class RepresentativeController : BaseController
                 return FailResponse<SysUser>($"User with phone '{model.Phone}' already exists.");
 
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(user_no), 0) + 1 FROM sys_users;", transaction: tran);
+                "SELECT nextval('seq_sys_user_no');", transaction: tran);
 
             model.UserNo = nextNo;
             model.Uuid = Guid.NewGuid();
@@ -136,7 +145,7 @@ public class RepresentativeController : BaseController
             model.CreatedAt = DateTime.UtcNow;
             model.UpdatedAt = DateTime.UtcNow;
 
-            var rawPassword = !string.IsNullOrWhiteSpace(model.Password) ? model.Password : "password123";
+            var rawPassword = model.Password!;
             model.PasswordHash = BCrypt.Net.BCrypt.HashPassword(rawPassword);
 
             await conn.ExecuteAsync(@"
@@ -152,7 +161,7 @@ public class RepresentativeController : BaseController
 
             // Grant branch access
             var nextAccessNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(user_pharmacy_access_no), 0) + 1 FROM sys_user_pharmacy_access;", transaction: tran);
+                "SELECT nextval('seq_sys_user_access_no');", transaction: tran);
 
             await conn.ExecuteAsync(@"
                 INSERT INTO sys_user_pharmacy_access (
@@ -176,13 +185,15 @@ public class RepresentativeController : BaseController
     [HttpPut("sys/users/{id}")]
     [HttpPut("representative/{id}")]
     [RequirePermission("user.manage")]
-    public async Task<ActionResult<ApiResponse<SysUser>>> UpdateRepresentative(long id, [FromBody] SysUser model)
+    public async Task<ActionResult<ApiResponse<SysUser>>> UpdateRepresentative(long id, [FromBody] StaffUserRequest request)
     {
+        var model = request.ToModel();
         using var conn = _db.CreateConnection();
         var existing = await conn.QuerySingleOrDefaultAsync<SysUser>(@"
             SELECT * FROM sys_users
-            WHERE user_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
-            new { Id = id, CurrentPharmacyNo });
+            WHERE user_no = @Id AND pharmacy_no = @CurrentPharmacyNo
+              AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_users.role_no AND cap.access_scope = 'PLATFORM_OWNER'));",
+            new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner });
 
         if (existing == null)
             return FailResponse<SysUser>("Staff user not found.", statusCode: 404);
@@ -194,7 +205,13 @@ public class RepresentativeController : BaseController
             return FailResponse<SysUser>("The system administrator account cannot be modified.", statusCode: 403);
 
         if (model.RoleNo == 1 && !IsAdmin)
-            return FailResponse<SysUser>("The Admin role cannot be assigned.", statusCode: 403);
+            return FailResponse<SysUser>("The role cannot be assigned in this branch or exceeds your permissions.", statusCode: 403);
+
+        var targetRoleNo = model.RoleNo > 0 ? model.RoleNo : existing.RoleNo;
+        if (!await RoleAssignmentPolicy.CanAssignAsync(conn, null, Access, targetRoleNo, CurrentPharmacyNo, existing.BranchNo))
+            return FailResponse<SysUser>("The role cannot be assigned in this branch or exceeds your permissions.", statusCode: 403);
+        if (!string.IsNullOrEmpty(model.Password) && !PasswordVerification.IsValidNewPassword(model.Password))
+            return FailResponse<SysUser>("A new password must contain at least 12 characters and at most 72 UTF-8 bytes.");
 
         existing.FirstName = !string.IsNullOrWhiteSpace(model.FirstName) ? model.FirstName : existing.FirstName;
         existing.LastName = !string.IsNullOrWhiteSpace(model.LastName) ? model.LastName : existing.LastName;
@@ -229,8 +246,9 @@ public class RepresentativeController : BaseController
         using var conn = _db.CreateConnection();
         var existing = await conn.QuerySingleOrDefaultAsync<SysUser>(@"
             SELECT * FROM sys_users
-            WHERE user_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
-            new { Id = id, CurrentPharmacyNo });
+            WHERE user_no = @Id AND pharmacy_no = @CurrentPharmacyNo
+              AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_users.role_no AND cap.access_scope = 'PLATFORM_OWNER'));",
+            new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner });
 
         if (existing == null)
             return NotFoundResponse<bool>("Staff user not found.");
@@ -241,11 +259,15 @@ public class RepresentativeController : BaseController
         if (existing.RoleNo == 1 || string.Equals(existing.Phone, "asibul", StringComparison.OrdinalIgnoreCase))
             return FailResponse<bool>("The system administrator account cannot be deleted.", statusCode: 403);
 
+        if (await conn.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM sys_role_capabilities WHERE role_no = @RoleNo AND access_scope = 'PLATFORM_OWNER');", new { existing.RoleNo }))
+            return FailResponse<bool>("Platform accounts cannot be deleted; deactivate them instead.", statusCode: 403);
+
         await conn.ExecuteAsync("DELETE FROM sys_user_pharmacy_access WHERE user_no = @Id;", new { Id = id });
         var rows = await conn.ExecuteAsync(@"
             DELETE FROM sys_users
-            WHERE user_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
-            new { Id = id, CurrentPharmacyNo });
+            WHERE user_no = @Id AND pharmacy_no = @CurrentPharmacyNo
+              AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_users.role_no AND cap.access_scope = 'PLATFORM_OWNER'));",
+            new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner });
 
         if (rows == 0) return NotFoundResponse<bool>("Staff user not found.");
         return OkResponse(true, "Staff user deleted successfully.");

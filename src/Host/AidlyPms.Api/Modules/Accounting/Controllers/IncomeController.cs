@@ -56,7 +56,7 @@ public class IncomeController : BaseController
             return FailResponse<AccIncomeCategory>($"Category '{model.Name}' already exists.");
 
         var nextNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(income_category_no), 0) + 1 FROM acc_income_categories;");
+            "SELECT nextval('seq_income_category_no');");
 
         model.IncomeCategoryNo = nextNo;
         model.PharmacyNo = CurrentPharmacyNo;

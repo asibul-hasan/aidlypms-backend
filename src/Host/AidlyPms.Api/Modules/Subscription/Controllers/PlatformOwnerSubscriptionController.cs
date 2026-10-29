@@ -26,20 +26,7 @@ public class PlatformOwnerSubscriptionController : ControllerBase
     [HttpPost("payments/{paymentNo:long}/confirm")]
     public async Task<ActionResult<ApiResponse<SubSubscriptionPayment>>> ConfirmPayment(long paymentNo)
     {
-        // Platform-owner authorization guard:
-        // Must have claim platform_owner == "true", OR match configured PlatformOwner:Email / PlatformOwner:UserId.
-        // No tenant role (Cashier, Manager, Admin, etc.) can hold this claim.
-        var isPlatformOwnerClaim = string.Equals(User.FindFirst("platform_owner")?.Value, "true", StringComparison.OrdinalIgnoreCase);
-        var ownerEmailConfig = _config["PlatformOwner:Email"];
-        var ownerUserIdConfig = _config["PlatformOwner:UserId"];
-
-        var userEmail = User.FindFirst(ClaimTypes.Email)?.Value ?? User.FindFirst("email")?.Value;
-        var userId = User.FindFirst("user_no")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        var isConfiguredOwner = (!string.IsNullOrWhiteSpace(ownerEmailConfig) && string.Equals(userEmail, ownerEmailConfig, StringComparison.OrdinalIgnoreCase))
-            || (!string.IsNullOrWhiteSpace(ownerUserIdConfig) && string.Equals(userId, ownerUserIdConfig, StringComparison.OrdinalIgnoreCase));
-
-        if (!isPlatformOwnerClaim && !isConfiguredOwner)
+        if (AidlyPms.Api.Common.Security.RequestAccess.From(HttpContext)?.IsPlatformOwner != true)
         {
             return StatusCode(StatusCodes.Status403Forbidden, ApiResponse<SubSubscriptionPayment>.Fail(
                 "Forbidden", "Access denied: Platform owner authorization required."));

@@ -91,7 +91,7 @@ public class ConfigController : BaseController
         else
         {
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(sale_config_no), 0) + 1 FROM cfg_sale_configs;");
+                "SELECT nextval('seq_sale_config_no');");
 
             await conn.ExecuteAsync(@"
                 INSERT INTO cfg_sale_configs (
@@ -201,7 +201,7 @@ public class ConfigController : BaseController
         else
         {
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(invoice_config_no), 0) + 1 FROM cfg_invoice_configs;");
+                "SELECT nextval('seq_invoice_config_no');");
 
             await conn.ExecuteAsync(@"
                 INSERT INTO cfg_invoice_configs (
@@ -283,7 +283,7 @@ public class ConfigController : BaseController
         else
         {
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(product_config_no), 0) + 1 FROM cfg_product_configs;");
+                "SELECT nextval('seq_product_config_no');");
 
             await conn.ExecuteAsync(@"
                 INSERT INTO cfg_product_configs (product_config_no, pharmacy_no, branch_no, expired_notification_days, updated_at)
@@ -350,7 +350,7 @@ public class ConfigController : BaseController
         else
         {
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(loyalty_config_no), 0) + 1 FROM cfg_loyalty_configs;");
+                "SELECT nextval('seq_loyalty_config_no');");
 
             await conn.ExecuteAsync(@"
                 INSERT INTO cfg_loyalty_configs (
@@ -425,7 +425,7 @@ public class ConfigController : BaseController
         else
         {
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(bulk_sms_config_no), 0) + 1 FROM cfg_bulk_sms_configs;");
+                "SELECT nextval('seq_bulk_sms_config_no');");
 
             await conn.ExecuteAsync(@"
                 INSERT INTO cfg_bulk_sms_configs (

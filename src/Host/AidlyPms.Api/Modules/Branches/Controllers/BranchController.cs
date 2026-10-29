@@ -1,13 +1,10 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
+using AidlyPms.Api.Common.Security;
 using AidlyPms.Api.Common;
 using AidlyPms.Api.Common.Database;
 using AidlyPms.Api.Modules.Auth.Models;
 using AidlyPms.Api.Modules.Branches.Models;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
 
 namespace AidlyPms.Api.Modules.Branches.Controllers;
 
@@ -31,8 +28,9 @@ public class BranchController : BaseController
         using var conn = _db.CreateConnection();
         var list = (await conn.QueryAsync<SysPharmacy>(@"
             SELECT pharmacy_no, uuid, name, contact_phone, contact_email, address, district, is_active
-            FROM sys_pharmacies
-            ORDER BY pharmacy_no ASC;")).ToList();
+            FROM sys_pharmacies p
+            WHERE @Owner OR p.pharmacy_no = @CurrentPharmacyNo
+            ORDER BY pharmacy_no ASC;", new { Owner = IsPlatformOwner, CurrentPharmacyNo, UserNo = CurrentUserNo })).ToList();
 
         return OkResponse(list);
     }
@@ -50,10 +48,12 @@ public class BranchController : BaseController
             : @"SELECT branch_no, pharmacy_no, uuid, name, drug_license_no, contact_phone,
                        contact_email, address, district, postal_code, is_active
                 FROM sys_branches
-                WHERE pharmacy_no = @CurrentPharmacyNo
+                WHERE pharmacy_no = @CurrentPharmacyNo AND is_active = TRUE
+                  AND (branch_no = @HomeBranchNo OR EXISTS (SELECT 1 FROM sys_user_pharmacy_access a
+                       WHERE a.user_no = @UserNo AND a.pharmacy_no = sys_branches.pharmacy_no AND a.branch_no = sys_branches.branch_no))
                 ORDER BY branch_no ASC;";
 
-        var list = (await conn.QueryAsync<SysBranch>(sql, new { CurrentPharmacyNo })).ToList();
+        var list = (await conn.QueryAsync<SysBranch>(sql, new { CurrentPharmacyNo, UserNo = CurrentUserNo, HomeBranchNo = await conn.ExecuteScalarAsync<long>("SELECT branch_no FROM sys_users WHERE user_no = @UserNo;", new { UserNo = CurrentUserNo }) })).ToList();
         return OkResponse(list);
     }
 
@@ -73,38 +73,6 @@ public class BranchController : BaseController
 
         using var conn = _db.CreateConnection();
 
-        // Check sys_user_pharmacy_access (Admin has universal branch access)
-        if (!IsAdmin)
-        {
-            var hasAccess = await conn.ExecuteScalarAsync<bool>(@"
-                SELECT EXISTS(
-                    SELECT 1 FROM sys_user_pharmacy_access
-                    WHERE user_no = @UserNo AND branch_no = @BranchNo
-                );",
-                new { UserNo = CurrentUserNo, BranchNo = request.BranchNo });
-
-            if (!hasAccess)
-            {
-                return FailResponse<SwitchBranchResponse>(
-                    $"User does not have authorization to access branch #{request.BranchNo}.",
-                    statusCode: 403);
-            }
-        }
-
-        // Fetch user info
-        var user = await conn.QuerySingleOrDefaultAsync<dynamic>(@"
-            SELECT u.user_no, u.pharmacy_no, u.branch_no, u.role_no,
-                   u.first_name, u.last_name, r.alias as role_name
-            FROM sys_users u
-            LEFT JOIN sys_roles r ON u.role_no = r.role_no
-            WHERE u.user_no = @UserNo;",
-            new { UserNo = CurrentUserNo });
-
-        if (user == null)
-        {
-            return NotFoundResponse<SwitchBranchResponse>("User not found.");
-        }
-
         // Fetch target branch info
         var branch = await conn.QuerySingleOrDefaultAsync<BranchDto>(@"
             SELECT b.branch_no, b.pharmacy_no, b.name,
@@ -114,60 +82,80 @@ public class BranchController : BaseController
                    p.drug_license_no, p.contact_email
             FROM sys_branches b
             JOIN sys_pharmacies p ON b.pharmacy_no = p.pharmacy_no
-            WHERE b.branch_no = @BranchNo;",
-            new { BranchNo = request.BranchNo });
+            WHERE b.branch_no = @BranchNo AND (@Owner OR (b.is_active = TRUE AND p.is_active = TRUE));",
+            new { BranchNo = request.BranchNo, Owner = IsPlatformOwner });
 
-        var targetPharmacyNo = branch?.PharmacyNo ?? (long)user.pharmacy_no;
-        var roleNo = (long)user.role_no;
-        var fullName = $"{user.first_name} {user.last_name}".Trim();
-
-        var newToken = GenerateJwtToken(CurrentUserNo, targetPharmacyNo, request.BranchNo, roleNo, fullName, (string?)user.role_name);
+        if (branch == null) return NotFoundResponse<SwitchBranchResponse>("Branch not found.");
+        var sessions = HttpContext.RequestServices.GetRequiredService<IAuthSessions>();
+        var targetPharmacyNo = branch.PharmacyNo;
+        (string Token, DateTime ExpiresAt) issued;
+        try { issued = await sessions.CreateAsync(CurrentUserNo, targetPharmacyNo, request.BranchNo, HttpContext.RequestAborted, verifiedUserUpdatedAt: Access!.UserUpdatedAt); }
+        catch (UnauthorizedAccessException) { return FailResponse<SwitchBranchResponse>("Branch access denied.", statusCode: 403); }
+        await sessions.RevokeAsync(User, HttpContext.RequestAborted);
+        BrowserSession.Write(HttpContext, issued.Token, issued.ExpiresAt);
 
         return OkResponse(new SwitchBranchResponse
         {
-            Token = newToken,
+            Token = "session",
             BranchNo = request.BranchNo,
             PharmacyNo = targetPharmacyNo,
             Branch = branch
         }, $"Switched to branch #{request.BranchNo} successfully.");
     }
 
-    private string GenerateJwtToken(long userNo, long pharmacyNo, long branchNo, long roleNo, string name, string? roleName)
+    [HttpPost("pharmacies")]
+    [AuthenticatedOnly]
+    public async Task<ActionResult<ApiResponse<object>>> CreatePharmacy([FromBody] SysPharmacy model)
     {
-        var jwtConfig = _config.GetSection("Jwt");
-        var secretKey = jwtConfig["Key"] ?? "AidlyPMS_SuperSecret_Jwt_SigningKey_2026_Enterprise_Secure!";
-        var issuer = jwtConfig["Issuer"] ?? "AidlyPmsBackend";
-        var audience = jwtConfig["Audience"] ?? "AidlyPmsFrontend";
-        var expiryDays = int.TryParse(jwtConfig["ExpiryDays"], out var days) ? days : 7;
-
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, userNo.ToString()),
-            new(ClaimTypes.Name, name),
-            new(ClaimTypes.Role, roleName ?? roleNo.ToString()),
-            new("user_no", userNo.ToString()),
-            new("pharmacy_no", pharmacyNo.ToString()),
-            new("branch_no", branchNo.ToString()),
-            new("role_no", roleNo.ToString())
-        };
-
-        if (roleNo == 1 || string.Equals(roleName, "Admin", StringComparison.OrdinalIgnoreCase))
-        {
-            claims.Add(new Claim("platform_owner", "true"));
-            claims.Add(new Claim("is_admin", "true"));
-        }
-
-        var token = new JwtSecurityToken(
-            issuer: issuer,
-            audience: audience,
-            claims: claims,
-            expires: DateTime.UtcNow.AddDays(expiryDays),
-            signingCredentials: creds
-        );
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        if (!IsPlatformOwner) return FailResponse<object>("Only the platform owner can provision a company.", statusCode: 403);
+        if (string.IsNullOrWhiteSpace(model.Name) || string.IsNullOrWhiteSpace(model.ContactPhone) ||
+            string.IsNullOrWhiteSpace(model.Address) || string.IsNullOrWhiteSpace(model.District))
+            return FailResponse<object>("Company name, contact phone, address and district are required.");
+        await using var conn = await _db.CreateOpenConnectionAsync(HttpContext.RequestAborted);
+        await using var transaction = await conn.BeginTransactionAsync(HttpContext.RequestAborted);
+        model.PharmacyNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_sys_pharmacy_no');", transaction: transaction);
+        model.Uuid = Guid.NewGuid();
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_pharmacies (pharmacy_no, uuid, name, trade_license_no, tin_no, bin_no, drug_license_no,
+                contact_phone, contact_email, address, area, district, postal_code, is_active, created_at, updated_at)
+            VALUES (@PharmacyNo, @Uuid, @Name, NULL, NULL, NULL, NULL, @ContactPhone, @ContactEmail, @Address, NULL, @District, NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);", model, transaction);
+        var branchNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_sys_branch_no');", transaction: transaction);
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_branches (branch_no, pharmacy_no, uuid, name, drug_license_no, contact_phone,
+                contact_email, address, area, district, postal_code, is_active, created_at, updated_at)
+            VALUES (@BranchNo, @PharmacyNo, @Uuid, 'Main Branch', NULL, @ContactPhone, @ContactEmail,
+                @Address, NULL, @District, NULL, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);",
+            new { BranchNo = branchNo, model.PharmacyNo, Uuid = Guid.NewGuid(), model.ContactPhone, model.ContactEmail, model.Address, model.District }, transaction);
+        await HttpContext.RequestServices.GetRequiredService<IPharmacyChartSeeder>()
+            .SeedDefaultChartForPharmacyAsync(conn, transaction, model.PharmacyNo, branchNo);
+        await transaction.CommitAsync(HttpContext.RequestAborted);
+        return OkResponse<object>(new { pharmacy = model, branch_no = branchNo }, "Company and main branch created.");
     }
+
+    [HttpPost("branches")]
+    [AuthenticatedOnly]
+    public async Task<ActionResult<ApiResponse<SysBranch>>> CreateBranch([FromBody] SysBranch model)
+    {
+        if (!IsPlatformOwner) return FailResponse<SysBranch>("Only the platform owner can provision a branch.", statusCode: 403);
+        if (string.IsNullOrWhiteSpace(model.Name) || string.IsNullOrWhiteSpace(model.ContactPhone) ||
+            string.IsNullOrWhiteSpace(model.Address) || string.IsNullOrWhiteSpace(model.District))
+            return FailResponse<SysBranch>("Branch name, contact phone, address and district are required.");
+        await using var conn = await _db.CreateOpenConnectionAsync(HttpContext.RequestAborted);
+        await using var transaction = await conn.BeginTransactionAsync(HttpContext.RequestAborted);
+        if (!await conn.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM sys_pharmacies WHERE pharmacy_no = @PharmacyNo AND is_active = TRUE);", new { model.PharmacyNo }, transaction))
+            return NotFoundResponse<SysBranch>("Company not found.");
+        model.BranchNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_sys_branch_no');", transaction: transaction);
+        model.Uuid = Guid.NewGuid();
+        model.IsActive = true;
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_branches (branch_no, pharmacy_no, uuid, name, drug_license_no, contact_phone,
+                contact_email, address, area, district, postal_code, is_active, created_at, updated_at)
+            VALUES (@BranchNo, @PharmacyNo, @Uuid, @Name, @DrugLicenseNo, @ContactPhone, @ContactEmail,
+                @Address, NULL, @District, @PostalCode, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);", model, transaction);
+        await HttpContext.RequestServices.GetRequiredService<IPharmacyChartSeeder>()
+            .SeedDefaultChartForPharmacyAsync(conn, transaction, model.PharmacyNo, model.BranchNo);
+        await transaction.CommitAsync(HttpContext.RequestAborted);
+        return OkResponse(model, "Branch created.");
+    }
+
 }

@@ -134,12 +134,38 @@ public class StaticSqlCompilationTests : IAsyncLifetime
                     if (text[i] == '\n') lineNumber++;
                 }
 
-                var convertedSql = ConvertParametersToPostgreSql(statement);
-                result.Add(new DiscoveredSqlStatement(file, lineNumber, statement, convertedSql));
+                // PREPARE validates one statement. Never execute the remaining statements of a batch.
+                foreach (var individual in SplitSqlStatements(statement))
+                {
+                    var convertedSql = ConvertParametersToPostgreSql(individual);
+                    result.Add(new DiscoveredSqlStatement(file, lineNumber, individual, convertedSql));
+                }
             }
         }
 
         return result;
+    }
+
+    public static IEnumerable<string> SplitSqlStatements(string sql)
+    {
+        var start = 0;
+        var quoted = false;
+        for (var i = 0; i < sql.Length; i++)
+        {
+            if (sql[i] == '\'')
+            {
+                if (quoted && i + 1 < sql.Length && sql[i + 1] == '\'') { i++; continue; }
+                quoted = !quoted;
+            }
+            if (sql[i] == ';' && !quoted)
+            {
+                var statement = sql[start..i].Trim();
+                if (statement.Length > 0) yield return statement;
+                start = i + 1;
+            }
+        }
+        var last = sql[start..].Trim();
+        if (last.Length > 0) yield return last;
     }
 
     public static string ConvertParametersToPostgreSql(string sql)

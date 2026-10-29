@@ -90,7 +90,7 @@ public class DoctorController : BaseController
             return FailResponse<DocDoctor>($"Doctor with phone '{model.Phone}' already exists in this pharmacy branch.");
 
         var nextNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(doctor_no), 0) + 1 FROM doc_doctors;");
+            "SELECT nextval('seq_doctor_no');");
 
         model.DoctorNo = nextNo;
         model.PharmacyNo = CurrentPharmacyNo;
@@ -230,7 +230,7 @@ public class DoctorController : BaseController
         try
         {
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(prescription_no), 0) + 1 FROM doc_prescriptions;", transaction: tran);
+                "SELECT nextval('seq_prescription_no');", transaction: tran);
 
             var code = $"RX-{DateTime.UtcNow:yyyyMMdd}-{nextNo:D4}";
 
@@ -256,7 +256,7 @@ public class DoctorController : BaseController
                 foreach (var item in model.Items)
                 {
                     var nextItemNo = await conn.ExecuteScalarAsync<long>(
-                        "SELECT COALESCE(MAX(prescription_item_no), 0) + 1 FROM doc_prescription_items;", transaction: tran);
+                        "SELECT nextval('seq_prescription_item_no');", transaction: tran);
 
                     await conn.ExecuteAsync(@"
                         INSERT INTO doc_prescription_items (
@@ -337,7 +337,7 @@ public class DoctorController : BaseController
         else
         {
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(prescription_setting_no), 0) + 1 FROM doc_prescription_settings;");
+                "SELECT nextval('seq_prescription_setting_no');");
 
             await conn.ExecuteAsync(@"
                 INSERT INTO doc_prescription_settings (

@@ -96,7 +96,7 @@ public class ReconciliationController : BaseController
             var voucherNo = await _docNumService.GetNextDocumentNumberAsync(conn, tran, CurrentPharmacyNo, CurrentBranchNo, "TRANSFER");
 
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(reconciliation_no), 0) + 1 FROM acc_reconciliations;", transaction: tran);
+                "SELECT nextval('seq_reconciliation_no');", transaction: tran);
 
             model.ReconciliationNo = nextNo;
             model.PharmacyNo = CurrentPharmacyNo;

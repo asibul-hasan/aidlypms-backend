@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AidlyPms.Api.Common.Database;
 using Dapper;
+using AidlyPms.Api.Common.Security;
 
 namespace AidlyPms.Api.Common;
 
@@ -33,6 +34,12 @@ public class SubscriptionExpiryMiddleware
             return;
         }
 
+        if (RequestAccess.From(context)?.IsPlatformOwner == true)
+        {
+            await _next(context);
+            return;
+        }
+
         // Only enforce for authenticated requests with a valid tenant/pharmacy
         if (tenant.PharmacyNo > 0)
         {
@@ -43,11 +50,11 @@ public class SubscriptionExpiryMiddleware
                     SELECT subscription_end_date AS end_date, COALESCE(grace_period_days, 0) AS grace_period_days, subscription_status AS status
                     FROM sub_pharmacy_subscriptions
                     WHERE pharmacy_no = @PharmacyNo
-                    ORDER BY subscription_no DESC
+                    ORDER BY (branch_no = @BranchNo) DESC, subscription_no DESC
                     LIMIT 1;";
 
                 var sub = await conn.QuerySingleOrDefaultAsync<SubscriptionExpiryCheckDto>(
-                    query, new { PharmacyNo = tenant.PharmacyNo });
+                    query, new { PharmacyNo = tenant.PharmacyNo, BranchNo = tenant.BranchNo });
 
                 if (sub != null)
                 {
@@ -80,7 +87,11 @@ public class SubscriptionExpiryMiddleware
             }
             catch
             {
-                // Subscription expiry check failure should not prevent legitimate execution if DB query fails
+                context.RequestServices.GetRequiredService<ILogger<SubscriptionExpiryMiddleware>>()
+                    .LogError("Subscription validation unavailable for pharmacy {PharmacyNo}.", tenant.PharmacyNo);
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await context.Response.WriteAsJsonAsync(ApiResponse<object>.Fail("Subscription validation temporarily unavailable."));
+                return;
             }
         }
 

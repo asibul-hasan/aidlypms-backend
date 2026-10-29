@@ -27,12 +27,14 @@ public class ProductController : BaseController
         [FromQuery] long? companyNo = null,
         [FromQuery] long? genericNo = null,
         [FromQuery] int pageIndex = 1,
-        [FromQuery] int pageSize = 50)
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? afterName = null)
     {
         pageSize = Math.Clamp(pageSize, 1, 200);
         await using var conn = await _db.CreateOpenConnectionAsync();
 
-        var offset = (pageIndex - 1) * pageSize;
+        pageIndex = Math.Clamp(pageIndex, 1, int.MaxValue / pageSize);
+        var offset = afterName == null ? (pageIndex - 1) * pageSize : 0;
 
         const string countSql = @"
             SELECT COUNT(*)
@@ -40,7 +42,13 @@ public class ProductController : BaseController
             LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             WHERE p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo
               AND p.is_active = TRUE
-              AND (@search IS NULL OR p.product_name ILIKE '%' || @search || '%' OR p.barcode_value ILIKE '%' || @search || '%' OR g.name ILIKE '%' || @search || '%')
+              AND (@search IS NULL OR p.product_no IN (
+                  SELECT sp.product_no FROM prod_products sp WHERE sp.pharmacy_no = @CurrentPharmacyNo AND sp.branch_no = @CurrentBranchNo AND sp.is_active = TRUE AND sp.product_name ILIKE '%' || @search || '%'
+                  UNION
+                  SELECT sp.product_no FROM prod_products sp WHERE sp.pharmacy_no = @CurrentPharmacyNo AND sp.branch_no = @CurrentBranchNo AND sp.barcode_value ILIKE '%' || @search || '%'
+                  UNION
+                  SELECT sp.product_no FROM prod_products sp JOIN prod_generics sg ON sg.generic_no = sp.generic_no
+                  WHERE sp.pharmacy_no = @CurrentPharmacyNo AND sp.branch_no = @CurrentBranchNo AND sg.name ILIKE '%' || @search || '%'))
               AND (@companyNo IS NULL OR p.company_no = @companyNo)
               AND (@genericNo IS NULL OR p.generic_no = @genericNo);";
 
@@ -77,9 +85,16 @@ public class ProductController : BaseController
             LEFT JOIN prod_generics g ON p.generic_no = g.generic_no
             WHERE p.pharmacy_no = @CurrentPharmacyNo AND p.branch_no = @CurrentBranchNo
               AND p.is_active = TRUE
-              AND (@search IS NULL OR p.product_name ILIKE '%' || @search || '%' OR p.barcode_value ILIKE '%' || @search || '%' OR g.name ILIKE '%' || @search || '%')
+              AND (@search IS NULL OR p.product_no IN (
+                  SELECT sp.product_no FROM prod_products sp WHERE sp.pharmacy_no = @CurrentPharmacyNo AND sp.branch_no = @CurrentBranchNo AND sp.is_active = TRUE AND sp.product_name ILIKE '%' || @search || '%'
+                  UNION
+                  SELECT sp.product_no FROM prod_products sp WHERE sp.pharmacy_no = @CurrentPharmacyNo AND sp.branch_no = @CurrentBranchNo AND sp.barcode_value ILIKE '%' || @search || '%'
+                  UNION
+                  SELECT sp.product_no FROM prod_products sp JOIN prod_generics sg ON sg.generic_no = sp.generic_no
+                  WHERE sp.pharmacy_no = @CurrentPharmacyNo AND sp.branch_no = @CurrentBranchNo AND sg.name ILIKE '%' || @search || '%'))
               AND (@companyNo IS NULL OR p.company_no = @companyNo)
               AND (@genericNo IS NULL OR p.generic_no = @genericNo)
+              AND (@afterName::text IS NULL OR p.product_name > @afterName::text)
             ORDER BY p.product_name ASC
             OFFSET @offset LIMIT @pageSize;";
 
@@ -91,7 +106,8 @@ public class ProductController : BaseController
             companyNo,
             genericNo,
             offset,
-            pageSize
+            pageSize,
+            afterName
         })).AsList();
 
         var paged = new PagedResult<ProdProduct>(items, total, pageIndex, pageSize);
@@ -106,6 +122,13 @@ public class ProductController : BaseController
         await using var conn = await _db.CreateOpenConnectionAsync();
 
         var sql = @"
+            WITH sales_6m AS MATERIALIZED (
+                SELECT sii.product_no, SUM(sii.sale_qty) AS quantity
+                FROM sale_invoice_items sii JOIN sale_invoices si ON si.sale_invoice_no = sii.sale_invoice_no
+                WHERE si.pharmacy_no = @CurrentPharmacyNo AND si.branch_no = @CurrentBranchNo
+                  AND si.sale_timestamp >= CURRENT_DATE - INTERVAL '180 days' AND si.document_status = 2
+                GROUP BY sii.product_no
+            )
             SELECT 
                 p.product_no,
                 p.product_name,
@@ -129,17 +152,9 @@ public class ProductController : BaseController
                 COALESCE(p.cost_per_box, 0) AS cost_per_box,
                 COALESCE(p.sale_price_per_piece, 0) AS sale_price_per_piece,
                 COALESCE(MAX(b.vat_percent), 0) AS vat_percent,
-                COALESCE((
-                    SELECT SUM(sii.sale_qty)
-                    FROM sale_invoice_items sii
-                    JOIN sale_invoices si ON sii.sale_invoice_no = si.sale_invoice_no
-                    WHERE sii.product_no = p.product_no
-                      AND si.pharmacy_no = @CurrentPharmacyNo
-                      AND si.branch_no = @CurrentBranchNo
-                      AND si.sale_timestamp >= CURRENT_DATE - INTERVAL '180 days'
-                      AND si.document_status = 2
-                ), 0)::int AS sale_qty_6mth_pcs
+                COALESCE(sales_6m.quantity, 0)::int AS sale_qty_6mth_pcs
             FROM prod_products p
+            LEFT JOIN sales_6m ON sales_6m.product_no = p.product_no
             LEFT JOIN prod_product_batches b 
                 ON p.product_no = b.product_no 
                 AND b.pharmacy_no = @CurrentPharmacyNo 
@@ -152,7 +167,7 @@ public class ProductController : BaseController
               AND p.branch_no = @CurrentBranchNo
               AND p.is_active = TRUE
               AND (@companyNo IS NULL OR p.company_no = @companyNo)
-            GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece
+            GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece, sales_6m.quantity
             HAVING COALESCE(SUM(b.total_quantity_pcs), 0) <= COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)
             ORDER BY shortfall_pcs DESC, current_stock_pcs ASC, p.product_name ASC;";
 
@@ -166,6 +181,13 @@ public class ProductController : BaseController
         if (items.Count == 0 && fallbackLowest)
         {
             var fallbackSql = @"
+                WITH sales_6m AS MATERIALIZED (
+                SELECT sii.product_no, SUM(sii.sale_qty) AS quantity
+                FROM sale_invoice_items sii JOIN sale_invoices si ON si.sale_invoice_no = sii.sale_invoice_no
+                WHERE si.pharmacy_no = @CurrentPharmacyNo AND si.branch_no = @CurrentBranchNo
+                  AND si.sale_timestamp >= CURRENT_DATE - INTERVAL '180 days' AND si.document_status = 2
+                GROUP BY sii.product_no
+            )
                 SELECT 
                     p.product_no,
                     p.product_name,
@@ -182,17 +204,9 @@ public class ProductController : BaseController
                     COALESCE(p.cost_per_box, 0) AS cost_per_box,
                     COALESCE(sale_price_per_piece, 0) AS sale_price_per_piece,
                     COALESCE(MAX(b.vat_percent), 0) AS vat_percent,
-                    COALESCE((
-                        SELECT SUM(sii.sale_qty)
-                        FROM sale_invoice_items sii
-                        JOIN sale_invoices si ON sii.sale_invoice_no = si.sale_invoice_no
-                        WHERE sii.product_no = p.product_no
-                          AND si.pharmacy_no = @CurrentPharmacyNo
-                          AND si.branch_no = @CurrentBranchNo
-                          AND si.sale_timestamp >= CURRENT_DATE - INTERVAL '180 days'
-                          AND si.document_status = 2
-                    ), 0)::int AS sale_qty_6mth_pcs
+                    COALESCE(sales_6m.quantity, 0)::int AS sale_qty_6mth_pcs
                 FROM prod_products p
+            LEFT JOIN sales_6m ON sales_6m.product_no = p.product_no
                 LEFT JOIN prod_product_batches b 
                     ON p.product_no = b.product_no 
                     AND b.pharmacy_no = @CurrentPharmacyNo 
@@ -206,7 +220,7 @@ public class ProductController : BaseController
                   AND p.branch_no = @CurrentBranchNo
                   AND p.is_active = TRUE
                   AND (@companyNo IS NULL OR p.company_no = @companyNo)
-                GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece
+                GROUP BY p.product_no, p.product_name, g.name, p.company_no, c.name, p.min_stock_qty_pcs, p.quantity_per_box, p.purchase_price_per_piece, p.cost_per_box, p.sale_price_per_piece, sales_6m.quantity
                 ORDER BY (COALESCE(SUM(b.total_quantity_pcs), 0) - COALESCE(NULLIF(p.min_stock_qty_pcs, 0), 10)) ASC, p.product_name ASC
                 LIMIT 50;";
 
@@ -425,6 +439,7 @@ public class ProductController : BaseController
     }
 
     [HttpPost]
+    [RequireMenu("PROD_1601", "PROD_1602")]
     public async Task<ActionResult<ApiResponse<ProdProduct>>> CreateProduct([FromBody] ProdProduct model)
     {
         if (string.IsNullOrWhiteSpace(model.ProductName))
@@ -612,6 +627,7 @@ public class ProductController : BaseController
     }
 
     [HttpPut("{id:long}")]
+    [RequireMenu("PROD_1601", "PROD_1602")]
     [RequirePermission("price.edit")]
     public async Task<ActionResult<ApiResponse<ProdProduct>>> UpdateProduct(long id, [FromBody] ProdProduct model)
     {
@@ -699,6 +715,7 @@ public class ProductController : BaseController
     }
 
     [HttpDelete("{id:long}")]
+    [RequireMenu("PROD_1601", "PROD_1602")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteProduct(long id, [FromBody] SoftDeleteRequest? request)
     {
         if (string.IsNullOrWhiteSpace(request?.Reason))
@@ -745,8 +762,12 @@ public class ProductController : BaseController
     }
 
     [HttpPost("{id:long}/adjust-stock")]
+    [RequireMenu("PROD_1601", "PROD_1602")]
+    [RequirePermission("stock.adjust")]
     public async Task<ActionResult<ApiResponse<object>>> AdjustStock(long id, [FromBody] AdjustStockRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.Reason) && string.IsNullOrWhiteSpace(request.Remarks))
+            return FailResponse<object>("A stock adjustment reason is required.");
         await using var conn = await _db.CreateOpenConnectionAsync();
         await using var tran = await conn.BeginTransactionAsync();
 
@@ -908,6 +929,9 @@ public class ProductController : BaseController
     }
 
     [HttpPost("import")]
+    [RequireMenu("PROD_1601", "PROD_1602")]
+    [RequirePermission("price.edit")]
+    [RequirePermission("stock.adjust")]
     public async Task<ActionResult<ApiResponse<ProductImportResultDto>>> ImportProducts([FromBody] ProductImportRequest request)
     {
         if (request?.Items == null || request.Items.Count == 0)
@@ -967,16 +991,6 @@ public class ProductController : BaseController
                 }
             }
 
-            // Pre-get current Max IDs
-            var maxCompanyNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(company_no), 0) FROM prod_companies;", transaction: tran);
-            var maxGenericNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(generic_no), 0) FROM prod_generics;", transaction: tran);
-            var maxProductNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(product_no), 0) FROM prod_products;", transaction: tran);
-            var maxBatchNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(batch_no), 0) FROM prod_product_batches;", transaction: tran);
-
             // Medicine types helper map
             var medicineTypeMap = new Dictionary<string, short>(StringComparer.OrdinalIgnoreCase)
             {
@@ -1012,8 +1026,7 @@ public class ProductController : BaseController
                 long companyNo;
                 if (!companyMap.TryGetValue(companyName, out companyNo))
                 {
-                    maxCompanyNo++;
-                    companyNo = maxCompanyNo;
+                    companyNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_company_no');", transaction: tran);
                     const string insertCompSql = @"
                         INSERT INTO prod_companies (company_no, pharmacy_no, branch_no, name, is_active, created_at, updated_at)
                         VALUES (@companyNo, @CurrentPharmacyNo, @CurrentBranchNo, @companyName, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);";
@@ -1033,8 +1046,7 @@ public class ProductController : BaseController
                     }
                     else
                     {
-                        maxGenericNo++;
-                        genericNo = maxGenericNo;
+                        genericNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_generic_no');", transaction: tran);
                         const string insertGenSql = @"
                             INSERT INTO prod_generics (generic_no, pharmacy_no, branch_no, name, is_active, created_at, updated_at)
                             VALUES (@genericNo, @CurrentPharmacyNo, @CurrentBranchNo, @genericName, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);";
@@ -1131,8 +1143,7 @@ public class ProductController : BaseController
                 }
                 else
                 {
-                    maxProductNo++;
-                    productNo = maxProductNo;
+                    productNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_product_no');", transaction: tran);
                     var barcode = !string.IsNullOrWhiteSpace(row.BarcodeValue) 
                         ? row.BarcodeValue.Trim() 
                         : $"894{CurrentBranchNo:D2}{productNo:D6}";
@@ -1194,8 +1205,7 @@ public class ProductController : BaseController
                 // 8. If opening stock pcs provided, create batch
                 if (row.OpeningStockPcs > 0)
                 {
-                    maxBatchNo++;
-                    var batchNo = maxBatchNo;
+                    var batchNo = await conn.ExecuteScalarAsync<long>("SELECT nextval('seq_prod_batch_no');", transaction: tran);
                     var boxQty = qtyPerBox > 0 ? row.OpeningStockPcs / qtyPerBox : 0;
                     var expDate = DateTime.UtcNow.AddYears(1);
 

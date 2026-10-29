@@ -1,3 +1,4 @@
+using AidlyPms.Api.Common.Security;
 using AidlyPms.Api.Common;
 using AidlyPms.Api.Common.Database;
 using AidlyPms.Api.Modules.Roles.Models;
@@ -32,24 +33,21 @@ public class RoleController : BaseController
     public async Task<ActionResult<ApiResponse<List<SysRole>>>> GetRoles()
     {
         using var conn = _db.CreateConnection();
-        var adminFilter = IsAdmin ? "" : " AND role_no != 1 AND LOWER(alias) != 'admin' AND LOWER(role_name) != 'admin'";
+        var adminFilter = IsPlatformOwner ? "" : " AND NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_roles.role_no AND cap.access_scope = 'PLATFORM_OWNER')";
         var roles = (await conn.QueryAsync<SysRole>($@"
             SELECT * FROM sys_roles
-            WHERE pharmacy_no = @CurrentPharmacyNo {adminFilter}
+            WHERE (pharmacy_no = @CurrentPharmacyNo OR (@Owner AND EXISTS (
+                SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_roles.role_no AND cap.access_scope = 'PLATFORM_OWNER'))) {adminFilter}
             ORDER BY role_no ASC;",
-            new { CurrentPharmacyNo })).ToList();
+            new { CurrentPharmacyNo, Owner = IsPlatformOwner })).ToList();
 
-        foreach (var role in roles)
-        {
-            var perms = (await conn.QueryAsync<string>(@"
-                SELECT p.code
-                FROM sys_role_permissions rp
-                JOIN sys_permissions p ON rp.permission_no = p.permission_no
-                WHERE rp.role_no = @RoleNo AND rp.pharmacy_no = @CurrentPharmacyNo;",
-                new { role.RoleNo, CurrentPharmacyNo })).ToList();
-
-            role.Permissions = perms;
-        }
+        var permissionRows = await conn.QueryAsync<(long RoleNo, string Code)>(@"
+            SELECT rp.role_no, p.code FROM sys_role_permissions rp
+            JOIN sys_permissions p ON rp.permission_no = p.permission_no
+            WHERE rp.pharmacy_no = @CurrentPharmacyNo AND rp.role_no = ANY(@RoleNos);",
+            new { CurrentPharmacyNo, RoleNos = roles.Select(r => r.RoleNo).ToArray() });
+        var permissionsByRole = permissionRows.ToLookup(p => p.RoleNo, p => p.Code);
+        foreach (var role in roles) role.Permissions = permissionsByRole[role.RoleNo].ToList();
 
         return OkResponse(roles);
     }
@@ -63,8 +61,9 @@ public class RoleController : BaseController
         using var conn = _db.CreateConnection();
         var role = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
             SELECT * FROM sys_roles
-            WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
-            new { Id = id, CurrentPharmacyNo });
+            WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo
+                  AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_roles.role_no AND cap.access_scope = 'PLATFORM_OWNER'));",
+            new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner });
 
         if (role == null)
             return FailResponse<SysRole>("Role not found.", statusCode: 404);
@@ -77,7 +76,7 @@ public class RoleController : BaseController
             FROM sys_role_permissions rp
             JOIN sys_permissions p ON rp.permission_no = p.permission_no
             WHERE rp.role_no = @Id AND rp.pharmacy_no = @CurrentPharmacyNo;",
-            new { Id = id, CurrentPharmacyNo })).ToList();
+            new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner })).ToList();
 
         role.Permissions = perms;
         return OkResponse(role);
@@ -90,8 +89,7 @@ public class RoleController : BaseController
         if (string.IsNullOrWhiteSpace(model.Alias))
             return FailResponse<SysRole>("Role name/alias is required.");
 
-        if (string.Equals(model.Alias?.Trim(), "Admin", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(model.RoleName?.Trim(), "Admin", StringComparison.OrdinalIgnoreCase))
+        if (RequestAccess.IsReservedName(model.Alias) || RequestAccess.IsReservedName(model.RoleName))
         {
             return FailResponse<SysRole>("The 'Admin' role name is reserved for system administrators.", statusCode: 403);
         }
@@ -152,7 +150,7 @@ public class RoleController : BaseController
                 return FailResponse<SysRole>($"Role '{model.Alias}' already exists.");
 
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(role_no), 0) + 1 FROM sys_roles;", transaction: tran);
+                "SELECT nextval('seq_sys_role_no');", transaction: tran);
 
             model.RoleNo = nextNo;
             model.PharmacyNo = CurrentPharmacyNo;
@@ -210,8 +208,7 @@ public class RoleController : BaseController
         if (id == 1)
             return FailResponse<SysRole>("The system Admin role cannot be modified.", statusCode: 403);
 
-        if (string.Equals(model.Alias?.Trim(), "Admin", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(model.RoleName?.Trim(), "Admin", StringComparison.OrdinalIgnoreCase))
+        if (RequestAccess.IsReservedName(model.Alias) || RequestAccess.IsReservedName(model.RoleName))
         {
             return FailResponse<SysRole>("The 'Admin' role name is reserved.", statusCode: 403);
         }
@@ -226,12 +223,15 @@ public class RoleController : BaseController
 
             var existing = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
                 SELECT * FROM sys_roles
-                WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
-                new { Id = id, CurrentPharmacyNo },
+                WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo
+                  AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_roles.role_no AND cap.access_scope = 'PLATFORM_OWNER'));",
+                new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner },
                 transaction: tran);
 
             if (existing == null)
                 return FailResponse<SysRole>("Role not found.", statusCode: 404);
+            if (!IsPlatformOwner && await conn.ExecuteScalarAsync<bool>("SELECT EXISTS(SELECT 1 FROM sys_role_capabilities WHERE role_no = @Id);", new { Id = id }, tran))
+                return FailResponse<SysRole>("System role metadata is protected.", statusCode: 403);
 
             if (model.Permissions != null && model.Permissions.Count > 0)
             {
@@ -284,7 +284,7 @@ public class RoleController : BaseController
             {
                 await conn.ExecuteAsync(
                     "DELETE FROM sys_role_permissions WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
-                    new { Id = id, CurrentPharmacyNo }, transaction: tran);
+                    new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner }, transaction: tran);
 
                 foreach (var code in model.Permissions)
                 {
@@ -319,13 +319,16 @@ public class RoleController : BaseController
     [RequirePermission("role.manage")]
     public async Task<ActionResult<ApiResponse<bool>>> DeleteRole(long id)
     {
+        if (id == 1 && !IsPlatformOwner)
+            return NotFoundResponse<bool>("Role not found.");
         if (id == 1)
             return FailResponse<bool>("The system Admin role cannot be deleted.", statusCode: 403);
 
         using var conn = _db.CreateConnection();
         var role = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
-            SELECT * FROM sys_roles WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
-            new { Id = id, CurrentPharmacyNo });
+            SELECT * FROM sys_roles WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo
+                  AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_roles.role_no AND cap.access_scope = 'PLATFORM_OWNER'));",
+            new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner });
 
         if (role == null)
             return NotFoundResponse<bool>("Role not found.");
@@ -333,12 +336,13 @@ public class RoleController : BaseController
         if (role.IsSystem)
             return FailResponse<bool>("System roles cannot be deleted.");
 
-        await conn.ExecuteAsync("DELETE FROM sys_role_permissions WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;", new { Id = id, CurrentPharmacyNo });
-        await conn.ExecuteAsync("DELETE FROM sys_role_menu_permissions WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;", new { Id = id, CurrentPharmacyNo });
+        await conn.ExecuteAsync("DELETE FROM sys_role_permissions WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;", new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner });
+        await conn.ExecuteAsync("DELETE FROM sys_role_menu_permissions WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;", new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner });
         var rows = await conn.ExecuteAsync(@"
             DELETE FROM sys_roles
-            WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
-            new { Id = id, CurrentPharmacyNo });
+            WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo
+                  AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_roles.role_no AND cap.access_scope = 'PLATFORM_OWNER'));",
+            new { Id = id, CurrentPharmacyNo, Owner = IsPlatformOwner });
 
         if (rows == 0) return NotFoundResponse<bool>("Role not found.");
         return OkResponse(true, "Role deleted successfully.");
@@ -354,8 +358,9 @@ public class RoleController : BaseController
 
         // Verify role belongs to current pharmacy
         var roleExists = await conn.ExecuteScalarAsync<bool>(@"
-            SELECT EXISTS(SELECT 1 FROM sys_roles WHERE role_no = @roleNo AND pharmacy_no = @CurrentPharmacyNo);",
-            new { roleNo, CurrentPharmacyNo });
+            SELECT EXISTS(SELECT 1 FROM sys_roles WHERE role_no = @roleNo AND pharmacy_no = @CurrentPharmacyNo
+                AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_roles.role_no AND cap.access_scope = 'PLATFORM_OWNER')));",
+            new { roleNo, CurrentPharmacyNo, Owner = IsPlatformOwner });
 
         if (!roleExists)
             return FailResponse<List<RoleMenuPermissionItemDto>>("Role not found in the current pharmacy.", statusCode: 404);
@@ -389,7 +394,7 @@ public class RoleController : BaseController
             WHERE m.status = TRUE {menuFilter}
             ORDER BY COALESCE(m.parent_menu_no, m.menu_no), m.order_no ASC;";
 
-        var perms = (await conn.QueryAsync<RoleMenuPermissionItemDto>(sql, new { roleNo, CurrentPharmacyNo })).ToList();
+        var perms = (await conn.QueryAsync<RoleMenuPermissionItemDto>(sql, new { roleNo, CurrentPharmacyNo, Owner = IsPlatformOwner })).ToList();
         return OkResponse(perms);
     }
 
@@ -397,6 +402,8 @@ public class RoleController : BaseController
     [RequirePermission("role.manage")]
     public async Task<ActionResult<ApiResponse<bool>>> SaveRoleMenuPermissions(long roleNo, [FromBody] List<RoleMenuPermissionItemDto> items)
     {
+        if (roleNo == 1 && !IsPlatformOwner)
+            return NotFoundResponse<bool>("Role not found in the current pharmacy.");
         if (roleNo == 1)
             return FailResponse<bool>("System Admin permissions are permanent and cannot be modified.", statusCode: 403);
 
@@ -424,8 +431,9 @@ public class RoleController : BaseController
             }
 
             var role = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
-                SELECT * FROM sys_roles WHERE role_no = @roleNo AND pharmacy_no = @CurrentPharmacyNo;",
-                new { roleNo, CurrentPharmacyNo }, transaction: tran);
+                SELECT * FROM sys_roles WHERE role_no = @roleNo AND pharmacy_no = @CurrentPharmacyNo
+                AND (@Owner OR NOT EXISTS (SELECT 1 FROM sys_role_capabilities cap WHERE cap.role_no = sys_roles.role_no AND cap.access_scope = 'PLATFORM_OWNER'));",
+                new { roleNo, CurrentPharmacyNo, Owner = IsPlatformOwner }, transaction: tran);
 
             if (role == null)
                 return FailResponse<bool>("Role not found in current pharmacy.", statusCode: 404);
@@ -603,16 +611,6 @@ public class RoleController : BaseController
         return OkResponse(perms);
     }
 
-    private async Task<bool> IsCallerManagerAsync(System.Data.IDbConnection conn, System.Data.IDbTransaction? tran = null)
-    {
-        if (CurrentRoleNo > 0)
-        {
-            return await conn.ExecuteScalarAsync<bool>(@"
-                SELECT EXISTS(
-                    SELECT 1 FROM sys_roles
-                    WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo AND (alias = 'PMS Manager' OR role_name = 'PMS Manager')
-                );", new { RoleNo = CurrentRoleNo, PharmacyNo = CurrentPharmacyNo }, transaction: tran);
-        }
-        return false;
-    }
+    private Task<bool> IsCallerManagerAsync(System.Data.IDbConnection conn, System.Data.IDbTransaction? tran = null) =>
+        Task.FromResult(Access?.IsFullAccess == true);
 }

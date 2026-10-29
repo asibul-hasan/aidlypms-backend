@@ -25,78 +25,10 @@ public class RequirePermissionAttribute : Attribute, IAsyncActionFilter
             return;
         }
 
-        var isPlatformOwner = string.Equals(context.HttpContext.User?.FindFirst("platform_owner")?.Value, "true", StringComparison.OrdinalIgnoreCase);
-        var isAdminClaim = string.Equals(context.HttpContext.User?.FindFirst("is_admin")?.Value, "true", StringComparison.OrdinalIgnoreCase);
-        var roleClaim = context.HttpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
-        var isAdmin = isPlatformOwner || isAdminClaim || string.Equals(roleClaim, "Admin", StringComparison.OrdinalIgnoreCase);
-
-        if (isAdmin)
+        var access = AidlyPms.Api.Common.Security.RequestAccess.From(context.HttpContext);
+        if (access == null || (!access.IsFullAccess && !access.Permissions.Contains(_permissionCode)))
         {
-            await next();
-            return;
-        }
-
-        var tenant = context.HttpContext.RequestServices.GetRequiredService<ITenantContext>();
-        var db = context.HttpContext.RequestServices.GetRequiredService<IDbConnectionFactory>();
-
-        var pharmacyNo = tenant.PharmacyNo;
-        var branchNo = tenant.BranchNo;
-        var roleNo = tenant.RoleNo;
-        var userNo = tenant.UserNo;
-
-        using var conn = db.CreateConnection();
-
-        if (roleNo <= 0 && userNo > 0)
-        {
-            roleNo = await conn.ExecuteScalarAsync<long>(@"
-                SELECT role_no FROM sys_users
-                WHERE user_no = @UserNo AND pharmacy_no = @PharmacyNo AND branch_no = @BranchNo;",
-                new { UserNo = userNo, PharmacyNo = pharmacyNo, BranchNo = branchNo });
-        }
-
-        if (roleNo == 1)
-        {
-            await next();
-            return;
-        }
-
-        // Fast-path: Store Manager (alias 'PMS Manager') has store-level access
-        if (roleNo > 0)
-        {
-            var isFullAccess = await conn.ExecuteScalarAsync<bool>(@"
-                SELECT EXISTS(
-                    SELECT 1 FROM sys_roles
-                    WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo AND (alias = 'PMS Manager' OR role_name = 'PMS Manager')
-                );",
-                new { RoleNo = roleNo, PharmacyNo = pharmacyNo });
-
-            if (isFullAccess)
-            {
-                await next();
-                return;
-            }
-        }
-
-        // Check if role has the specific permission in sys_role_permissions for this tenant
-        var hasPermission = await conn.ExecuteScalarAsync<bool>(@"
-            SELECT EXISTS(
-                SELECT 1
-                FROM sys_role_permissions rp
-                JOIN sys_permissions p ON rp.permission_no = p.permission_no
-                WHERE rp.role_no = @RoleNo
-                  AND rp.pharmacy_no = @PharmacyNo
-                  AND p.code = @PermissionCode
-            );",
-            new { RoleNo = roleNo, PharmacyNo = pharmacyNo, PermissionCode = _permissionCode });
-
-        if (!hasPermission)
-        {
-            context.Result = new ObjectResult(ApiResponse<object>.Fail(
-                "Forbidden",
-                $"Access denied: User does not have required permission '{_permissionCode}'."))
-            {
-                StatusCode = StatusCodes.Status403Forbidden
-            };
+            context.Result = new ObjectResult(ApiResponse<object>.Fail("Forbidden", "Required special permission is not granted.")) { StatusCode = 403 };
             return;
         }
 

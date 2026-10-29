@@ -108,7 +108,7 @@ public class SupplierController : BaseController
             return FailResponse<SuppSupplier>($"Supplier with phone '{model.Phone}' already exists in this branch.");
 
         var nextNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(supplier_no), 0) + 1 FROM supp_suppliers;");
+            "SELECT nextval('seq_supplier_no');");
 
         model.SupplierNo = nextNo;
         model.PharmacyNo = CurrentPharmacyNo;

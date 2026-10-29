@@ -58,7 +58,7 @@ public class ExpenseController : BaseController
             return FailResponse<AccExpenseCategory>($"Category '{model.Name}' already exists.");
 
         var nextNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(expense_category_no), 0) + 1 FROM acc_expense_categories;");
+            "SELECT nextval('seq_expense_category_no');");
 
         model.ExpenseCategoryNo = nextNo;
         model.PharmacyNo = CurrentPharmacyNo;

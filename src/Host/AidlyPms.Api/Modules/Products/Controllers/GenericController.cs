@@ -44,7 +44,7 @@ public class GenericController : BaseController
         await using var conn = await _db.CreateOpenConnectionAsync();
         
         var genericNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(generic_no), 0) + 1 FROM prod_generics;");
+            "SELECT nextval('seq_generic_no');");
 
         const string sql = @"
             INSERT INTO prod_generics (generic_no, pharmacy_no, branch_no, name, is_active, created_at, updated_at)

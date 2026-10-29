@@ -22,24 +22,8 @@ public class MenuController : BaseController
         _config = config;
     }
 
-    private new bool IsPlatformOwner()
-    {
-        var isPlatformOwnerClaim = string.Equals(User.FindFirst("platform_owner")?.Value, "true", StringComparison.OrdinalIgnoreCase);
-        if (isPlatformOwnerClaim) return true;
-
-        var ownerConfigUserNos = _config["PlatformOwnerUserNos"] ?? _config["PlatformOwner:UserId"] ?? "1";
-        var allowedUserNos = ownerConfigUserNos.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        var currentUserId = CurrentUserNo.ToString();
-        if (allowedUserNos.Contains(currentUserId)) return true;
-
-        var ownerEmailConfig = _config["PlatformOwner:Email"];
-        var userEmail = User.FindFirst(ClaimTypes.Email)?.Value ?? User.FindFirst("email")?.Value;
-        if (!string.IsNullOrWhiteSpace(ownerEmailConfig) && string.Equals(userEmail, ownerEmailConfig, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return false;
-    }
+    private new bool IsPlatformOwner() =>
+        AidlyPms.Api.Common.Security.RequestAccess.From(HttpContext)?.IsPlatformOwner == true;
 
     [HttpGet]
     [AuthenticatedOnly]

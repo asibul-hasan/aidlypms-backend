@@ -186,7 +186,7 @@ public class PaymentAccountResolverTests : IAsyncLifetime
 
         const long p = TestPharmacyNo;
         const long b = TestBranchNo;
-        const long rocketAcc = p * 100 + 20;
+        const long rocketAcc = p * 100 + 22; // +20 is already the seeded clearing account.
 
         // Insert Rocket account (type 6)
         await conn.ExecuteAsync(@"

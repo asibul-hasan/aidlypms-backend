@@ -86,11 +86,11 @@ public class SysUser
     public string? Email { get; set; }
 
     [JsonPropertyName("password")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonIgnore]
     public string? Password { get; set; }
 
     [JsonPropertyName("password_hash")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonIgnore]
     public string? PasswordHash { get; set; }
 
     [JsonPropertyName("gender")]
@@ -267,4 +267,19 @@ public class SaveRoleMenuPermissionsRequest
 
     [JsonPropertyName("permissions")]
     public List<RoleMenuPermissionItemDto> Permissions { get; set; } = new();
+}
+
+// Input-only DTO. Response models never expose either password field.
+public class StaffUserRequest
+{
+    [JsonPropertyName("first_name")] public string FirstName { get; set; } = "";
+    [JsonPropertyName("last_name")] public string LastName { get; set; } = "";
+    [JsonPropertyName("phone")] public string Phone { get; set; } = "";
+    [JsonPropertyName("email")] public string? Email { get; set; }
+    [JsonPropertyName("role_no")] public long RoleNo { get; set; }
+    [JsonPropertyName("gender")] public short? Gender { get; set; }
+    [JsonPropertyName("is_active")] public bool IsActive { get; set; } = true;
+    [JsonPropertyName("password")] public string? Password { get; set; }
+    public SysUser ToModel() => new() { FirstName = FirstName, LastName = LastName, Phone = Phone, Email = Email,
+        RoleNo = RoleNo, Gender = Gender, IsActive = IsActive, Password = Password };
 }

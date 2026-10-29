@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using AidlyPms.Api.Common.Database;
 using Dapper;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Mvc;
 
 namespace AidlyPms.Api.Common;
 
@@ -57,10 +58,8 @@ public class AuditActionFilter : IAsyncActionFilter
         var executedContext = await next();
 
         // Only log successful operations (status code < 400 and no unhandled exception)
-        if (executedContext.Exception == null && httpContext.Response.StatusCode < 400)
+        if (executedContext.Exception == null && (executedContext.Result is not ObjectResult responseResult || (responseResult.StatusCode ?? 200) < 400) && httpContext.Response.StatusCode < 400)
         {
-            _ = Task.Run(async () =>
-            {
                 try
                 {
                     var services = httpContext.RequestServices;
@@ -116,9 +115,9 @@ public class AuditActionFilter : IAsyncActionFilter
                 }
                 catch
                 {
-                    // Audit logging must be non-blocking and fail-safe
+                    httpContext.RequestServices.GetRequiredService<ILogger<AuditActionFilter>>()
+                        .LogError("Audit persistence failed for {Method} {Path}.", method, path);
                 }
-            });
         }
     }
 
@@ -161,6 +160,8 @@ public class AuditActionFilter : IAsyncActionFilter
 
     private static string ResolveTableName(string controllerName) => controllerName.ToLowerInvariant() switch
     {
+        "representative" => "sys_users",
+        "role" => "sys_roles",
         "product" => "prod_products",
         "possale" => "sale_invoices",
         "salereturn" => "sale_returns",

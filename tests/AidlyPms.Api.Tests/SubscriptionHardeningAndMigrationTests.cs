@@ -69,7 +69,7 @@ public class SubscriptionHardeningAndMigrationTests
     }
 
     [Fact]
-    public async Task PlatformOwner_AuthorizedViaClaim_PassesOwnerGuard()
+    public async Task UnvalidatedOwnerClaim_DoesNotPassOwnerGuard()
     {
         // Arrange: User with platform_owner claim
         var fakeDb = new FakeDbConnectionFactory(throwOnOpen: true, exceptionMessage: "DB Guard Reached");
@@ -87,13 +87,12 @@ public class SubscriptionHardeningAndMigrationTests
             HttpContext = new DefaultHttpContext { User = ownerClaims }
         };
 
-        // Act & Assert: Must NOT return 403 Forbidden; passes auth guard and proceeds to DB call
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => controller.ConfirmPayment(101));
-        Assert.Equal("DB Guard Reached", ex.Message);
+        var result = await controller.ConfirmPayment(101);
+        Assert.Equal(403, Assert.IsType<ObjectResult>(result.Result).StatusCode);
     }
 
     [Fact]
-    public async Task PlatformOwner_AuthorizedViaConfiguredEmail_PassesOwnerGuard()
+    public async Task ConfiguredEmail_DoesNotGrantPlatformAuthority()
     {
         // Arrange: User matching configured PlatformOwner:Email
         var fakeDb = new FakeDbConnectionFactory(throwOnOpen: true, exceptionMessage: "DB Guard Reached");
@@ -110,9 +109,8 @@ public class SubscriptionHardeningAndMigrationTests
             HttpContext = new DefaultHttpContext { User = ownerClaims }
         };
 
-        // Act & Assert: Must NOT return 403 Forbidden; passes auth guard and proceeds to DB call
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => controller.ConfirmPayment(101));
-        Assert.Equal("DB Guard Reached", ex.Message);
+        var result = await controller.ConfirmPayment(101);
+        Assert.Equal(403, Assert.IsType<ObjectResult>(result.Result).StatusCode);
     }
 
     [Fact]

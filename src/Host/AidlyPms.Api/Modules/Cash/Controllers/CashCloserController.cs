@@ -179,8 +179,8 @@ public class CashCloserController : BaseController
                    COALESCE(SUM(credit_amount), 0) AS Credits
             FROM acc_transaction_ledger
             WHERE pharmacy_no = @CurrentPharmacyNo AND branch_no = @CurrentBranchNo
-              AND (transaction_date AT TIME ZONE 'Asia/Dhaka')::date = @DhakaDate;",
-            new { CurrentPharmacyNo, CurrentBranchNo, DhakaDate = dhakaMidnight });
+              AND transaction_date >= @StartUtc AND transaction_date < @NextStartUtc;",
+            new { CurrentPharmacyNo, CurrentBranchNo, StartUtc = startUtc, NextStartUtc = startUtc.AddDays(1) });
 
         var clearingBalance = await conn.ExecuteScalarAsync<decimal?>(@"
             SELECT current_balance FROM acc_transaction_accounts

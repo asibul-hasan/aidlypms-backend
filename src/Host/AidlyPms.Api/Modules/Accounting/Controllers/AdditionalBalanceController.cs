@@ -68,7 +68,7 @@ public class AdditionalBalanceController : BaseController
             var accountNo = model.AccountNo.HasValue && model.AccountNo.Value > 0 ? model.AccountNo.Value : 1;
 
             var nextNo = await conn.ExecuteScalarAsync<long>(
-                "SELECT COALESCE(MAX(additional_balance_no), 0) + 1 FROM acc_additional_balances;", transaction: tran);
+                "SELECT nextval('seq_additional_balance_no');", transaction: tran);
 
             model.AdditionalBalanceNo = nextNo;
             model.PharmacyNo = CurrentPharmacyNo;

@@ -16,6 +16,9 @@ public class LoginRequest
 
 public class AuthUserDto
 {
+    [JsonPropertyName("is_platform_owner")]
+    public bool IsPlatformOwner { get; set; }
+
     [JsonPropertyName("user_no")]
     public long UserNo { get; set; }
 

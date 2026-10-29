@@ -138,8 +138,8 @@ public class MenuAndRolePermissionsTests
 
             foreach (var action in actionMethods)
             {
-                var hasRequireMenu = action.GetCustomAttribute<RequireMenuAttribute>() != null;
-                var hasRequirePermission = action.GetCustomAttribute<RequirePermissionAttribute>() != null;
+                var hasRequireMenu = action.GetCustomAttributes<RequireMenuAttribute>().Any();
+                var hasRequirePermission = action.GetCustomAttributes<RequirePermissionAttribute>().Any();
                 var hasAllowAnonymous = action.GetCustomAttribute<AllowAnonymousAttribute>() != null;
                 var hasAuthOnly = action.GetCustomAttribute<AuthenticatedOnlyAttribute>() != null;
 

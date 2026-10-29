@@ -44,7 +44,7 @@ public class CompanyController : BaseController
         await using var conn = await _db.CreateOpenConnectionAsync();
         
         var companyNo = await conn.ExecuteScalarAsync<long>(
-            "SELECT COALESCE(MAX(company_no), 0) + 1 FROM prod_companies;");
+            "SELECT nextval('seq_company_no');");
 
         const string sql = @"
             INSERT INTO prod_companies (company_no, pharmacy_no, branch_no, name, is_active, created_at, updated_at)
