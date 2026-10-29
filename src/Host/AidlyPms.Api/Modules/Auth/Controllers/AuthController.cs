@@ -256,19 +256,26 @@ public class AuthController : BaseController
     public static async Task<(List<AidlyPms.Api.Modules.Roles.Models.SysMenu> MenuTree, List<string> Permissions, bool IsFullAccess)> BuildUserAccessAsync(
         System.Data.IDbConnection conn, long pharmacyNo, long roleNo, string? roleName)
     {
-        var isFullAccess = string.Equals(roleName, "PMS Manager", StringComparison.OrdinalIgnoreCase);
+        var isAdmin = string.Equals(roleName, "Admin", StringComparison.OrdinalIgnoreCase) || roleNo == 1;
+        var isManager = !isAdmin && (string.Equals(roleName, "PMS Manager", StringComparison.OrdinalIgnoreCase) || roleNo == 9);
 
-        if (!isFullAccess && roleNo > 0)
+        if (!isAdmin && !isManager && roleNo > 0)
         {
             var dbRole = await conn.QuerySingleOrDefaultAsync<(string? Alias, string? RoleName)>(@"
                 SELECT alias AS Alias, role_name AS RoleName FROM sys_roles WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo;",
                 new { RoleNo = roleNo, PharmacyNo = pharmacyNo });
-            if ((!string.IsNullOrEmpty(dbRole.Alias) && string.Equals(dbRole.Alias, "PMS Manager", StringComparison.OrdinalIgnoreCase)) ||
-                (!string.IsNullOrEmpty(dbRole.RoleName) && string.Equals(dbRole.RoleName, "PMS Manager", StringComparison.OrdinalIgnoreCase)))
+            if (!string.IsNullOrEmpty(dbRole.Alias) && string.Equals(dbRole.Alias, "Admin", StringComparison.OrdinalIgnoreCase))
             {
-                isFullAccess = true;
+                isAdmin = true;
+            }
+            else if ((!string.IsNullOrEmpty(dbRole.Alias) && string.Equals(dbRole.Alias, "PMS Manager", StringComparison.OrdinalIgnoreCase)) ||
+                     (!string.IsNullOrEmpty(dbRole.RoleName) && string.Equals(dbRole.RoleName, "PMS Manager", StringComparison.OrdinalIgnoreCase)))
+            {
+                isManager = true;
             }
         }
+
+        var isFullAccess = isAdmin || isManager;
 
         // 1. Special permissions (the 7 non-menu action codes)
         List<string> specialPermissions;
@@ -298,7 +305,7 @@ public class AuthController : BaseController
 
         // 3. Permissions mapping
         Dictionary<long, AidlyPms.Api.Modules.Roles.Models.MenuPermissionsDto> permsMap;
-        if (isFullAccess)
+        if (isAdmin)
         {
             permsMap = allMenus.ToDictionary(m => m.MenuNo, m => new AidlyPms.Api.Modules.Roles.Models.MenuPermissionsDto
             {
@@ -306,6 +313,19 @@ public class AuthController : BaseController
                 Create = true,
                 Edit = true,
                 Delete = true
+            });
+        }
+        else if (isManager)
+        {
+            // Store/Pharmacy Manager has full operational access, EXCEPT developer-only menu management screens
+            permsMap = allMenus.ToDictionary(m => m.MenuNo, m =>
+            {
+                var isDevOnly = m.MenuCode == "MENU_1904" || m.MenuCode == "MENU_1905" ||
+                                string.Equals(m.Route, "/menus", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(m.Route, "/menus/add", StringComparison.OrdinalIgnoreCase);
+                return isDevOnly
+                    ? new AidlyPms.Api.Modules.Roles.Models.MenuPermissionsDto { View = false, Create = false, Edit = false, Delete = false }
+                    : new AidlyPms.Api.Modules.Roles.Models.MenuPermissionsDto { View = true, Create = true, Edit = true, Delete = true };
             });
         }
         else
@@ -370,7 +390,12 @@ public class AuthController : BaseController
         // Visibility filter: node is visible if it can be viewed or any child is visible
         bool IsNodeVisible(AidlyPms.Api.Modules.Roles.Models.SysMenu node)
         {
-            if (isFullAccess) return true;
+            var isDevOnly = node.MenuCode == "MENU_1904" || node.MenuCode == "MENU_1905" ||
+                            string.Equals(node.Route, "/menus", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(node.Route, "/menus/add", StringComparison.OrdinalIgnoreCase);
+            if (isDevOnly && !isAdmin) return false;
+
+            if (isAdmin) return true;
             if (node.Permissions?.View == true) return true;
             if (node.Children != null && node.Children.Any(IsNodeVisible))
             {
@@ -411,7 +436,7 @@ public class AuthController : BaseController
     {
         using var conn = _db.CreateConnection();
         await SeedDefaultUsersAsync(conn);
-        return OkResponse("Default admin and salesman accounts seeded successfully.");
+        return OkResponse("Default admin, superuser asibul, and salesman accounts seeded successfully.");
     }
 
     private string GenerateJwtToken(long userNo, long pharmacyNo, long branchNo, long roleNo, string name, string? roleName)
@@ -425,6 +450,8 @@ public class AuthController : BaseController
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
+        var isAdmin = roleNo == 1 || string.Equals(roleName, "Admin", StringComparison.OrdinalIgnoreCase);
+
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, userNo.ToString()),
@@ -435,6 +462,12 @@ public class AuthController : BaseController
             new("branch_no", branchNo.ToString()),
             new("role_no", roleNo.ToString())
         };
+
+        if (isAdmin)
+        {
+            claims.Add(new("platform_owner", "true"));
+            claims.Add(new("is_admin", "true"));
+        }
 
         var token = new JwtSecurityToken(
             issuer: issuer,
@@ -513,7 +546,14 @@ public class AuthController : BaseController
             VALUES (1, 1, 1, 1, TRUE, NOW()), (2, 2, 1, 1, TRUE, NOW())
             ON CONFLICT (user_pharmacy_access_no) DO NOTHING;");
 
-        // Ensure Superuser Asibul (role_no: 9 - PMS Manager)
+        // Ensure Admin Role (role_no: 1)
+        await conn.ExecuteAsync(@"
+            INSERT INTO sys_roles (role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at)
+            VALUES (1, 1, 1, 'Admin', 'Admin', 'Platform Super Admin & Developer with universal store access', TRUE, TRUE, NOW(), NOW())
+            ON CONFLICT (role_no) DO UPDATE SET
+                role_name = 'Admin', alias = 'Admin', updated_at = NOW();");
+
+        // Ensure Superuser Asibul (role_no: 1 - Admin)
         var asibulPasswordHash = "$2a$11$GR7mRUuMjOYmm40oalSsguNyq8eedHHsrL84aPiqrLi1drj2f0PWK";
         var existingAsibul = await conn.QuerySingleOrDefaultAsync<long?>(
             "SELECT user_no FROM sys_users WHERE phone = 'asibul' OR email = 'asibul@infoaidtech.net' LIMIT 1;");
@@ -527,7 +567,7 @@ public class AuthController : BaseController
                 SET phone = 'asibul', 
                     email = 'asibul@infoaidtech.net',
                     password_hash = @PasswordHash, 
-                    role_no = 9,
+                    role_no = 1,
                     is_active = TRUE, 
                     updated_at = NOW()
                 WHERE user_no = @UserNo;",
@@ -544,7 +584,7 @@ public class AuthController : BaseController
                     first_name, last_name, phone, email, password_hash,
                     gender, is_active, created_at, updated_at
                 ) VALUES (
-                    @UserNo, 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380d44', 1, 1, 9,
+                    @UserNo, 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380d44', 1, 1, 1,
                     'Asibul', 'Hasan', 'asibul', 'asibul@infoaidtech.net', @PasswordHash,
                     1, TRUE, NOW(), NOW()
                 );",

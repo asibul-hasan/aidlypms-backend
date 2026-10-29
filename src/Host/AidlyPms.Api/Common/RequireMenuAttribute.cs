@@ -37,9 +37,26 @@ public class RequireMenuAttribute : Attribute, IAsyncActionFilter
         }
 
         var isPlatformOwner = string.Equals(context.HttpContext.User?.FindFirst("platform_owner")?.Value, "true", StringComparison.OrdinalIgnoreCase);
-        if (isPlatformOwner)
+        var isAdminClaim = string.Equals(context.HttpContext.User?.FindFirst("is_admin")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+        var roleClaim = context.HttpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+        var isAdmin = isPlatformOwner || isAdminClaim || string.Equals(roleClaim, "Admin", StringComparison.OrdinalIgnoreCase);
+
+        if (isAdmin)
         {
             await next();
+            return;
+        }
+
+        // Developer/Platform-only menus are strictly reserved for Admin (MENU_1904, MENU_1905)
+        var isDeveloperMenu = _menuCodes.Any(m => m is "MENU_1904" or "MENU_1905");
+        if (isDeveloperMenu)
+        {
+            context.Result = new ObjectResult(ApiResponse<object>.Fail(
+                "Forbidden",
+                $"Access denied: Menu [{string.Join(", ", _menuCodes)}] is reserved for System Admin."))
+            {
+                StatusCode = StatusCodes.Status403Forbidden
+            };
             return;
         }
 
@@ -61,17 +78,23 @@ public class RequireMenuAttribute : Attribute, IAsyncActionFilter
                 new { UserNo = userNo, PharmacyNo = pharmacyNo, BranchNo = branchNo });
         }
 
-        // Fast-path: System Manager (alias 'PMS Manager') has full access
+        if (roleNo == 1)
+        {
+            await next();
+            return;
+        }
+
+        // Fast-path: Store Manager (alias 'PMS Manager') has store-level access (excluding developer menus)
         if (roleNo > 0)
         {
-            var isFullAccess = await conn.ExecuteScalarAsync<bool>(@"
+            var isManager = await conn.ExecuteScalarAsync<bool>(@"
                 SELECT EXISTS(
                     SELECT 1 FROM sys_roles
                     WHERE role_no = @RoleNo AND pharmacy_no = @PharmacyNo AND (alias = 'PMS Manager' OR role_name = 'PMS Manager')
                 );",
                 new { RoleNo = roleNo, PharmacyNo = pharmacyNo });
 
-            if (isFullAccess)
+            if (isManager)
             {
                 await next();
                 return;

@@ -26,7 +26,11 @@ public class RequirePermissionAttribute : Attribute, IAsyncActionFilter
         }
 
         var isPlatformOwner = string.Equals(context.HttpContext.User?.FindFirst("platform_owner")?.Value, "true", StringComparison.OrdinalIgnoreCase);
-        if (isPlatformOwner)
+        var isAdminClaim = string.Equals(context.HttpContext.User?.FindFirst("is_admin")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+        var roleClaim = context.HttpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+        var isAdmin = isPlatformOwner || isAdminClaim || string.Equals(roleClaim, "Admin", StringComparison.OrdinalIgnoreCase);
+
+        if (isAdmin)
         {
             await next();
             return;
@@ -50,7 +54,13 @@ public class RequirePermissionAttribute : Attribute, IAsyncActionFilter
                 new { UserNo = userNo, PharmacyNo = pharmacyNo, BranchNo = branchNo });
         }
 
-        // Fast-path: System Manager (alias 'PMS Manager') has full access
+        if (roleNo == 1)
+        {
+            await next();
+            return;
+        }
+
+        // Fast-path: Store Manager (alias 'PMS Manager') has store-level access
         if (roleNo > 0)
         {
             var isFullAccess = await conn.ExecuteScalarAsync<bool>(@"

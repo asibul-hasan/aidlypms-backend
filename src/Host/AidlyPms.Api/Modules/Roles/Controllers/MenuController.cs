@@ -22,7 +22,7 @@ public class MenuController : BaseController
         _config = config;
     }
 
-    private bool IsPlatformOwner()
+    private new bool IsPlatformOwner()
     {
         var isPlatformOwnerClaim = string.Equals(User.FindFirst("platform_owner")?.Value, "true", StringComparison.OrdinalIgnoreCase);
         if (isPlatformOwnerClaim) return true;

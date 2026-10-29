@@ -42,14 +42,18 @@ public class BranchController : BaseController
     public async Task<ActionResult<ApiResponse<List<SysBranch>>>> GetBranches()
     {
         using var conn = _db.CreateConnection();
-        var list = (await conn.QueryAsync<SysBranch>(@"
-            SELECT branch_no, pharmacy_no, uuid, name, drug_license_no, contact_phone,
-                   contact_email, address, district, postal_code, is_active
-            FROM sys_branches
-            WHERE pharmacy_no = @CurrentPharmacyNo
-            ORDER BY branch_no ASC;",
-            new { CurrentPharmacyNo })).ToList();
+        var sql = IsAdmin
+            ? @"SELECT branch_no, pharmacy_no, uuid, name, drug_license_no, contact_phone,
+                       contact_email, address, district, postal_code, is_active
+                FROM sys_branches
+                ORDER BY pharmacy_no ASC, branch_no ASC;"
+            : @"SELECT branch_no, pharmacy_no, uuid, name, drug_license_no, contact_phone,
+                       contact_email, address, district, postal_code, is_active
+                FROM sys_branches
+                WHERE pharmacy_no = @CurrentPharmacyNo
+                ORDER BY branch_no ASC;";
 
+        var list = (await conn.QueryAsync<SysBranch>(sql, new { CurrentPharmacyNo })).ToList();
         return OkResponse(list);
     }
 
@@ -69,19 +73,22 @@ public class BranchController : BaseController
 
         using var conn = _db.CreateConnection();
 
-        // Check sys_user_pharmacy_access
-        var hasAccess = await conn.ExecuteScalarAsync<bool>(@"
-            SELECT EXISTS(
-                SELECT 1 FROM sys_user_pharmacy_access
-                WHERE user_no = @UserNo AND branch_no = @BranchNo
-            );",
-            new { UserNo = CurrentUserNo, BranchNo = request.BranchNo });
-
-        if (!hasAccess)
+        // Check sys_user_pharmacy_access (Admin has universal branch access)
+        if (!IsAdmin)
         {
-            return FailResponse<SwitchBranchResponse>(
-                $"User does not have authorization to access branch #{request.BranchNo}.",
-                statusCode: 403);
+            var hasAccess = await conn.ExecuteScalarAsync<bool>(@"
+                SELECT EXISTS(
+                    SELECT 1 FROM sys_user_pharmacy_access
+                    WHERE user_no = @UserNo AND branch_no = @BranchNo
+                );",
+                new { UserNo = CurrentUserNo, BranchNo = request.BranchNo });
+
+            if (!hasAccess)
+            {
+                return FailResponse<SwitchBranchResponse>(
+                    $"User does not have authorization to access branch #{request.BranchNo}.",
+                    statusCode: 403);
+            }
         }
 
         // Fetch user info
@@ -146,6 +153,12 @@ public class BranchController : BaseController
             new("branch_no", branchNo.ToString()),
             new("role_no", roleNo.ToString())
         };
+
+        if (roleNo == 1 || string.Equals(roleName, "Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            claims.Add(new Claim("platform_owner", "true"));
+            claims.Add(new Claim("is_admin", "true"));
+        }
 
         var token = new JwtSecurityToken(
             issuer: issuer,

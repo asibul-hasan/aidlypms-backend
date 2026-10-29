@@ -15,6 +15,15 @@ public abstract class BaseController : ControllerBase
     protected long CurrentUserNo => TenantContext.UserNo;
     protected long CurrentRoleNo => TenantContext.RoleNo;
 
+    protected bool IsPlatformOwner =>
+        string.Equals(User.FindFirst("platform_owner")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+
+    protected bool IsAdmin =>
+        CurrentRoleNo == 1 ||
+        IsPlatformOwner ||
+        string.Equals(User.FindFirst("is_admin")?.Value, "true", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value, "Admin", StringComparison.OrdinalIgnoreCase);
+
     protected ActionResult<ApiResponse<T>> OkResponse<T>(T data, string? message = null)
     {
         return Ok(ApiResponse<T>.Ok(data, message));

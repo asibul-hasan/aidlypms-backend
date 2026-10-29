@@ -1415,11 +1415,17 @@ INSERT INTO sub_subscription_plans (plan_no, plan_name, monthly_fee, yearly_fee,
 VALUES (1, 'Standard Pharmacy Cloud', 500, 5000, 14, TRUE)
 ON CONFLICT (plan_no) DO NOTHING;
 
--- Default System Roles (PMS Manager = 9, PMS Salesman = 10 as shown in UI)
+-- Default System Roles (Admin = 1, PMS Manager = 9, PMS Salesman = 10 as shown in UI)
 INSERT INTO sys_roles (role_no, pharmacy_no, branch_no, role_name, alias, description, is_system, status, created_at, updated_at) VALUES
+(1, 1, 1, 'Admin', 'Admin', 'Platform Super Admin & Developer with universal store access', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 (9, 1, 1, 'PMS Manager', 'PMS Manager', 'Full operational control over store inventory, accounting, settings, and staff', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 (10, 1, 1, 'PMS Salesman', 'PMS Salesman', 'Restricted access for counter sales, POS billing, and customer balance lookup', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT (role_no) DO NOTHING;
+
+-- Assign all permissions to Admin (Role 1)
+INSERT INTO sys_role_permissions (role_no, permission_no, pharmacy_no, branch_no)
+SELECT 1, permission_no, 1, 1 FROM sys_permissions
+ON CONFLICT DO NOTHING;
 
 -- Assign all permissions to PMS Manager (Role 9)
 INSERT INTO sys_role_permissions (role_no, permission_no, pharmacy_no, branch_no)

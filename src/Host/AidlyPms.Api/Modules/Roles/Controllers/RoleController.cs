@@ -32,9 +32,10 @@ public class RoleController : BaseController
     public async Task<ActionResult<ApiResponse<List<SysRole>>>> GetRoles()
     {
         using var conn = _db.CreateConnection();
-        var roles = (await conn.QueryAsync<SysRole>(@"
+        var adminFilter = IsAdmin ? "" : " AND role_no != 1 AND LOWER(alias) != 'admin' AND LOWER(role_name) != 'admin'";
+        var roles = (await conn.QueryAsync<SysRole>($@"
             SELECT * FROM sys_roles
-            WHERE pharmacy_no = @CurrentPharmacyNo
+            WHERE pharmacy_no = @CurrentPharmacyNo {adminFilter}
             ORDER BY role_no ASC;",
             new { CurrentPharmacyNo })).ToList();
 
@@ -56,6 +57,9 @@ public class RoleController : BaseController
     [HttpGet("roles/{id}")]
     public async Task<ActionResult<ApiResponse<SysRole>>> GetRoleById(long id)
     {
+        if (id == 1 && !IsAdmin)
+            return FailResponse<SysRole>("Role not found.", statusCode: 404);
+
         using var conn = _db.CreateConnection();
         var role = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
             SELECT * FROM sys_roles
@@ -63,6 +67,9 @@ public class RoleController : BaseController
             new { Id = id, CurrentPharmacyNo });
 
         if (role == null)
+            return FailResponse<SysRole>("Role not found.", statusCode: 404);
+
+        if (!IsAdmin && (string.Equals(role.Alias, "Admin", StringComparison.OrdinalIgnoreCase) || string.Equals(role.RoleName, "Admin", StringComparison.OrdinalIgnoreCase)))
             return FailResponse<SysRole>("Role not found.", statusCode: 404);
 
         var perms = (await conn.QueryAsync<string>(@"
@@ -82,6 +89,12 @@ public class RoleController : BaseController
     {
         if (string.IsNullOrWhiteSpace(model.Alias))
             return FailResponse<SysRole>("Role name/alias is required.");
+
+        if (string.Equals(model.Alias?.Trim(), "Admin", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(model.RoleName?.Trim(), "Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return FailResponse<SysRole>("The 'Admin' role name is reserved for system administrators.", statusCode: 403);
+        }
 
         using var conn = _db.CreateConnection();
         conn.Open();
@@ -191,6 +204,18 @@ public class RoleController : BaseController
     [RequirePermission("role.manage")]
     public async Task<ActionResult<ApiResponse<SysRole>>> UpdateRole(long id, [FromBody] SysRole model)
     {
+        if (id == 1 && !IsAdmin)
+            return FailResponse<SysRole>("Role not found.", statusCode: 404);
+
+        if (id == 1)
+            return FailResponse<SysRole>("The system Admin role cannot be modified.", statusCode: 403);
+
+        if (string.Equals(model.Alias?.Trim(), "Admin", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(model.RoleName?.Trim(), "Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return FailResponse<SysRole>("The 'Admin' role name is reserved.", statusCode: 403);
+        }
+
         using var conn = _db.CreateConnection();
         conn.Open();
         using var tran = conn.BeginTransaction();
@@ -294,6 +319,9 @@ public class RoleController : BaseController
     [RequirePermission("role.manage")]
     public async Task<ActionResult<ApiResponse<bool>>> DeleteRole(long id)
     {
+        if (id == 1)
+            return FailResponse<bool>("The system Admin role cannot be deleted.", statusCode: 403);
+
         using var conn = _db.CreateConnection();
         var role = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
             SELECT * FROM sys_roles WHERE role_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
@@ -319,6 +347,9 @@ public class RoleController : BaseController
     [HttpGet("{roleNo}/menu-permissions")]
     public async Task<ActionResult<ApiResponse<List<RoleMenuPermissionItemDto>>>> GetRoleMenuPermissions(long roleNo)
     {
+        if (roleNo == 1 && !IsAdmin)
+            return FailResponse<List<RoleMenuPermissionItemDto>>("Role not found in the current pharmacy.", statusCode: 404);
+
         using var conn = _db.CreateConnection();
 
         // Verify role belongs to current pharmacy
@@ -329,7 +360,9 @@ public class RoleController : BaseController
         if (!roleExists)
             return FailResponse<List<RoleMenuPermissionItemDto>>("Role not found in the current pharmacy.", statusCode: 404);
 
-        var sql = @"
+        var menuFilter = IsAdmin ? "" : " AND m.menu_code NOT IN ('MENU_1904', 'MENU_1905')";
+
+        var sql = $@"
             SELECT 
                 rmp.role_menu_perm_no,
                 m.menu_no,
@@ -353,7 +386,7 @@ public class RoleController : BaseController
                 ON m.menu_no = rmp.menu_no 
                 AND rmp.role_no = @roleNo 
                 AND rmp.pharmacy_no = @CurrentPharmacyNo
-            WHERE m.status = TRUE
+            WHERE m.status = TRUE {menuFilter}
             ORDER BY COALESCE(m.parent_menu_no, m.menu_no), m.order_no ASC;";
 
         var perms = (await conn.QueryAsync<RoleMenuPermissionItemDto>(sql, new { roleNo, CurrentPharmacyNo })).ToList();
@@ -364,6 +397,9 @@ public class RoleController : BaseController
     [RequirePermission("role.manage")]
     public async Task<ActionResult<ApiResponse<bool>>> SaveRoleMenuPermissions(long roleNo, [FromBody] List<RoleMenuPermissionItemDto> items)
     {
+        if (roleNo == 1)
+            return FailResponse<bool>("System Admin permissions are permanent and cannot be modified.", statusCode: 403);
+
         if (items == null || items.Count == 0)
         {
             return OkResponse(true, "No changes to update.");
@@ -375,6 +411,18 @@ public class RoleController : BaseController
 
         try
         {
+            if (!IsAdmin)
+            {
+                var devMenuNos = (await conn.QueryAsync<long>(
+                    "SELECT menu_no FROM sys_menus WHERE menu_code IN ('MENU_1904', 'MENU_1905');",
+                    transaction: tran)).ToHashSet();
+
+                if (items.Any(i => devMenuNos.Contains(i.MenuNo)))
+                {
+                    return FailResponse<bool>("Forbidden: Developer menu permissions cannot be altered by store users.", statusCode: 403);
+                }
+            }
+
             var role = await conn.QuerySingleOrDefaultAsync<SysRole>(@"
                 SELECT * FROM sys_roles WHERE role_no = @roleNo AND pharmacy_no = @CurrentPharmacyNo;",
                 new { roleNo, CurrentPharmacyNo }, transaction: tran);

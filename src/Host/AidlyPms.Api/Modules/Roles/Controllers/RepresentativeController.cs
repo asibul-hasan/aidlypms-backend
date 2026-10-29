@@ -40,6 +40,12 @@ public class RepresentativeController : BaseController
         pms.Add("CurrentPharmacyNo", CurrentPharmacyNo);
         pms.Add("CurrentBranchNo", CurrentBranchNo);
 
+        if (!IsAdmin)
+        {
+            sql += " AND u.role_no != 1 AND LOWER(u.phone) != 'asibul' AND LOWER(COALESCE(u.email, '')) != 'asibul@infoaidtech.net'";
+            countSql += " AND u.role_no != 1 AND LOWER(u.phone) != 'asibul' AND LOWER(COALESCE(u.email, '')) != 'asibul@infoaidtech.net'";
+        }
+
         if (roleNo.HasValue)
         {
             sql += " AND u.role_no = @RoleNo";
@@ -80,6 +86,9 @@ public class RepresentativeController : BaseController
         if (user == null)
             return FailResponse<SysUser>("Staff user not found.", statusCode: 404);
 
+        if (!IsAdmin && (user.RoleNo == 1 || string.Equals(user.Phone, "asibul", StringComparison.OrdinalIgnoreCase) || string.Equals(user.Email, "asibul@infoaidtech.net", StringComparison.OrdinalIgnoreCase)))
+            return FailResponse<SysUser>("Staff user not found.", statusCode: 404);
+
         return OkResponse(user);
     }
 
@@ -96,6 +105,12 @@ public class RepresentativeController : BaseController
 
         if (model.RoleNo <= 0)
             return FailResponse<SysUser>("A valid role must be assigned.");
+
+        if (model.RoleNo == 1 && !IsAdmin)
+            return FailResponse<SysUser>("The Admin role cannot be assigned.", statusCode: 403);
+
+        if (string.Equals(model.Phone?.Trim(), "asibul", StringComparison.OrdinalIgnoreCase))
+            return FailResponse<SysUser>("Username/phone 'asibul' is reserved.", statusCode: 400);
 
         using var conn = _db.CreateConnection();
         conn.Open();
@@ -172,6 +187,15 @@ public class RepresentativeController : BaseController
         if (existing == null)
             return FailResponse<SysUser>("Staff user not found.", statusCode: 404);
 
+        if (!IsAdmin && (existing.RoleNo == 1 || string.Equals(existing.Phone, "asibul", StringComparison.OrdinalIgnoreCase) || string.Equals(existing.Email, "asibul@infoaidtech.net", StringComparison.OrdinalIgnoreCase)))
+            return FailResponse<SysUser>("Staff user not found.", statusCode: 404);
+
+        if (existing.RoleNo == 1 && !IsAdmin)
+            return FailResponse<SysUser>("The system administrator account cannot be modified.", statusCode: 403);
+
+        if (model.RoleNo == 1 && !IsAdmin)
+            return FailResponse<SysUser>("The Admin role cannot be assigned.", statusCode: 403);
+
         existing.FirstName = !string.IsNullOrWhiteSpace(model.FirstName) ? model.FirstName : existing.FirstName;
         existing.LastName = !string.IsNullOrWhiteSpace(model.LastName) ? model.LastName : existing.LastName;
         existing.Email = model.Email ?? existing.Email;
@@ -203,6 +227,20 @@ public class RepresentativeController : BaseController
     public async Task<ActionResult<ApiResponse<bool>>> DeleteRepresentative(long id)
     {
         using var conn = _db.CreateConnection();
+        var existing = await conn.QuerySingleOrDefaultAsync<SysUser>(@"
+            SELECT * FROM sys_users
+            WHERE user_no = @Id AND pharmacy_no = @CurrentPharmacyNo;",
+            new { Id = id, CurrentPharmacyNo });
+
+        if (existing == null)
+            return NotFoundResponse<bool>("Staff user not found.");
+
+        if (!IsAdmin && (existing.RoleNo == 1 || string.Equals(existing.Phone, "asibul", StringComparison.OrdinalIgnoreCase)))
+            return NotFoundResponse<bool>("Staff user not found.");
+
+        if (existing.RoleNo == 1 || string.Equals(existing.Phone, "asibul", StringComparison.OrdinalIgnoreCase))
+            return FailResponse<bool>("The system administrator account cannot be deleted.", statusCode: 403);
+
         await conn.ExecuteAsync("DELETE FROM sys_user_pharmacy_access WHERE user_no = @Id;", new { Id = id });
         var rows = await conn.ExecuteAsync(@"
             DELETE FROM sys_users
@@ -213,3 +251,4 @@ public class RepresentativeController : BaseController
         return OkResponse(true, "Staff user deleted successfully.");
     }
 }
+
